@@ -21,10 +21,40 @@ import pandas as pd
 import requests
 import xarray as xr
 
+def path_leaf(path):
+    """
+    Get the name of a file without any extension from given path
+
+    Parameters
+    ----------
+    path : file full path with extension
+    
+    Returns
+    -------
+    str
+       filename in the path without extension
+
+    """
+    head, tail = ntpath.split(path)
+    return tail or ntpath.basename(head)
+
+def foldercreator(path):
+   """
+    creates a folder
+
+    Parameters
+    ----------
+    path : folder path
+            
+    Returns
+    -------
+    creates a folder
+    """
+   if not os.path.exists(path):
+        os.makedirs(path)
 
 
-
-def seas5_grib_processor(path_location):
+def seas5_grib_processor(input_path_location):
     """
     the input grib file download from cds
     https://cds.climate.copernicus.eu/cdsapp#!/dataset/seasonal-monthly-single-levels?tab=form
@@ -32,15 +62,15 @@ def seas5_grib_processor(path_location):
     
     This function combines all the grib files into one single dataset
     """
-    p1_input_data=f'{path_location}seas5_v51_1981-2016_m26_lt6_tp.grib'
+    p1_input_data=f'{input_path_location}seas5_v51_1981-2016_m26_lt6_tp.grib'
     ds_p1 = xr.open_dataset(p1_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p2_input_data=f'{path_location}seas5_v5_2017-2021_m51_lt6_tp.grib'
+    p2_input_data=f'{input_path_location}seas5_v5_2017-2021_m51_lt6_tp.grib'
     ds_p2 = xr.open_dataset(p2_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p3_input_data=f'{path_location}seas5_v51_2022_m51_lt6_tp.grib'
+    p3_input_data=f'{input_path_location}seas5_v51_2022_m51_lt6_tp.grib'
     ds_p3 = xr.open_dataset(p3_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p4_input_data=f'{path_location}seas5_v51_2023_m51_lt6_tp.grib'
+    p4_input_data=f'{input_path_location}seas5_v51_2023_m51_lt6_tp.grib'
     ds_p4 = xr.open_dataset(p4_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p5_input_data=f'{path_location}seas5_v5_2022_m51_lt6_tp_may.grib'
+    p5_input_data=f'{input_path_location}seas5_v5_2022_m51_lt6_tp_may.grib'
     ds_p5 = xr.open_dataset(p5_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
     ds_p5a=ds_p5.sel(time='2022-05-01T00:00:00.000000000')
     ds_2022=xr.concat([ds_p3,ds_p5a],dim='time')
@@ -50,7 +80,7 @@ def seas5_grib_processor(path_location):
 
 
 
-def seas5_regridder(grib_array):
+def seas5_regridder(grib_array,output_path_location):
     """
     
 
@@ -76,11 +106,11 @@ def seas5_regridder(grib_array):
         dr_out = regridder(agd, keep_attrs=True)
         ds2=dr_out.to_dataset()
         #monthname=mnl.lower().split('.')[0]
-        ds2.to_netcdf(f'kmj_25km_lt_month_{fm}.nc')
+        ds2.to_netcdf(f'{output_path_location}kmj_25km_lt_month_{fm}.nc')
     
    
    
-def seas5_tpm_creator():
+def seas5_tpm_creator(output_path_location):
     """
     
 
@@ -102,11 +132,11 @@ def seas5_tpm_creator():
         db = db * db.numdays * 24 * 60 * 60 * 1000
         db.attrs['units'] = 'mm/month'
         db.attrs['long_name'] = 'Total precipitation' 
-        db.to_netcdf(f'tp_kmj_25km_lt_month_{mnth}.nc')
+        db.to_netcdf(f'{output_path_location}tp_kmj_25km_lt_month_{mnth}.nc')
         
         
         
-def lead_month_wise_df_create():
+def lead_month_wise_df_create(output_path_location):
     """
     
 
@@ -138,9 +168,9 @@ def lead_month_wise_df_create():
             cont_mdb.append(db1_m)
         erf1=xr.concat(cont_mdb,dim='time')
         erf1 = erf1.assign_coords(time=('time',erf1.valid_time.values))
-        month_dateformat=datetime.strptime('6' , '%m')
+        month_dateformat=datetime.strptime(str(mnthn) , '%m')
         month_str=month_dateformat.strftime('%b').lower()
-        erf1.to_netcdf(f'{month_str}_tp_kmj_25km_6m_forecasted_1981.nc')
+        erf1.to_netcdf(f'{output_path_location}{month_str}_tp_kmj_25km_6m_fcstd_1981.nc')
     
     
     
@@ -190,34 +220,134 @@ def spi_wrapper(
         
 
 
-def path_leaf(path):
+def three_month_spi_creator(output_path_location):
     """
-    Get the name of a file without any extension from given path
+    MAM SPI only using the lead time from months
+    'jan','feb','nov','dec'
 
     Parameters
     ----------
-    path : file full path with extension
-    
+    output_path_location : TYPE
+        DESCRIPTION.
+
     Returns
     -------
-    str
-       filename in the path without extension
+    None.
 
     """
-    head, tail = ntpath.split(path)
-    return tail or ntpath.basename(head)
-
-def foldercreator(path):
-   """
-    creates a folder
-
-    Parameters
-    ----------
-    path : folder path
+    sdb_list=[f'{output_path_location}jan_tp_kmj_25km_6m_fcstd_1981.nc',
+              f'{output_path_location}feb_tp_kmj_25km_6m_fcstd_1981.nc',
+              f'{output_path_location}nov_tp_kmj_25km_6m_fcstd_1981.nc',
+              f'{output_path_location}dec_tp_kmj_25km_6m_fcstd_1981.nc']
+    spi_prod='spi3'
+    for sdbl in sdb_list:
+        sdb=xr.open_dataset(sdbl)
+        member_list=np.arange(0,51,1)    
+        for meml in member_list:
+            sdb1=sdb.sel(number=meml)
+            sc = sdb1.stack(grid_cells=('lat', 'lon',))
+            spi_ds = sc.groupby('grid_cells').apply(
+                spi_wrapper,
+                precip_var='tprate',
+                scale=3,
+                distribution=Distribution.gamma,
+                data_start_year=1981,
+                calibration_year_initial=1981,
+                calibration_year_final=2018,
+                periodicity=Periodicity.monthly).unstack('grid_cells')
+            spi_ds1=spi_ds.to_dataset(name='tprate')
+            sdbl1=sdbl.split('.')[0]
+            ens_output_path0=f'{output_path_location}{spi_prod}'
+            foldercreator(ens_output_path0)
+            ens_output_path=f'{output_path_location}{spi_prod}{sdbl1}'
+            foldercreator(ens_output_path)
+            #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
+            spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
             
+            
+            
+def four_month_spi_creator(output_path_location):
+    """
+    MAM SPI only using the lead time from months
+    'mar','apr','may'
+
+    Parameters
+    ----------
+    output_path_location : TYPE
+        DESCRIPTION.
+
     Returns
     -------
-    creates a folder
+    None.
+
     """
-   if not os.path.exists(path):
-        os.makedirs(path)
+    sdb_list=[f'{output_path_location}mar_tp_kmj_25km_6m_fcstd_1981.nc',
+              f'{output_path_location}apr_tp_kmj_25km_6m_fcstd_1981.nc',
+              f'{output_path_location}may_tp_kmj_25km_6m_fcstd_1981.nc']
+    spi_prod='spi4'
+    for sdbl in sdb_list:
+        sdb=xr.open_dataset(sdbl)
+        member_list=np.arange(0,51,1)    
+        for meml in member_list:
+            sdb1=sdb.sel(number=meml)
+            sc = sdb1.stack(grid_cells=('lat', 'lon',))
+            spi_ds = sc.groupby('grid_cells').apply(
+                spi_wrapper,
+                precip_var='tprate',
+                scale=4,
+                distribution=Distribution.gamma,
+                data_start_year=1981,
+                calibration_year_initial=1981,
+                calibration_year_final=2018,
+                periodicity=Periodicity.monthly).unstack('grid_cells')
+            spi_ds1=spi_ds.to_dataset(name='tprate')
+            sdbl1=sdbl.split('.')[0]
+            ens_output_path0=f'{output_path_location}{spi_prod}'
+            foldercreator(ens_output_path0)
+            ens_output_path=f'{output_path_location}{spi_prod}{sdbl1}'
+            foldercreator(ens_output_path)
+            #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
+            spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
+            
+            
+def six_month_spi_creator(output_path_location):
+    """
+    MAM SPI only using the lead time from months
+    'feb','mar'
+
+    Parameters
+    ----------
+    output_path_location : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
+    sdb_list=[f'{output_path_location}feb_tp_kmj_25km_6m_fcstd_1981.nc',
+              f'{output_path_location}mar_tp_kmj_25km_6m_fcstd_1981.nc']
+    spi_prod='spi6'
+    for sdbl in sdb_list:
+        sdb=xr.open_dataset(sdbl)
+        member_list=np.arange(0,51,1)    
+        for meml in member_list:
+            sdb1=sdb.sel(number=meml)
+            sc = sdb1.stack(grid_cells=('lat', 'lon',))
+            spi_ds = sc.groupby('grid_cells').apply(
+                spi_wrapper,
+                precip_var='tprate',
+                scale=6,
+                distribution=Distribution.gamma,
+                data_start_year=1981,
+                calibration_year_initial=1981,
+                calibration_year_final=2018,
+                periodicity=Periodicity.monthly).unstack('grid_cells')
+            spi_ds1=spi_ds.to_dataset(name='tprate')
+            sdbl1=sdbl.split('.')[0]
+            ens_output_path0=f'{output_path_location}{spi_prod}'
+            foldercreator(ens_output_path0)
+            ens_output_path=f'{output_path_location}{spi_prod}{sdbl1}'
+            foldercreator(ens_output_path)
+            #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
+            spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
