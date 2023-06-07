@@ -220,7 +220,7 @@ def spi_wrapper(
         
 
 
-def three_month_spi_creator(output_path_location):
+def three_months_spi_creator(output_path_location):
     """
     MAM SPI only using the lead time from months
     'jan','feb','nov','dec'
@@ -266,7 +266,7 @@ def three_month_spi_creator(output_path_location):
             
             
             
-def four_month_spi_creator(output_path_location):
+def four_months_spi_creator(output_path_location):
     """
     MAM SPI only using the lead time from months
     'mar','apr','may'
@@ -310,7 +310,7 @@ def four_month_spi_creator(output_path_location):
             spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
             
             
-def six_month_spi_creator(output_path_location):
+def six_months_spi_creator(output_path_location):
     """
     MAM SPI only using the lead time from months
     'feb','mar'
