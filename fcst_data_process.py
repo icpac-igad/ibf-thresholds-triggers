@@ -11,6 +11,13 @@ from data_process_utils import lead_month_wise_df_create
 from data_process_utils import three_months_spi_creator
 from data_process_utils import four_months_spi_creator
 from data_process_utils import six_months_spi_creator
+#######
+from utils import spi3_prob_ncfile_creator
+from utils import spi4_prob_ncfile_creator
+from utils import spi6_prob_ncfile_creator_a
+from utils import spi6_prob_ncfile_creator_b
+
+from utils import prob_exceed_year_plot
 
 output_path_location='output/'
 
@@ -21,7 +28,7 @@ input_path_location='data/'
 
 grib_array=seas5_grib_processor(input_path_location)
 
-seas5_regridder(output_path_location,grib_array)
+seas5_regridder(grib_array,output_path_location)
 
 seas5_tpm_creator(output_path_location)
 
@@ -35,3 +42,15 @@ four_months_spi_creator(output_path_location)
 six_months_spi_creator(output_path_location)
 
 
+###########
+###########
+spi3_prob_ncfile_creator()
+spi4_prob_ncfile_creator()
+spi6_prob_ncfile_creator_a()
+spi6_prob_ncfile_creator_b()
+
+
+ncfile_path='output/prob/'
+spi_prod='mam'
+lt_month='jan'
+prob_exceed_year_plot(ncfile_path,spi_prod,lt_month)

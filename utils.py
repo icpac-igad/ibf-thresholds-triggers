@@ -5,14 +5,19 @@ import geopandas as gp
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
 import numpy as np
-import pandas as pd
 
 import numpy as np
 import xarray as xr
 
 import pandas as pd
 
-
+def kmj_mask_creator():
+    dis=gp.read_file('data/Karamoja_9_districts.shp')
+    reg=gp.read_file('data/Karamoja_boundary_dissolved.shp')
+    mds=pd.concat([dis,reg])
+    mds['region']=[0,1,2,3,4,5,6,7,8,9]
+    m_mds = regionmask.from_geopandas(mds,numbers='region',overlap=True)
+    return m_mds
 
 def excprob(X, X_thr, ignore_nan=False):
     """
@@ -38,7 +43,7 @@ def excprob(X, X_thr, ignore_nan=False):
     https://github.com/pySTEPS/pysteps/blob/master/pysteps/postprocessing/ensemblestats.py
     """
     #  Checks
-    X = np.asanyarray,(X)
+    X = np.asanyarray(X)
     X_ndim = X.ndim
 
     if X_ndim < 3:
@@ -105,7 +110,7 @@ def ens_mem_combiner(input_path):
     
     
     
-def spi_prod_name_creator_mam(ds_ens):
+def spi3_prod_name_creator(ds_ens):
     """
     
 
@@ -128,7 +133,7 @@ def spi_prod_name_creator_mam(ds_ens):
     spi_prod_list=db['spi_prod'].tolist()
     return spi_prod_list
 
-def jjas_spi_prod_name_creator(ds_ens):
+def spi4_prod_name_creator(ds_ens):
     """
     
 
@@ -150,6 +155,32 @@ def jjas_spi_prod_name_creator(ds_ens):
     db['spi_prod'] = db.groupby('year')['month'].shift(3)+db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
     spi_prod_list=db['spi_prod'].tolist()
     return spi_prod_list
+
+
+
+def spi6_prod_name_creator(ds_ens):
+    """
+    
+
+    Parameters
+    ----------
+    ds_ens : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    spi_prod_list : TYPE
+        DESCRIPTION.
+
+    """
+    db=pd.DataFrame()
+    db['dt']=ds_ens['time'].values
+    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
+    db['year']=db['dt'].dt.strftime('%Y')
+    db['spi_prod'] = db.groupby('year')['month'].shift(5)+db.groupby('year')['month'].shift(4)+db.groupby('year')['month'].shift(3)+db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
+    spi_prod_list=db['spi_prod'].tolist()
+    return spi_prod_list
+
     
     
 
@@ -187,16 +218,17 @@ def ds_emprical_prbablity_creator(spi_ds_ens,month,threshold):
         jd1=dat.strftime('%Y-%m-%dT00:00:00.000000000')
         year=dat.strftime('%Y')
         spi_ds_ens_kmj_st=spi_ds_ens.sel(time=jd1)
-        pro_ds=excprob(spi_ds_ens_kmj_st.to_array(), threshold, ignore_nan=False)
-        data_xr = xr.DataArray(pro_ds,coords={'prob':['mild','moderate','severe'],'ens_mem':spi_ds_ens.ens_mem.values,
+        spi_array=spi_ds_ens_kmj_st.to_array()
+        pro_ds=excprob(spi_array, threshold, ignore_nan=False)
+        data_xr = xr.DataArray(pro_ds,coords={'prob':['low','mid','high'],'ens_mem':spi_ds_ens.ens_mem.values,
             'lat': spi_ds_ens.lat.values,'lon': spi_ds_ens.lon.values,'time':year}, 
         dims=["prob", "ens_mem", "lat","lon"])
         data_xds=data_xr.to_dataset(name='prob_exced')
-        data_xds_mild=data_xds.sel(prob='mild')
+        data_xds_mild=data_xds.sel(prob='low')
         data_xds_mild1 = data_xds_mild.where(data_xds_mild.prob_exced >=1).sum("ens_mem")/data_xds_mild.where(data_xds_mild.prob_exced.notnull()).count("ens_mem")
-        data_xds_moderate=data_xds.sel(prob='moderate')
+        data_xds_moderate=data_xds.sel(prob='mid')
         data_xds_moderate1 = data_xds_moderate.where(data_xds_moderate.prob_exced >=1).sum("ens_mem")/data_xds_moderate.where(data_xds_moderate.prob_exced.notnull()).count("ens_mem")
-        data_xds_severe=data_xds.sel(prob='severe')
+        data_xds_severe=data_xds.sel(prob='high')
         data_xds_severe1 = data_xds_severe.where(data_xds_severe.prob_exced >=1).sum("ens_mem")/data_xds_severe.where(data_xds_severe.prob_exced.notnull()).count("ens_mem")
         year_data_xds=xr.concat([data_xds_mild1,data_xds_moderate1,data_xds_severe1],dim='time')
         cont_data_xds_mild.append(data_xds_mild1)
@@ -209,3 +241,127 @@ def ds_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     
     
 
+def spi3_prob_ncfile_creator():
+    spi_prod='mam'
+    lt_month=['nov','dec','jan','feb']
+    threshold=[-0.03, -0.56,-0.99]
+    spi_month=5
+    spi_name='MAM'
+    for ltm in lt_month:
+        input_path=f'output/spi3/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi3_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'output/spi3/{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'output/spi3/{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'output/spi3/{spi_prod}_{ltm}_high.nc')
+        
+        
+        
+def spi4_prob_ncfile_creator():
+    spi_prod='jjas'
+    lt_month=['mar','apr','may']
+    threshold=[-0.01, -0.41,-0.99]
+    spi_month=9
+    spi_name='JJAS'
+    for ltm in lt_month:
+        input_path=f'output/spi4/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi4_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'output/prob/{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'output/prob/{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'output/prob/{spi_prod}_{ltm}_high.nc')
+        
+        
+def spi6_prob_ncfile_creator_a():
+    spi_prod='mamjja'
+    lt_month=['feb']
+    threshold=[-0.02, -0.38,-1.01]
+    spi_month=8
+    spi_name='MAMJJA'
+    for ltm in lt_month:
+        input_path=f'output/spi6/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi6_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'output/prob/{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'output/prob/{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'output/prob/{spi_prod}_{ltm}_high.nc')
+        
+        
+def spi6_prob_ncfile_creator_b():
+    spi_prod='amjjas'
+    lt_month=['mar']
+    threshold=[-0.02, -0.38,-1.01]
+    spi_month=9
+    spi_name='AMJJAS'
+    for ltm in lt_month:
+        input_path=f'output/spi6/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi6_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'output/prob/{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'output/prob/{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'output/prob/{spi_prod}_{ltm}_high.nc')
+        
+        
+        
+def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month):
+    low_ds=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_low.nc')
+    low_ds1 = low_ds.reset_coords(drop=True).to_dataframe()
+    low_ds2=low_ds1.reset_index()
+    low_ds3 = low_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
+    ###############
+    mid_ds=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_mid.nc')
+    mid_ds1= mid_ds.reset_coords(drop=True).to_dataframe()
+    mid_ds2= mid_ds1.reset_index()
+    mid_ds3= mid_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
+    ##############
+    high_ds=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_high.nc')
+    high_ds1= high_ds.reset_coords(drop=True).to_dataframe()
+    high_ds2= high_ds1.reset_index()
+    high_ds3= high_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
+    ##############
+    year = low_ds.time.values
+    population_by_continent = {
+        'moderate': [i * 100 for i in low_ds3['prob_exced'].tolist()],
+        'extreme': [i * 100 for i in mid_ds3['prob_exced'].tolist()],
+        'severe': [i * 100 for i in high_ds3['prob_exced'].tolist()]
+    }
+    fig, ax = plt.subplots()
+    #ax.stackplot(year, population_by_continent.values(),
+    #             labels=population_by_continent.keys(), alpha=0.8,baseline='weighted_wiggle')
+    ###################
+    ax.plot(year,population_by_continent['moderate'],color='#ffff00',lw=4)
+    ax.plot(year,population_by_continent['extreme'],color='#ffa500',lw=4)
+    ax.plot(year,population_by_continent['severe'],color='#8b0000',lw=4)
+    ###################
+    ax.fill_between(year, [0]*len(year),population_by_continent['moderate'],color='#ffff00',alpha=1,zorder=0)
+    ax.fill_between(year, [0]*len(year),population_by_continent['extreme'],color='#ffa500',alpha=1,zorder=5)
+    ax.fill_between(year, [0]*len(year),population_by_continent['severe'],color='#8b0000',alpha=1,zorder=10)
+    ###################
+    ax.legend(['moderate','extreme','severe'],loc='upper left')
+    spi_prod_t=spi_prod.title()
+    lt_month_t=lt_month.title()
+    ax.set_title(f'{spi_prod_t} forecasted for {lt_month_t} month')
+    ax.set_xlabel('Year')
+    ax.set_ylabel('Probablity(%)')
+    plt.xticks(rotation=90)
+    plt.savefig(f'output/prob_plot/{spi_prod}_{lt_month}.png',bbox_inches='tight')

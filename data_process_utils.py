@@ -94,7 +94,6 @@ def seas5_regridder(grib_array,output_path_location):
     None.
 
     """
-    dates = pd.date_range('1981-01-01', '2023-05-01', freq='MS')
     for fm in [1,2,3,4,5,6]:
         ds_p_m1=grib_array.sel(forecastMonth=fm)
         ds_out = xr.Dataset(
@@ -120,7 +119,7 @@ def seas5_tpm_creator(output_path_location):
 
     """
     for mnth in [1,2,3,4,5,6]:
-        db=xr.open_dataset(f'kmj_25km_lt_month_{mnth}.nc')
+        db=xr.open_dataset(f'{output_path_location}kmj_25km_lt_month_{mnth}.nc')
         aa=pd.to_datetime(db.time.values)
         cont_vdt=[]
         for itu in aa:
@@ -152,17 +151,17 @@ def lead_month_wise_df_create(output_path_location):
         jd1=mnth_dates.strftime('%Y-%m-%dT00:00:00.000000000')
         cont_mdb=[]
         for jd in jd1:
-            db_m1=xr.open_dataset('tp_kmj_25km_lt_month_1.nc')
+            db_m1=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_1.nc')
             db1_m1=db_m1.sel(time=jd)
-            db_m2=xr.open_dataset('tp_kmj_25km_lt_month_2.nc')
+            db_m2=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_2.nc')
             db1_m2=db_m2.sel(time=jd)
-            db_m3=xr.open_dataset('tp_kmj_25km_lt_month_3.nc')
+            db_m3=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_3.nc')
             db1_m3=db_m3.sel(time=jd)
-            db_m4=xr.open_dataset('tp_kmj_25km_lt_month_4.nc')
+            db_m4=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_4.nc')
             db1_m4=db_m4.sel(time=jd)
-            db_m5=xr.open_dataset('tp_kmj_25km_lt_month_5.nc')
+            db_m5=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_5.nc')
             db1_m5=db_m5.sel(time=jd)
-            db_m6=xr.open_dataset('tp_kmj_25km_lt_month_6.nc')
+            db_m6=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_6.nc')
             db1_m6=db_m6.sel(time=jd)
             db1_m=xr.concat([db1_m1,db1_m2,db1_m3,db1_m4,db1_m5,db1_m6],dim='time')
             cont_mdb.append(db1_m)
@@ -235,13 +234,13 @@ def three_months_spi_creator(output_path_location):
     None.
 
     """
-    sdb_list=[f'{output_path_location}jan_tp_kmj_25km_6m_fcstd_1981.nc',
-              f'{output_path_location}feb_tp_kmj_25km_6m_fcstd_1981.nc',
-              f'{output_path_location}nov_tp_kmj_25km_6m_fcstd_1981.nc',
-              f'{output_path_location}dec_tp_kmj_25km_6m_fcstd_1981.nc']
+    sdb_list=['jan_tp_kmj_25km_6m_fcstd_1981.nc',
+              'feb_tp_kmj_25km_6m_fcstd_1981.nc',
+              'nov_tp_kmj_25km_6m_fcstd_1981.nc',
+              'dec_tp_kmj_25km_6m_fcstd_1981.nc']
     spi_prod='spi3'
     for sdbl in sdb_list:
-        sdb=xr.open_dataset(sdbl)
+        sdb=xr.open_dataset(f'{output_path_location}{sdbl}')
         member_list=np.arange(0,51,1)    
         for meml in member_list:
             sdb1=sdb.sel(number=meml)
@@ -259,7 +258,7 @@ def three_months_spi_creator(output_path_location):
             sdbl1=sdbl.split('.')[0]
             ens_output_path0=f'{output_path_location}{spi_prod}'
             foldercreator(ens_output_path0)
-            ens_output_path=f'{output_path_location}{spi_prod}{sdbl1}'
+            ens_output_path=f'{output_path_location}{spi_prod}/{sdbl1}'
             foldercreator(ens_output_path)
             #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
             spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
@@ -281,12 +280,12 @@ def four_months_spi_creator(output_path_location):
     None.
 
     """
-    sdb_list=[f'{output_path_location}mar_tp_kmj_25km_6m_fcstd_1981.nc',
-              f'{output_path_location}apr_tp_kmj_25km_6m_fcstd_1981.nc',
-              f'{output_path_location}may_tp_kmj_25km_6m_fcstd_1981.nc']
+    sdb_list=['mar_tp_kmj_25km_6m_fcstd_1981.nc',
+              'apr_tp_kmj_25km_6m_fcstd_1981.nc',
+              'may_tp_kmj_25km_6m_fcstd_1981.nc']
     spi_prod='spi4'
     for sdbl in sdb_list:
-        sdb=xr.open_dataset(sdbl)
+        sdb=xr.open_dataset(f'{output_path_location}{sdbl}')
         member_list=np.arange(0,51,1)    
         for meml in member_list:
             sdb1=sdb.sel(number=meml)
@@ -304,7 +303,7 @@ def four_months_spi_creator(output_path_location):
             sdbl1=sdbl.split('.')[0]
             ens_output_path0=f'{output_path_location}{spi_prod}'
             foldercreator(ens_output_path0)
-            ens_output_path=f'{output_path_location}{spi_prod}{sdbl1}'
+            ens_output_path=f'{output_path_location}{spi_prod}/{sdbl1}'
             foldercreator(ens_output_path)
             #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
             spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
@@ -325,11 +324,11 @@ def six_months_spi_creator(output_path_location):
     None.
 
     """
-    sdb_list=[f'{output_path_location}feb_tp_kmj_25km_6m_fcstd_1981.nc',
-              f'{output_path_location}mar_tp_kmj_25km_6m_fcstd_1981.nc']
+    sdb_list=['feb_tp_kmj_25km_6m_fcstd_1981.nc',
+              'mar_tp_kmj_25km_6m_fcstd_1981.nc']
     spi_prod='spi6'
     for sdbl in sdb_list:
-        sdb=xr.open_dataset(sdbl)
+        sdb=xr.open_dataset(f'{output_path_location}{sdbl}')
         member_list=np.arange(0,51,1)    
         for meml in member_list:
             sdb1=sdb.sel(number=meml)
@@ -347,7 +346,7 @@ def six_months_spi_creator(output_path_location):
             sdbl1=sdbl.split('.')[0]
             ens_output_path0=f'{output_path_location}{spi_prod}'
             foldercreator(ens_output_path0)
-            ens_output_path=f'{output_path_location}{spi_prod}{sdbl1}'
+            ens_output_path=f'{output_path_location}{spi_prod}/{sdbl1}'
             foldercreator(ens_output_path)
             #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
             spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
