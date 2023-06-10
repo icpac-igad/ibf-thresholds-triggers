@@ -62,11 +62,11 @@ def excprob(X, X_thr, ignore_nan=False):
     for x in X_thr:
         X_ = X.copy()
         #original
-        #X_[X >= x] = 1.0
-        #X_[X < x] = 0.0
+        X_[X >= x] = 1.0
+        X_[X < x] = 0.0
         #changes to make less than threnshold
-        X_[X <= x] = 1.0
-        X_[X > x] = 0.0
+        #X_[X <= x] = 1.0
+        #X_[X > x] = 0.0
         X_[~np.isfinite(X)] = np.nan
 
         if ignore_nan:
@@ -241,7 +241,7 @@ def ds_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     
     
 
-def spi3_prob_ncfile_creator():
+def spi3_prob_ncfile_creator(output_path):
     spi_prod='mam'
     lt_month=['nov','dec','jan','feb']
     threshold=[-0.03, -0.56,-0.99]
@@ -256,13 +256,13 @@ def spi3_prob_ncfile_creator():
         ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
         spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
         ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
-        ds_mild.to_netcdf(f'output/spi3/{spi_prod}_{ltm}_low.nc')
-        ds_mod.to_netcdf(f'output/spi3/{spi_prod}_{ltm}_mid.nc')
-        ds_sev.to_netcdf(f'output/spi3/{spi_prod}_{ltm}_high.nc')
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
         
         
         
-def spi4_prob_ncfile_creator():
+def spi4_prob_ncfile_creator(output_path):
     spi_prod='jjas'
     lt_month=['mar','apr','may']
     threshold=[-0.01, -0.41,-0.99]
@@ -277,12 +277,12 @@ def spi4_prob_ncfile_creator():
         ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
         spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
         ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
-        ds_mild.to_netcdf(f'output/prob/{spi_prod}_{ltm}_low.nc')
-        ds_mod.to_netcdf(f'output/prob/{spi_prod}_{ltm}_mid.nc')
-        ds_sev.to_netcdf(f'output/prob/{spi_prod}_{ltm}_high.nc')
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
         
         
-def spi6_prob_ncfile_creator_a():
+def spi6_prob_ncfile_creator_a(output_path):
     spi_prod='mamjja'
     lt_month=['feb']
     threshold=[-0.02, -0.38,-1.01]
@@ -297,12 +297,12 @@ def spi6_prob_ncfile_creator_a():
         ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
         spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
         ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
-        ds_mild.to_netcdf(f'output/prob/{spi_prod}_{ltm}_low.nc')
-        ds_mod.to_netcdf(f'output/prob/{spi_prod}_{ltm}_mid.nc')
-        ds_sev.to_netcdf(f'output/prob/{spi_prod}_{ltm}_high.nc')
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
         
         
-def spi6_prob_ncfile_creator_b():
+def spi6_prob_ncfile_creator_b(output_path):
     spi_prod='amjjas'
     lt_month=['mar']
     threshold=[-0.02, -0.38,-1.01]
@@ -317,9 +317,9 @@ def spi6_prob_ncfile_creator_b():
         ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
         spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
         ds_mild, ds_mod, ds_sev=ds_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
-        ds_mild.to_netcdf(f'output/prob/{spi_prod}_{ltm}_low.nc')
-        ds_mod.to_netcdf(f'output/prob/{spi_prod}_{ltm}_mid.nc')
-        ds_sev.to_netcdf(f'output/prob/{spi_prod}_{ltm}_high.nc')
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
         
         
         
@@ -353,9 +353,9 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month):
     ax.plot(year,population_by_continent['extreme'],color='#ffa500',lw=4)
     ax.plot(year,population_by_continent['severe'],color='#8b0000',lw=4)
     ###################
-    ax.fill_between(year, [0]*len(year),population_by_continent['moderate'],color='#ffff00',alpha=1,zorder=0)
+    ax.fill_between(year, [0]*len(year),population_by_continent['moderate'],color='#ffff00',alpha=1,zorder=10)
     ax.fill_between(year, [0]*len(year),population_by_continent['extreme'],color='#ffa500',alpha=1,zorder=5)
-    ax.fill_between(year, [0]*len(year),population_by_continent['severe'],color='#8b0000',alpha=1,zorder=10)
+    ax.fill_between(year, [0]*len(year),population_by_continent['severe'],color='#8b0000',alpha=1,zorder=0)
     ###################
     ax.legend(['moderate','extreme','severe'],loc='upper left')
     spi_prod_t=spi_prod.title()

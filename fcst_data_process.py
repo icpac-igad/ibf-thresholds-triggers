@@ -44,13 +44,15 @@ six_months_spi_creator(output_path_location)
 
 ###########
 ###########
-spi3_prob_ncfile_creator()
-spi4_prob_ncfile_creator()
-spi6_prob_ncfile_creator_a()
-spi6_prob_ncfile_creator_b()
+output_path='output/prob_at/'
+
+spi3_prob_ncfile_creator(output_path)
+spi4_prob_ncfile_creator(output_path)
+spi6_prob_ncfile_creator_a(output_path)
+spi6_prob_ncfile_creator_b(output_path)
 
 
-ncfile_path='output/prob/'
+ncfile_path='output/prob_at/'
 spi_prod='mam'
 lt_month='jan'
 prob_exceed_year_plot(ncfile_path,spi_prod,lt_month)
