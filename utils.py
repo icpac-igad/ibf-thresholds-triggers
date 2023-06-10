@@ -16,8 +16,12 @@ def kmj_mask_creator():
     reg=gp.read_file('data/Karamoja_boundary_dissolved.shp')
     mds=pd.concat([dis,reg])
     mds['region']=[0,1,2,3,4,5,6,7,8,9]
-    m_mds = regionmask.from_geopandas(mds,numbers='region',overlap=True)
-    return m_mds
+    region_list=mds['admin2Name'].tolist()
+    region_list[9]='Karamoja'
+    mds['region_name']=region_list
+    rl_dict=dict(zip(mds.region, mds.region_name))
+    the_mask = regionmask.from_geopandas(mds,numbers='region',overlap=True)
+    return the_mask, rl_dict
 
 def excprob(X, X_thr, ignore_nan=False):
     """
@@ -62,11 +66,12 @@ def excprob(X, X_thr, ignore_nan=False):
     for x in X_thr:
         X_ = X.copy()
         #original
-        X_[X >= x] = 1.0
-        X_[X < x] = 0.0
+        #X_[X >= x] = 1.0
+        #X_[X < x] = 0.0
         #changes to make less than threnshold
-        #X_[X <= x] = 1.0
-        #X_[X > x] = 0.0
+        #based on MOZ paper method 
+        X_[X <= x] = 1.0
+        X_[X > x] = 0.0
         X_[~np.isfinite(X)] = np.nan
 
         if ignore_nan:
@@ -323,24 +328,33 @@ def spi6_prob_ncfile_creator_b(output_path):
         
         
         
-def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month):
-    low_ds=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_low.nc')
+def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
+    low_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_low.nc')
+    maskd_low_ds=the_mask.mask_3D(low_ds_w)
+    query_the_mask_low = maskd_low_ds.sel(region=region_idx)
+    low_ds = low_ds_w.where(query_the_mask_low)
     low_ds1 = low_ds.reset_coords(drop=True).to_dataframe()
     low_ds2=low_ds1.reset_index()
     low_ds3 = low_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
     ###############
-    mid_ds=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_mid.nc')
+    mid_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_mid.nc')
+    maskd_mid_ds=the_mask.mask_3D(mid_ds_w)
+    query_the_mask_mid = maskd_mid_ds.sel(region=region_idx)
+    mid_ds = mid_ds_w.where(query_the_mask_mid)
     mid_ds1= mid_ds.reset_coords(drop=True).to_dataframe()
     mid_ds2= mid_ds1.reset_index()
     mid_ds3= mid_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
     ##############
-    high_ds=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_high.nc')
+    high_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_high.nc')
+    maskd_high_ds=the_mask.mask_3D(high_ds_w)
+    query_the_mask_high = maskd_high_ds.sel(region=region_idx)
+    high_ds = high_ds_w.where(query_the_mask_high)
     high_ds1= high_ds.reset_coords(drop=True).to_dataframe()
     high_ds2= high_ds1.reset_index()
     high_ds3= high_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
     ##############
     year = low_ds.time.values
-    population_by_continent = {
+    prob_values = {
         'moderate': [i * 100 for i in low_ds3['prob_exced'].tolist()],
         'extreme': [i * 100 for i in mid_ds3['prob_exced'].tolist()],
         'severe': [i * 100 for i in high_ds3['prob_exced'].tolist()]
@@ -349,19 +363,48 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month):
     #ax.stackplot(year, population_by_continent.values(),
     #             labels=population_by_continent.keys(), alpha=0.8,baseline='weighted_wiggle')
     ###################
-    ax.plot(year,population_by_continent['moderate'],color='#ffff00',lw=4)
-    ax.plot(year,population_by_continent['extreme'],color='#ffa500',lw=4)
-    ax.plot(year,population_by_continent['severe'],color='#8b0000',lw=4)
+    ax.margins(x=0)
+    ax.margins(y=0)
+    ax.set_axisbelow(True)
+    ax.grid(zorder=0,color='gray', linestyle='dashed')
+    ax.plot(year,prob_values['moderate'],color='#ffff00',lw=4)
+    ax.plot(year,prob_values['extreme'],color='#ffa500',lw=4)
+    ax.plot(year,prob_values['severe'],color='#8b0000',lw=4)
     ###################
-    ax.fill_between(year, [0]*len(year),population_by_continent['moderate'],color='#ffff00',alpha=1,zorder=10)
-    ax.fill_between(year, [0]*len(year),population_by_continent['extreme'],color='#ffa500',alpha=1,zorder=5)
-    ax.fill_between(year, [0]*len(year),population_by_continent['severe'],color='#8b0000',alpha=1,zorder=0)
+    ax.fill_between(year, [0]*len(year),prob_values['moderate'],color='#ffff00',alpha=1,zorder=2)
+    ax.fill_between(year, [0]*len(year),prob_values['extreme'],color='#ffa500',alpha=1,zorder=5)
+    ax.fill_between(year, [0]*len(year),prob_values['severe'],color='#8b0000',alpha=1,zorder=10)
     ###################
-    ax.legend(['moderate','extreme','severe'],loc='upper left')
-    spi_prod_t=spi_prod.title()
-    lt_month_t=lt_month.title()
-    ax.set_title(f'{spi_prod_t} forecasted for {lt_month_t} month')
-    ax.set_xlabel('Year')
-    ax.set_ylabel('Probablity(%)')
-    plt.xticks(rotation=90)
-    plt.savefig(f'output/prob_plot/{spi_prod}_{lt_month}.png',bbox_inches='tight')
+    #ax.legend(['moderate','extreme','severe'],loc='upper left')
+    #spi_prod_t=spi_prod.title()
+    #lt_month_t=lt_month.title()
+    ax.set_title(rl_dict[region_idx],fontsize=18,fontweight='bold')
+    #ax.set_xlabel('Year')
+    #ax.set_ylabel('Probablity(%)')
+    #plt.xticks(np.arange(1981, 2023+1, 5.0),rotation=90)
+    top_idx=[0,8,6,7]
+    if region_idx==3:
+        start, end = ax.get_xlim()
+        ax.xaxis.set_ticks(np.arange(start, end, 5))
+        start, end = ax.get_ylim()
+        ax.yaxis.set_ticks(np.arange(start, 110, 10))
+    elif region_idx==9:
+        start, end = ax.get_xlim()
+        ax.xaxis.set_ticks(np.arange(start, end, 5))
+        start, end = ax.get_ylim()
+        ax.yaxis.set_ticks(np.arange(start, 110, 10))
+        ax.tick_params(labelbottom=False)
+    elif region_idx in top_idx:
+        start, end = ax.get_xlim()
+        ax.xaxis.set_ticks(np.arange(start, end, 5))
+        start, end = ax.get_ylim()
+        ax.yaxis.set_ticks(np.arange(start, 110, 10))
+        ax.tick_params(labelbottom=False)
+        ax.tick_params(labelleft=False)
+    else:
+        start, end = ax.get_ylim()
+        ax.yaxis.set_ticks(np.arange(start, 110, 10))
+        start, end = ax.get_xlim()
+        ax.xaxis.set_ticks(np.arange(start, end, 5))
+        ax.tick_params(labelleft=False)
+    plt.savefig(f'output/prob_plot/{region_idx}_{spi_prod}_{lt_month}.png',bbox_inches='tight')

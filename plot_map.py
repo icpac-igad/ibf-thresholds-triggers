@@ -32,6 +32,7 @@ thres_list=['mild','mod','sev']
 def concat_images(imga, imgb):
     """
     Combines two color image ndarrays side-by-side.
+    from https://stackoverflow.com/a/30228563/2501953
     """
     ha,wa = imga.shape[:2]
     hb,wb = imgb.shape[:2]
@@ -45,6 +46,7 @@ def concat_images(imga, imgb):
 def concat_n_images(image_path_list,plot_title):
     """
     Combines N color images from a list of image paths.
+    from https://stackoverflow.com/a/30228563/2501953
     """
     plt.axis('off')
     plt.title(plot_title, y=-0.01,fontsize=18,fontweight='bold')

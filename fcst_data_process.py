@@ -17,7 +17,9 @@ from utils import spi4_prob_ncfile_creator
 from utils import spi6_prob_ncfile_creator_a
 from utils import spi6_prob_ncfile_creator_b
 
+from utils import kmj_mask_creator
 from utils import prob_exceed_year_plot
+
 
 output_path_location='output/'
 
@@ -50,9 +52,14 @@ spi3_prob_ncfile_creator(output_path)
 spi4_prob_ncfile_creator(output_path)
 spi6_prob_ncfile_creator_a(output_path)
 spi6_prob_ncfile_creator_b(output_path)
+###########
+###########
+###########
 
+the_mask, rl_dict=kmj_mask_creator()
 
-ncfile_path='output/prob_at/'
+ncfile_path='output/prob/'
 spi_prod='mam'
 lt_month='jan'
-prob_exceed_year_plot(ncfile_path,spi_prod,lt_month)
+region_idx=9
+prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict)
