@@ -418,7 +418,7 @@ def chrips_spi_jjas_creator():
     
     
     
-def chrips_spi_mamjjas_creator():
+def chrips_spi_mamjja_creator():
     cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
     cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
     spi_cdb = cdb_sc.groupby('grid_cells').apply(
@@ -435,6 +435,7 @@ def chrips_spi_mamjjas_creator():
     spi_prod_list=spi4_prod_name_creator(spi_cdb1)
     spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
     spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAMJJA', drop=True)
+    print(spi_cdb2)
     spi_cdb3.to_netcdf('output/obs/mamjja_kmj_km25_chirps-v2.0.monthly.nc')
     
     
@@ -456,6 +457,25 @@ def chrips_spi_amjjas_creator():
     spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
     spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='AMJJAS', drop=True)
     spi_cdb3.to_netcdf('output/obs/amjjas_kmj_km25_chirps-v2.0.monthly.nc')
+    
+def chrips_spi_amjjas_creator_a():
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=6,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi6_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAMJJA', drop=True)
+    spi_cdb3.to_netcdf('output/obs/mamjja_kmj_km25_chirps-v2.0.monthly.nc')
     
     
     
