@@ -21,6 +21,13 @@ import pandas as pd
 import requests
 import xarray as xr
 
+from utils import spi3_prod_name_creator
+from utils import spi4_prod_name_creator
+from utils import spi6_prod_name_creator
+
+
+
+
 def path_leaf(path):
     """
     Get the name of a file without any extension from given path
@@ -350,3 +357,106 @@ def six_months_spi_creator(output_path_location):
             foldercreator(ens_output_path)
             #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
             spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
+            
+
+def chrips_data_regridder():
+    db=xr.open_dataset('data/chirps-v2.0.monthly.nc')
+    ea_db = db.sel(latitude=slice(0.0,5.0), longitude=slice(31.0,36.0))
+    local_path_nc='data/kmj_chirps-v2.0.monthly.nc'
+    ea_db.to_netcdf(local_path_nc)
+    ds=xr.open_dataset(local_path_nc)
+    ds1=ds.rename({'longitude':'lon','latitude':'lat'})
+    dr = ds1["precip"] 
+    ds_out = xr.Dataset(
+          {"lat": (["lat"], np.arange(0.0, 5.0, 0.25), {"units": "degrees_north"}),
+          "lon": (["lon"], np.arange(31.0, 36.0, 0.25), {"units": "degrees_east"}),})
+    regridder = xe.Regridder(ds1, ds_out, "bilinear")
+    regridder  # print basic regridder information.
+    dr_out = regridder(dr, keep_attrs=True)
+    ds2=dr_out.to_dataset()
+    ds2.to_netcdf('data/kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+def chrips_spi_mam_creator():
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=3,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi3_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAM', drop=True)
+    spi_cdb3.to_netcdf('output/obs/mam_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+def chrips_spi_jjas_creator():
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=4,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi4_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='JJAS', drop=True)
+    spi_cdb3.to_netcdf('output/obs/jjas_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+    
+def chrips_spi_mamjjas_creator():
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=6,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi4_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAMJJA', drop=True)
+    spi_cdb3.to_netcdf('output/obs/mamjja_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+def chrips_spi_amjjas_creator():
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=6,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi6_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='AMJJAS', drop=True)
+    spi_cdb3.to_netcdf('output/obs/amjjas_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+    
+    

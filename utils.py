@@ -1,9 +1,14 @@
+
+import os
 import regionmask
 import numpy as np
 import cartopy.crs as ccrs
 import geopandas as gp
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
+import numpy as np
+
+from mpl_toolkits.axes_grid1 import ImageGrid
 import numpy as np
 
 import numpy as np
@@ -329,6 +334,29 @@ def spi6_prob_ncfile_creator_b(output_path):
         
         
 def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
+    """
+    https://stackoverflow.com/questions/29766827/matplotlib-make-axis-ticks-label-for-dates-bold
+
+    Parameters
+    ----------
+    ncfile_path : TYPE
+        DESCRIPTION.
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+    the_mask : TYPE
+        DESCRIPTION.
+    region_idx : TYPE
+        DESCRIPTION.
+    rl_dict : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
     low_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_low.nc')
     maskd_low_ds=the_mask.mask_3D(low_ds_w)
     query_the_mask_low = maskd_low_ds.sel(region=region_idx)
@@ -382,29 +410,253 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_d
     #ax.set_xlabel('Year')
     #ax.set_ylabel('Probablity(%)')
     #plt.xticks(np.arange(1981, 2023+1, 5.0),rotation=90)
-    top_idx=[0,8,6,7]
-    if region_idx==3:
+    left_idx=[9,6,4]
+    bot_idx=[2,5]
+    if region_idx in left_idx:
         start, end = ax.get_xlim()
         ax.xaxis.set_ticks(np.arange(start, end, 5))
         start, end = ax.get_ylim()
         ax.yaxis.set_ticks(np.arange(start, 110, 10))
-    elif region_idx==9:
-        start, end = ax.get_xlim()
-        ax.xaxis.set_ticks(np.arange(start, end, 5))
-        start, end = ax.get_ylim()
-        ax.yaxis.set_ticks(np.arange(start, 110, 10))
+        ax.xaxis.set_tick_params(labelsize=13)
+        ax.yaxis.set_tick_params(labelsize=13)
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontweight('bold') for label in labels]
         ax.tick_params(labelbottom=False)
-    elif region_idx in top_idx:
+    elif region_idx in bot_idx:
         start, end = ax.get_xlim()
         ax.xaxis.set_ticks(np.arange(start, end, 5))
         start, end = ax.get_ylim()
         ax.yaxis.set_ticks(np.arange(start, 110, 10))
-        ax.tick_params(labelbottom=False)
+        ax.xaxis.set_tick_params(labelsize=13)
+        ax.yaxis.set_tick_params(labelsize=13)
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontweight('bold') for label in labels]
         ax.tick_params(labelleft=False)
+    elif region_idx==1:
+        start, end = ax.get_xlim()
+        ax.xaxis.set_ticks(np.arange(start, end, 5))
+        start, end = ax.get_ylim()
+        ax.yaxis.set_ticks(np.arange(start, 110, 10))
+        ax.xaxis.set_tick_params(labelsize=13)
+        ax.yaxis.set_tick_params(labelsize=13)
+        labels = ax.get_xticklabels() + ax.get_yticklabels()
+        [label.set_fontweight('bold') for label in labels]
     else:
         start, end = ax.get_ylim()
         ax.yaxis.set_ticks(np.arange(start, 110, 10))
         start, end = ax.get_xlim()
         ax.xaxis.set_ticks(np.arange(start, end, 5))
         ax.tick_params(labelleft=False)
+        ax.tick_params(labelbottom=False)
     plt.savefig(f'output/prob_plot/{region_idx}_{spi_prod}_{lt_month}.png',bbox_inches='tight')
+    
+    
+    
+def stitch_plots(image_folder,spi_prod,lt_month):
+    """
+    https://matplotlib.org/stable/gallery/axes_grid1/simple_axesgrid.html
+
+    Parameters
+    ----------
+    image_folder : TYPE
+        DESCRIPTION.
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
+    im1 = plt.imread(f'{image_folder}9_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im2 = plt.imread(f'{image_folder}0_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im3 = plt.imread(f'{image_folder}8_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im4 = plt.imread(f'{image_folder}6_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im5 = plt.imread(f'{image_folder}7_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im6 = plt.imread(f'{image_folder}3_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im7 = plt.imread(f'{image_folder}4_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im8 = plt.imread(f'{image_folder}2_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im9 = plt.imread(f'{image_folder}5_{spi_prod}_{lt_month}.png')[:,:,:3]
+    im10 = plt.imread(f'{image_folder}1_{spi_prod}_{lt_month}.png')[:,:,:3]
+    fig = plt.figure(figsize=(8., 12.))
+    grid = ImageGrid(fig, 111,  # similar to subplot(111)
+                 nrows_ncols=(4, 3),  # creates 2x2 grid of axes
+                 axes_pad=0.1,  # pad between axes in inch.
+                 )
+    grid[-1].remove()
+    grid[-2].remove()
+    for ax, im in zip(grid, [im1, im2, im3, im4,im5,im6,im7,im8,im9,im10]):
+        # Iterating over the grid returns the Axes.
+        ax.imshow(im)
+        ax.axis('off')
+    #plt.show()
+    for imgno in range(0,10):
+        os.remove(f'{image_folder}{imgno}_{spi_prod}_{lt_month}.png')
+    plt.savefig(f'{image_folder}{spi_prod}_{lt_month}.png',bbox_inches='tight',dpi=300)
+    
+    
+def plot_prob(spi_prod,lt_month):
+    the_mask, rl_dict=kmj_mask_creator()
+    ncfile_path='output/prob/'
+    #spi_prod='mam'
+    #lt_month='jan'
+    #region_idx=9
+    ridx_list=[0,1,2,3,4,5,6,7,8,9]
+    for ridx in ridx_list:
+        prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,ridx,rl_dict)
+    image_folder='output/prob_plot/'
+    stitch_plots(image_folder,spi_prod,lt_month)
+    
+    
+    
+def ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,month,threshold):
+    """
+    
+
+    Parameters
+    ----------
+    spi_ds_ens : TYPE
+        DESCRIPTION.
+    month : TYPE
+        DESCRIPTION.
+    threshold : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    cont_data_xds_mild1 : TYPE
+        DESCRIPTION.
+    cont_data_xds_moderate1 : TYPE
+        DESCRIPTION.
+    cont_data_xds_severe1 : TYPE
+        DESCRIPTION.
+
+    """
+    start_dt=spi_ds_ens['valid_time'].values[0]
+    end_dt=spi_ds_ens['valid_time'].values[-1]
+    dates = pd.date_range(start_dt, end_dt, freq='MS')
+    mam_dates=dates[dates.month.isin([month])]
+    cont_data_xds_low=[]
+    cont_data_xds_mid=[]
+    cont_data_xds_high=[]
+    for dat in mam_dates:
+        jd1=dat.strftime('%Y-%m-%dT00:00:00.000000000')
+        year=dat.strftime('%Y')
+        spi_ds_ens_kmj_st=spi_ds_ens.sel(time=jd1)
+        spi_array=spi_ds_ens_kmj_st.to_array()
+        pro_ds=excprob(spi_array, threshold, ignore_nan=False)
+        data_xr = xr.DataArray(pro_ds,coords={'prob':['low','mid','high'],'ens_mem':spi_ds_ens.ens_mem.values,
+            'lat': spi_ds_ens.lat.values,'lon': spi_ds_ens.lon.values,'time':year}, 
+        dims=["prob", "ens_mem", "lat","lon"])
+        data_xds=data_xr.to_dataset(name='prob_exced')
+        data_xds_low=data_xds.sel(prob='low')
+        data_xds_low1 = data_xds_low.where(data_xds_low.prob_exced >=1)
+        data_xds_low2=data_xds_low1.dropna(dim="ens_mem", how="all")
+        spi_ds_low=spi_ds_ens_kmj_st.sel(ens_mem=data_xds_low2['ens_mem'].values)
+        spi_ds_low1=spi_ds_low['tprate'].mean(dim='ens_mem')
+        spi_ds_low2=spi_ds_low1.to_dataset(name='spi_ema')
+        ####################
+        data_xds_mid=data_xds.sel(prob='mid')
+        data_xds_mid1 = data_xds_mid.where(data_xds_mid.prob_exced >=1)
+        data_xds_mid2=data_xds_mid1.dropna(dim="ens_mem", how="all")
+        spi_ds_mid=spi_ds_ens_kmj_st.sel(ens_mem=data_xds_mid2['ens_mem'].values)
+        spi_ds_mid1=spi_ds_mid['tprate'].mean(dim='ens_mem')
+        spi_ds_mid2=spi_ds_mid1.to_dataset(name='spi_ema')
+        ####################
+        data_xds_high=data_xds.sel(prob='high')
+        data_xds_high1 = data_xds_high.where(data_xds_high.prob_exced >=1)
+        data_xds_high2=data_xds_high1.dropna(dim="ens_mem", how="all")
+        spi_ds_high=spi_ds_ens_kmj_st.sel(ens_mem=data_xds_high2['ens_mem'].values)
+        spi_ds_high1=spi_ds_high['tprate'].mean(dim='ens_mem')
+        spi_ds_high2=spi_ds_high1.to_dataset(name='spi_ema')
+        cont_data_xds_low.append(spi_ds_low2)
+        cont_data_xds_mid.append(spi_ds_mid2)
+        cont_data_xds_high.append(spi_ds_high2)
+    cont_data_xds_low1=xr.concat(cont_data_xds_low,dim='time')
+    cont_data_xds_mid1=xr.concat(cont_data_xds_mid,dim='time')
+    cont_data_xds_high1=xr.concat(cont_data_xds_high,dim='time')
+    return cont_data_xds_low1, cont_data_xds_mid1, cont_data_xds_high1
+    
+    
+
+def spi3_mean_ncfile_creator(output_path):
+    spi_prod='mam'
+    lt_month=['nov','dec','jan','feb']
+    threshold=[-0.03, -0.56,-0.99]
+    spi_month=5
+    spi_name='MAM'
+    for ltm in lt_month:
+        input_path=f'output/spi3/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi3_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
+        
+        
+        
+def spi4_mean_ncfile_creator(output_path):
+    spi_prod='jjas'
+    lt_month=['mar','apr','may']
+    threshold=[-0.01, -0.41,-0.99]
+    spi_month=9
+    spi_name='JJAS'
+    for ltm in lt_month:
+        input_path=f'output/spi4/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi4_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
+        
+        
+def spi6_mean_ncfile_creator_a(output_path):
+    spi_prod='mamjja'
+    lt_month=['feb']
+    threshold=[-0.02, -0.38,-1.01]
+    spi_month=8
+    spi_name='MAMJJA'
+    for ltm in lt_month:
+        input_path=f'output/spi6/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi6_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
+        
+        
+def spi6_mean_ncfile_creator_b(output_path):
+    spi_prod='amjjas'
+    lt_month=['mar']
+    threshold=[-0.02, -0.38,-1.01]
+    spi_month=9
+    spi_name='AMJJAS'
+    for ltm in lt_month:
+        input_path=f'output/spi6/{ltm}_tp_kmj_25km_6m_fcstd_1981/'
+        ds_ens=ens_mem_combiner(input_path)
+        print(ds_ens)
+        spi_prod_list=spi6_prod_name_creator(ds_ens)
+        print(spi_prod_list)
+        ds_ens1 = ds_ens.assign_coords(spi_prod=('time',spi_prod_list))
+        spi_ds_ens=ds_ens1.where(ds_ens1.spi_prod==spi_name, drop=True)
+        ds_mild, ds_mod, ds_sev=ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,spi_month,threshold)
+        ds_mild.to_netcdf(f'{output_path}{spi_prod}_{ltm}_low.nc')
+        ds_mod.to_netcdf(f'{output_path}{spi_prod}_{ltm}_mid.nc')
+        ds_sev.to_netcdf(f'{output_path}{spi_prod}_{ltm}_high.nc')
