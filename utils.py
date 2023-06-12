@@ -414,10 +414,10 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_d
     #ax.set_ylabel('Probablity(%)')
     #plt.xticks(np.arange(1981, 2023+1, 5.0),rotation=90)
     ###
-    prob_values['year']=year
-    db=pd.DataFrame(prob_values.items())
-    db['region']=rl_dict[region_idx]
-    db.to_csv(f'output/prob_csv/{region_idx}_{spi_prod}_{lt_month}.csv')
+    # prob_values['year']=year
+    # db=pd.DataFrame(prob_values)
+    # db['region']=rl_dict[region_idx]
+    # db.to_csv(f'output/prob_csv/{region_idx}_{spi_prod}_{lt_month}.csv')
     ###
     left_idx=[9,6,4]
     bot_idx=[2,5]
@@ -518,7 +518,96 @@ def plot_prob(spi_prod,lt_month):
     image_folder='output/prob_plot/'
     stitch_plots(image_folder,spi_prod,lt_month)
     
+def prob_exceed_csv(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
+    """
+    https://stackoverflow.com/questions/29766827/matplotlib-make-axis-ticks-label-for-dates-bold
+
+    Parameters
+    ----------
+    ncfile_path : TYPE
+        DESCRIPTION.
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+    the_mask : TYPE
+        DESCRIPTION.
+    region_idx : TYPE
+        DESCRIPTION.
+    rl_dict : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
+    low_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_low.nc')
+    maskd_low_ds=the_mask.mask_3D(low_ds_w)
+    query_the_mask_low = maskd_low_ds.sel(region=region_idx)
+    low_ds = low_ds_w.where(query_the_mask_low)
+    low_ds1 = low_ds.reset_coords(drop=True).to_dataframe()
+    low_ds2=low_ds1.reset_index()
+    low_ds3 = low_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
+    ###############
+    mid_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_mid.nc')
+    maskd_mid_ds=the_mask.mask_3D(mid_ds_w)
+    query_the_mask_mid = maskd_mid_ds.sel(region=region_idx)
+    mid_ds = mid_ds_w.where(query_the_mask_mid)
+    mid_ds1= mid_ds.reset_coords(drop=True).to_dataframe()
+    mid_ds2= mid_ds1.reset_index()
+    mid_ds3= mid_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
+    ##############
+    high_ds_w=xr.open_dataset(f'{ncfile_path}{spi_prod}_{lt_month}_high.nc')
+    maskd_high_ds=the_mask.mask_3D(high_ds_w)
+    query_the_mask_high = maskd_high_ds.sel(region=region_idx)
+    high_ds = high_ds_w.where(query_the_mask_high)
+    high_ds1= high_ds.reset_coords(drop=True).to_dataframe()
+    high_ds2= high_ds1.reset_index()
+    high_ds3= high_ds2.groupby(['time'])['prob_exced'].mean().reset_index()
+    ##############
+    mol_dict={'mam':'05-01','jjas':'09-01','mamjja':'08-01','amjjas':'09-01'}
+    mdc=mol_dict[spi_prod]
+    year = low_ds.time.values
+    year1=[f'{yr}-{mdc}' for yr in year]
+    prob_values = {
+        'moderate': [i * 100 for i in low_ds3['prob_exced'].tolist()],
+        'extreme': [i * 100 for i in mid_ds3['prob_exced'].tolist()],
+        'severe': [i * 100 for i in high_ds3['prob_exced'].tolist()]
+    }
+    ###
+    prob_values['year']=year1
+    db1=pd.DataFrame(prob_values['moderate'])
+    db1['year']=year1
+    db1.columns=['prob','year']
+    db1['thre']='low'
+    db2=pd.DataFrame(prob_values['extreme'])
+    db2['year']=year1
+    db2.columns=['prob','year']
+    db2['thre']='mid'
+    db3=pd.DataFrame(prob_values['severe'])
+    db3['year']=year1
+    db3.columns=['prob','year']
+    db3['thre']='high'
+    dba=pd.concat([db1,db2,db3])
+    dba['region']=rl_dict[region_idx]
+    dba['prod']=f'{spi_prod}_{lt_month}_'+dba['thre']+'_'+dba['year']
+    return dba
     
+    
+def csv_prob(spi_prod,lt_month):
+    the_mask, rl_dict=kmj_mask_creator()
+    ncfile_path='output/prob/'
+    #spi_prod='mam'
+    #lt_month='jan'
+    #region_idx=9
+    ridx_list=[0,1,2,3,4,5,6,7,8,9]
+    cont=[]
+    for ridx in ridx_list:
+        db=prob_exceed_csv(ncfile_path,spi_prod,lt_month,the_mask,ridx,rl_dict)
+        cont.append(db)
+    cont1=pd.concat(cont)
+    cont1.to_csv(f'output/prob_csv/{spi_prod}_{lt_month}.csv',index=False)
     
 def ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     """
