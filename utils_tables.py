@@ -151,3 +151,127 @@ def prob_db():
     db1=pd.concat(_)
     db1['prod']=db1['prod']+'_'+db1['region']
     return db1
+
+
+def subset_db(row,str_list):
+    df_row=row['spi_prod']+'_'+row['lt_month']+'_'+row['region_y']+'_'+row['thre']
+    given_row=str_list[0]+'_'+str_list[1]+'_'+str_list[2]+'_'+str_list[3]
+    if given_row==df_row:
+        mask=1
+    else:
+        mask=0
+    return mask
+
+def bias_filter(db):
+    #https://stackoverflow.com/a/12141207/2501953
+    bf=min(db['BIAS'].tolist(), key=lambda x:abs(x-1))
+    db1=db[db['BIAS']==bf]
+    db2=db1[['BIAS','FAR','POD','prob']]
+    db2.columns=['BIAS','bb_FAR','bb_POD','bb_prob']
+    db3=db2.reset_index()
+    db4=db3[0:1]
+    return db4
+    
+    
+def hss_filter(db):
+    db1=db.loc[db["HSS"].idxmax()]
+    a=db1.reset_index()
+    a1=a.T
+    a1.columns = a1.iloc[0]
+    a2=a1.drop(index=['index'])
+    db2=a2[['HSS','FAR','POD','prob']]
+    db2.columns=['HSS','bh_FAR','bh_POD','bh_prob']
+    db3=db2.reset_index()
+    return db3
+
+def hk_filter(db):
+    db1=db.loc[db["HK"].idxmax()]
+    a=db1.reset_index()
+    a1=a.T
+    a1.columns = a1.iloc[0]
+    a2=a1.drop(index=['index'])
+    db2=a2[['HK','FAR','POD','prob']]
+    db2.columns=['HK','bk_FAR','bk_POD','bk_prob']
+    db3=db2.reset_index()
+    return db3
+
+
+
+def final_dec(db):
+    #taking minumum probablity
+    db1=db.T
+    #db[["bb_prob", "bh_prob","bk_prob"]].max(axis=1)
+    db2=db1.reset_index()
+    db2.columns=['title','value']
+    db3=db2[db2['title'].isin(['bb_prob','bh_prob','bk_prob'])]
+    #db4=db3.loc[db3.idxmax()]
+    aa=db3.min()
+    #aa=db3.max()
+    head=aa['title'].split('_')[0]
+    head_col=[f'{head}_FAR',f'{head}_POD',f'{head}_prob']
+    dbf=db[head_col]
+    #db.columns
+    dbf.columns=['FAR','POD','prob']
+    return dbf
+
+
+def all_fl_except_thre_string_maker():
+    spi_prod_list=['mam','jjas','mamjja','amjjas']
+    spi_prod={'mam':['nov','dec','jan','feb'],'jjas':['mar','apr','may'],'mamjja':['feb'],'amjjas':['mar']}
+    # fl_name=[]
+    regions=['Abim','Napak','Nabilatuk','Kotido', 'Moroto', 'Nakapiripirit', 'Kaabong', 'Karenga', 'Amudat', 'Karamoja']
+    db_cont1=[]
+    for sppd in spi_prod_list:
+        lt_month=spi_prod[sppd]
+        db_cont=[]
+        for ltm in lt_month:
+             for reg in regions:
+                 #odb1=odb[odb]
+                 ndc={}
+                 ndc['sp']=sppd
+                 ndc['ltm']=ltm
+                 ndc['reg']=reg
+                 db_cont1.append(ndc)
+    db=pd.DataFrame(db_cont1)
+    return db
+
+
+def fdf_except_thre_db_maker(thre):
+    str_db=all_fl_except_thre_string_maker()
+    odb=pd.read_csv('output/tables/all_metrices_thres.csv')
+    odb['spi_prod'] = odb['prod'].str.split('_').str[0]
+    odb['lt_month'] = odb['prod'].str.split('_').str[1]
+    fdb_cont=[]
+    for idx,drow in str_db.iterrows():
+        str_list=[drow['sp'],drow['ltm'],drow['reg'],thre]
+        odb['mask'] = odb.apply(lambda row: subset_db(row,str_list), axis = 1)
+        odb_maskd=odb[odb['mask']==1]
+        if odb_maskd.empty:
+            print(str_list)
+        else:
+            bdb=bias_filter(odb_maskd)
+            hdb=hss_filter(odb_maskd)
+            kdb=hk_filter(odb_maskd)
+            db=pd.concat([bdb,hdb,kdb],axis=1)
+            f_db=final_dec(db)
+            f_db.loc[0,'spi_prod']=drow['sp']
+            f_db.loc[0,'lt_month']=drow['ltm']
+            f_db.loc[0,'thre']=thre
+            f_db.loc[0,'region']=drow['reg']
+            fdb_cont.append(f_db)
+    fdb_cont1=pd.concat(fdb_cont)
+    return fdb_cont1
+
+
+def thres_db_maker():
+    threl=['low','mid','high']
+    f_c=[]
+    for thr in threl:
+        db=fdf_except_thre_db_maker(thr)
+        #f_c.append(db)
+        db.to_csv(f'output/tables/final_db_{thr}.csv',index=False) 
+    #fc1=pd.concat(f_c)
+    
+
+       
+        
