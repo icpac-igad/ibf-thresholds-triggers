@@ -413,6 +413,12 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_d
     #ax.set_xlabel('Year')
     #ax.set_ylabel('Probablity(%)')
     #plt.xticks(np.arange(1981, 2023+1, 5.0),rotation=90)
+    ###
+    prob_values['year']=year
+    db=pd.DataFrame(prob_values.items())
+    db['region']=rl_dict[region_idx]
+    db.to_csv(f'output/prob_csv/{region_idx}_{spi_prod}_{lt_month}.csv')
+    ###
     left_idx=[9,6,4]
     bot_idx=[2,5]
     if region_idx in left_idx:
