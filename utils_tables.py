@@ -14,17 +14,10 @@ import six
 from datetime import datetime
 import textwrap as tw
 from functools import reduce
-
+import json
 #%% table plot matplotlib
 
 ### Define the picture size and remove the ticks
-fig = plt.figure()
-fig.set_size_inches(6.7,18)
-table=fig.add_axes([0.08, 0.02, 0.55, 0.9], frame_on=False) 
-table.xaxis.set_ticks_position('none')
-table.yaxis.set_ticks_position('none') 
-table.set_xticklabels('')
-table.set_yticklabels('')
 
 ### functions for whole column, row editing
 def set_align_for_column(table, col, align="left"):
@@ -44,26 +37,45 @@ def set_height_for_row(table, row, height):
         table._cells[cell]._height = height
 
 def colorcell(tablerows,tablecols,cellDict):
-    allcells=[(x,y) for x in tablerows[1:] for y in tablecols[1:]]
+    allcells=[(x,y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
-        if float(cellDict[alcls]._text.get_text()) <=30:
-            cellDict[alcls].set_facecolor('#009600')
-        elif 30 < float(cellDict[alcls]._text.get_text()) <= 60:
-            cellDict[alcls].set_facecolor('#64C800')
-        elif 60 < float(cellDict[alcls]._text.get_text()) <= 90:
-            cellDict[alcls].set_facecolor('#ffff00')
-        elif 90 < float(cellDict[alcls]._text.get_text()) <= 120:
-            cellDict[alcls].set_facecolor('#ff7800')
-        elif 120 < float(cellDict[alcls]._text.get_text()) <= 250:
-            cellDict[alcls].set_facecolor('#ff0000')
+        cell_value0=json.loads(cellDict[alcls]._text.get_text())[0]
+        if cell_value0==-999.0:
+            cellDict[alcls].set_facecolor('#FFFFFF')
         else:
-            cellDict[alcls].set_facecolor('#961414')
+            if float(cell_value0) <=0.2:
+                cellDict[alcls].set_facecolor('#009600')
+            elif 0.2 < float(cell_value0) <= 0.4:
+                cellDict[alcls].set_facecolor('#64C800')
+            elif 0.4 < float(cell_value0) <= 0.6:
+                cellDict[alcls].set_facecolor('#ffff00')
+            elif 0.6 < float(cell_value0) <= 0.8:
+                cellDict[alcls].set_facecolor('#ff7800')
+            elif 0.8 < float(cell_value0) <= 1.0:
+                cellDict[alcls].set_facecolor('#ff0000')
+            else:
+                cellDict[alcls].set_facecolor('#FFFFFF')
 
 
-def remove_cell_value(tablerows,tablecols,mpl_table):
-    allcells=[(x,y) for x in tablerows[1:] for y in tablecols[1:]]
+def remove_value(tablerows,tablecols,mpl_table):
+    allcells=[(x,y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         mpl_table._cells[alcls]._text.set_text('')
+        
+def add_certain_value(tablerows,tablecols,mpl_table,cellDict):
+    allcells=[(x,y) for x in tablerows[1:] for y in tablecols[2:]]
+    for alcls in allcells:
+        #print(cellDict[alcls]._text.get_text())
+        cell_value0=json.loads(cellDict[alcls]._text.get_text())[1]
+        mpl_table._cells[alcls]._text.set_text('')
+        #cell_value0=(cellDict[alcls]._text.get_text())
+        if cell_value0==-999.0:
+            mpl_table._cells[alcls]._text.set_text('')
+        elif cell_value0==999.0:
+            mpl_table._cells[alcls]._text.set_text('')
+        else:
+            ncl="%.1f" % cell_value0
+            mpl_table._cells[alcls]._text.set_text(ncl)
 
 def set_height_for_row_except_head(table, rowlist, height):
     cells_list=[]
@@ -73,28 +85,38 @@ def set_height_for_row_except_head(table, rowlist, height):
     for cells in cells_list:
         for cell in cells:
              table._cells[cell]._height = height
-
+                
+                
+def table_header_colour(tablerows,tablecols,cellDict,mpl_table):
+    allcells=[(x,y) for x in tablerows[0:1] for y in tablecols]
+    header_list=['SPI','District','Nov','Dec','Jan','Feb','Mar','Apr','May','',
+                 'Nov','Dec','Jan','Feb','Mar','Apr','May','','Nov','Dec','Jan','Feb','Mar','Apr','May','']
+    for idx,alcls in enumerate(allcells):
+        cellDict[alcls].set_facecolor('#FFFFFF')
+        print(header_list[idx])
+        text=header_list[idx]
+        mpl_table._cells[alcls]._text.set_text('text')
+        
+    
 
 ### funciton for table creation
-def render_mpl_table(data,df3, col_width=1.0, row_height=1.625, font_size=12,
+def render_mpl_table(data, col_width=1.0, row_height=1.625, font_size=8,
                      header_color='#40466e', row_colors=['#f1f1f2', 'w'], edge_color='w',
                      bbox=[0, 0, 1, 1], header_columns=0,
                      ax=None, **kwargs):
-    mpl_table = ax.table(cellText=data.values, bbox=bbox, colLabels=['','','','',''],cellLoc='center', **kwargs)
+    mpl_table = ax.table(cellText=data.values, bbox=bbox, colLabels=['']*25,cellLoc='center', **kwargs)
     set_align_for_column(mpl_table, col=0, align="left")
-    set_width_for_column(mpl_table, 0, 0.1)
-    set_width_for_column(mpl_table, 1, 0.02)
-    set_width_for_column(mpl_table, 2, 0.02)
-    set_width_for_column(mpl_table, 3, 0.02)
-    set_width_for_column(mpl_table, 4, 0.02)
-    set_height_for_row(mpl_table, 0, 0.05)
+    set_width_for_column(mpl_table, 0, 0.3)
+    set_width_for_column(mpl_table, 1, 0.5)
+    for idx in range(2,26):
+        set_width_for_column(mpl_table, idx, 0.2)
+    set_height_for_row(mpl_table, 0, 0.01)
     set_height_for_row_except_head(mpl_table, np.arange(1,len(data.index)), 0.012)
-
     mpl_table.auto_set_font_size(False)
     mpl_table.set_fontsize(font_size)
     cellDict=mpl_table.get_celld()
-    tablerows=np.arange(0,len(df3.index)+1)
-    tablecols=np.arange(0,len(df3.columns))
+    tablerows=np.arange(0,len(data.index)+1)
+    tablecols=np.arange(0,len(data.columns))
     for k, cell in  six.iteritems(mpl_table._cells):
         cell.set_edgecolor(edge_color)
         if k[0] == 0 or k[1] < header_columns:
@@ -104,13 +126,27 @@ def render_mpl_table(data,df3, col_width=1.0, row_height=1.625, font_size=12,
             cell.set_facecolor(row_colors[k[0]%len(row_colors) ])
     colorcell(tablerows,tablecols,cellDict)
     headings=data.columns
-    plt.text(0.070, 0.950,'City', fontsize=16, fontweight='bold', color='w', ha='left', va='center', transform =ax.transAxes)
-    plt.text(0.600, 0.965,headings[1], fontsize=10, fontweight='bold',color='w', ha='left', va ='center',rotation=90, transform =ax.transAxes)
-    plt.text(0.715, 0.965,headings[2], fontsize=10, fontweight='bold',color='w', ha='left', va ='center',rotation=90, transform =ax.transAxes)
-    plt.text(0.815, 0.965,headings[3], fontsize=10, fontweight='bold',color='w', ha='left', va ='center',rotation=90, transform =ax.transAxes)
-    plt.text(0.925, 0.965,headings[4], fontsize=10, fontweight='bold',color='w', ha='left', va ='center',rotation=90, transform =ax.transAxes)
-    removecellvalue(tablerows,tablecols,mpl_table)
+    table_header_colour(tablerows,tablecols,cellDict,mpl_table)
+    add_certain_value(tablerows,tablecols,mpl_table,cellDict)
+    return ax
     
+
+def plot_data_table(data_table):
+    fig = plt.figure()
+    fig.set_size_inches(18,18)
+    table=fig.add_axes([0.08, 0.02, 0.55, 0.9], frame_on=False) 
+    table.xaxis.set_ticks_position('none')
+    table.yaxis.set_ticks_position('none') 
+    table.set_xticklabels('')
+    table.set_yticklabels('')
+    req_list=['spi_prod_x', 'region_x', 'nov_x', 'dec_x', 'jan_x', 'feb_x', 'mar_x',
+           'apr_x', 'may_x','empty1', 'nov_y', 'dec_y','jan_y', 'feb_y', 'mar_y', 'apr_y', 'may_y',
+            'empty2','nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may']
+    
+    data1=data_table[req_list]
+    render_mpl_table(data1, header_columns=0, col_width=0.2,ax=table)
+    plt.savefig('tables/far_prob.jpg', dpi=150, alpha=True)
+
     
 #%% df csv creator, pivot for plot  
 def metric_db():
