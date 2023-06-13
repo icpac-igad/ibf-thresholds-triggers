@@ -14,6 +14,8 @@ import six
 from datetime import datetime
 import textwrap as tw
 
+#%% table plot matplotlib
+
 ### Define the picture size and remove the ticks
 fig = plt.figure()
 fig.set_size_inches(6.7,18)
@@ -57,7 +59,7 @@ def colorcell(tablerows,tablecols,cellDict):
             cellDict[alcls].set_facecolor('#961414')
 
 
-def removecellvalue(tablerows,tablecols,mpl_table):
+def remove_cell_value(tablerows,tablecols,mpl_table):
     allcells=[(x,y) for x in tablerows[1:] for y in tablecols[1:]]
     for alcls in allcells:
         mpl_table._cells[alcls]._text.set_text('')
@@ -109,7 +111,7 @@ def render_mpl_table(data,df3, col_width=1.0, row_height=1.625, font_size=12,
     removecellvalue(tablerows,tablecols,mpl_table)
     
     
-    
+#%% df csv creator, pivot for plot  
 def metric_db():
     spi_prod_list=['mam','jjas','mamjja','amjjas']
     spi_prod={'mam':['nov','dec','jan','feb'],'jjas':['mar','apr','may'],'mamjja':['feb'],'amjjas':['mar']}
@@ -197,7 +199,7 @@ def hk_filter(db):
 
 
 
-def final_dec(db):
+def final_des(db):
     #taking minumum probablity
     db1=db.T
     #db[["bb_prob", "bh_prob","bk_prob"]].max(axis=1)
@@ -215,7 +217,7 @@ def final_dec(db):
     return dbf
 
 
-def all_fl_except_thre_string_maker():
+def all_var_except_thre_string_maker():
     spi_prod_list=['mam','jjas','mamjja','amjjas']
     spi_prod={'mam':['nov','dec','jan','feb'],'jjas':['mar','apr','may'],'mamjja':['feb'],'amjjas':['mar']}
     # fl_name=[]
@@ -237,7 +239,7 @@ def all_fl_except_thre_string_maker():
 
 
 def fdf_except_thre_db_maker(thre):
-    str_db=all_fl_except_thre_string_maker()
+    str_db=all_var_except_thre_string_maker()
     odb=pd.read_csv('output/tables/all_metrices_thres.csv')
     odb['spi_prod'] = odb['prod'].str.split('_').str[0]
     odb['lt_month'] = odb['prod'].str.split('_').str[1]
@@ -253,7 +255,7 @@ def fdf_except_thre_db_maker(thre):
             hdb=hss_filter(odb_maskd)
             kdb=hk_filter(odb_maskd)
             db=pd.concat([bdb,hdb,kdb],axis=1)
-            f_db=final_dec(db)
+            f_db=final_des(db)
             f_db.loc[0,'spi_prod']=drow['sp']
             f_db.loc[0,'lt_month']=drow['ltm']
             f_db.loc[0,'thre']=thre
@@ -273,5 +275,62 @@ def thres_db_maker():
     #fc1=pd.concat(f_c)
     
 
-       
-        
+def df_far_table_maker(thre,regions_list):
+    db=pd.read_csv(f'output/tables/final_db_{thre}.csv')
+    db1=db[['FAR','prob','spi_prod','lt_month','region']]
+    empty_df_cols=['spi_prod','region','prob nov','FAR nov','prob dec','FAR dec',
+                   'prob jan','FAR jan','prob feb','FAR feb','prob mar','FAR mar',
+                   'prob apr','FAR apr','prob may','FAR may']
+    _=[]
+    for region_str in regions_list:
+        db2=db1[db1['region']==region_str]
+        for sp in ['mam','jjas','mamjja','amjjas']:
+            db3=db2[db2['spi_prod']==sp]
+            db4=db3.pivot(index=['spi_prod','region'], columns="lt_month", values=["prob",'FAR'])
+            db4.reset_index(inplace=True)
+            db4.columns = [' '.join(col).strip() for col in db4.columns.values]
+            df = pd.DataFrame(columns=empty_df_cols)
+            df1=pd.concat([df,db4])
+            _.append(df1)
+    df_far=pd.concat(_)
+    return df_far
+
+
+def df_pod_table_maker(thre,regions_list):
+    db=pd.read_csv(f'output/tables/final_db_{thre}.csv')
+    db1=db[['POD','prob','spi_prod','lt_month','region']]
+    empty_df_cols=['spi_prod','region','prob nov','POD nov','prob dec','POD dec',
+                   'prob jan','POD jan','prob feb','POD feb','prob mar','POD mar',
+                   'prob apr','POD apr','prob may','POD may']
+    _=[]
+    for region_str in regions_list:
+        db2=db1[db1['region']==region_str]
+        for sp in ['mam','jjas','mamjja','amjjas']:
+            db3=db2[db2['spi_prod']==sp]
+            db4=db3.pivot(index=['spi_prod','region'], columns="lt_month", values=["prob",'POD'])
+            db4.reset_index(inplace=True)
+            db4.columns = [' '.join(col).strip() for col in db4.columns.values]
+            df = pd.DataFrame(columns=empty_df_cols)
+            df1=pd.concat([df,db4])
+            _.append(df1)
+    df_pod=pd.concat(_)
+    return df_pod
+
+
+def far_pod_table_all(thre):
+    regions_list=['Abim','Napak','Nabilatuk','Kotido', 'Moroto',
+             'Nakapiripirit', 'Kaabong', 'Karenga', 'Amudat',
+             'Karamoja']
+    if thre=='low':
+        fdb_low=df_far_table_maker('low',regions_list)
+        pdb_low=df_pod_table_maker('low',regions_list)
+        return fdb_low,pdb_low
+    elif thre=='mid':
+        fdb_mid=df_far_table_maker('mid',regions_list)
+        pdb_mid=df_pod_table_maker('mid',regions_list)
+        return fdb_mid,pdb_mid
+    else:
+        fdb_high=df_far_table_maker('high',regions_list)
+        pdb_high=df_pod_table_maker('high',regions_list)
+        return fdb_high,pdb_high
+    
