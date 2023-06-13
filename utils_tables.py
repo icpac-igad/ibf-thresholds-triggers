@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import six
 from datetime import datetime
 import textwrap as tw
+from functools import reduce
 
 #%% table plot matplotlib
 
@@ -334,3 +335,56 @@ def far_pod_table_all(thre):
         pdb_high=df_pod_table_maker('high',regions_list)
         return fdb_high,pdb_high
     
+    
+def table_plot_df_maker(thre,rdict,sdict):
+    db=pd.read_csv(f'output/tables/final_db_{thre}.csv')
+    dbv=db.pivot_table(index=['spi_prod','region'], columns=['lt_month'], values=['prob','FAR',])
+    dbv1=dbv.replace(np.nan,-999)
+    db2 = dbv1.reorder_levels([1, 0], axis=1)
+    #https://stackoverflow.com/a/67818894/2501953
+    db2['nov_fp'] = db2["nov"].values.tolist()
+    #https://stackoverflow.com/a/43898233/2501953
+    db2['dec_fp'] = db2["dec"].values.tolist()
+    db2['jan_fp'] = db2["jan"].values.tolist()
+    db2['feb_fp'] = db2["feb"].values.tolist()
+    db2['mar_fp'] = db2["mar"].values.tolist()
+    db2['apr_fp'] = db2["apr"].values.tolist()
+    db2['may_fp'] = db2["may"].values.tolist()
+    db3=db2[['nov_fp','dec_fp','jan_fp','feb_fp','mar_fp','apr_fp','may_fp']]
+    #db4=db3['region'].sort_values()
+    db4=db3.reset_index()
+    db5=db4.sort_values('region')
+    db5['r_order'] = db5['region'].map(rdict)
+    db5['s_order'] = db5['spi_prod'].map(sdict)
+    db6=db5.sort_values(['r_order','s_order'])
+    db6.columns = db6.columns.droplevel(1)
+    db6 = db6.rename_axis(None, axis=1)
+    db7=db6.reset_index()
+    db8=db7[['spi_prod','region','nov_fp','dec_fp','jan_fp','feb_fp','mar_fp','apr_fp','may_fp']]
+    db8.columns=['spi_prod', 'region', 'nov', 'dec', 'jan', 'feb', 'mar','apr', 'may']
+    db8['idx']=db8['spi_prod']+'_'+db8['region']
+    return db8
+
+
+def thre_df_table_plot():
+    regions_list=['Abim','Napak','Nabilatuk','Kotido', 
+                  'Moroto','Nakapiripirit', 'Kaabong', 'Karenga',
+                  'Amudat','Karamoja']
+    rorder_list=[1,2,3,4,5,6,7,8,9,0]
+    spi_prodlist=['mam','jjas','mamjja','amjjas']
+    rorder_splist=[0,1,2,3]
+    sdict=dict(zip(spi_prodlist, rorder_splist))
+    rdict = dict(zip(regions_list, rorder_list))
+    adb=table_plot_df_maker('low',rdict,sdict)
+    bdb=table_plot_df_maker('mid',rdict,sdict)
+    cdb=table_plot_df_maker('high',rdict,sdict)
+    data_frames = [adb, bdb, cdb]
+    df_merged = reduce(lambda  left,right: pd.merge(left,right,on=['idx'],
+                                            how='outer'), data_frames)
+    df_merged['empty1']='[999.0,999.0]'
+    df_merged['empty2']='[999.0,999.0]'
+    req_list=['spi_prod_x', 'region_x', 'nov_x', 'dec_x', 'jan_x', 'feb_x', 'mar_x',
+       'apr_x', 'may_x','empty1', 'nov_y', 'dec_y','jan_y', 'feb_y', 'mar_y', 'apr_y', 'may_y',
+        'empty2','nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may']
+    df_merged1=df_merged[req_list]
+    return df_merged1
