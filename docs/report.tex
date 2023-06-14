@@ -1,0 +1,98 @@
+% This file demonstrates the use of the `corporate` style file
+% ---------------
+% PREAMBLE
+% ---------------
+\documentclass[a4paper]{report}
+
+\usepackage[blackLinks=false,
+  logo = false,
+  frontcover = true,
+  draft = false]%
+  {corporateIdentity}
+
+% -----------------------------------
+% DOCUMENT PROPERTIES
+% -----------------------------------
+\title{Latex document into docx for review}
+%\subtitle{A guide and template}
+
+%\author{A. Clifton}
+%% corporate information
+%\coverauthor[1]{Andrew Clifton \textsuperscript{1,2}}
+%\coverauthor[2]{Zum Beispiel \textsuperscript{2}}
+%\coverauthor[3]{Noch Eins \textsuperscript{3}}
+%\coveraffiliation[1]{Somewhere}
+%\coveraffiliation[2]{Department of Mechanical Engineering, \LaTeX\ University}
+%\coveraffiliation[3]{Department of Civil Engineering, \LaTeX\ University}
+%
+%\Statement[1]{\section*{Disclaimer} Disclaimer text}
+%\Statement[2]{\section*{Copyright} Copyright text}
+%\Statement[3]{\section*{Usage} Usage text}
+%\Statement[4]{\section*{Version}{This version was created on \today.}}
+%
+%\addbibresource{files/bibliography.bib}
+%\setcounter{tocdepth}{1}
+% need to remove
+
+% --------------------------
+% MORE PREAMBLE
+% --------------------------
+
+\usepackage{xmpincl}
+\usepackage{hyperxmp}
+
+\pdfpageattr{/StructParents 0/Tabs/S}
+
+\includexmp{pdfUA}
+
+%\hypersetup{%
+%    pdftitle={Corporate Identity demonstration},
+%    pdfauthor={Andrew Clifton},
+%    pdfdisplaydoctitle=true,
+%    pdfsubject={Corporate Identity demonstration},
+%    pdfkeywords={latex, corporate identity},
+%    pdflang={en}
+%    }
+%\usepackage{lscape}
+
+%\usepackage[left=3.00cm, right=3.00cm, top=3.00cm, bottom=3.00cm]{geometry}
+%\usepackage{layaureo}
+% -------------------------------------
+% DOCUMENT STARTS HERE
+% -------------------------------------
+\begin{document}
+
+%\frontmatter
+%\makestatements
+
+%\input{files/ExecutiveSummary}
+
+%\clearpage
+%\tableofcontents
+%\listoffigures
+%\listoftables
+
+%\mainmatter
+%\lstset{language=[LaTeX]Tex, columns=fullflexible, keepspaces=true, breaklines=true}
+%% CHAPTER: WHAT IS LATEX
+%\input{files/WhatIsLatex}
+%% CHAPTER: HOW TO MAKE LATEX DOCUMENTS %%
+\input{plot_notes}
+%% CHAPTER: MAKING PDFS
+%\input{files/Exporting}
+%% CHAPTER: EXPORTING
+%\input{files/PDFPrep}
+
+%% ACK
+%\input{files/Acknowledgments}
+%% CHAPTER: APPENDICES
+
+% bibliography
+%\label{sec:TheBibliography}
+%\printbibliography
+
+%\appendix
+%\input{files/AppendixA}
+%\input{files/AppendixB}
+
+\end{document}

@@ -459,6 +459,17 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_d
         ax.tick_params(labelbottom=False)
     plt.savefig(f'output/prob_plot/{region_idx}_{spi_prod}_{lt_month}.png',bbox_inches='tight')
     
+def legend_maker(laxes):
+    square6=plt.Rectangle((0.4, 0.1), 0.25, 0.15,color='#ffff00', clip_on=False)
+    laxes.add_artist(square6)
+    square5=plt.Rectangle((0.75, 0.1), 0.25, 0.15,color='#ffa500', clip_on=False)
+    laxes.add_artist(square5)
+    square5=plt.Rectangle((1.05, 0.1), 0.25, 0.15,color='#8b0000', clip_on=False)
+    laxes.add_artist(square5)
+    plt.text(0.7, 0.28,'SPI Category', horizontalalignment='left',fontsize=6,fontweight='bold',color='k', verticalalignment='center', transform =laxes.transAxes)
+    plt.text(0.4, 0.05,'Moderate', horizontalalignment='left',fontsize=6,fontweight='bold',color='k', verticalalignment='center', transform =laxes.transAxes)
+    plt.text(0.8, 0.05,'Extreme', horizontalalignment='left',fontsize=6,fontweight='bold',color='k', verticalalignment='center', transform =laxes.transAxes)
+    plt.text(1.1, 0.05,'Severe', horizontalalignment='left',fontsize=6,fontweight='bold',color='k', verticalalignment='center', transform =laxes.transAxes)
     
     
 def stitch_plots(image_folder,spi_prod,lt_month):
@@ -496,6 +507,12 @@ def stitch_plots(image_folder,spi_prod,lt_month):
                  )
     grid[-1].remove()
     grid[-2].remove()
+    laxes=fig.add_axes([0.5,0.25, 0.3, 0.1], frame_on=False,zorder=0)
+    laxes.xaxis.set_ticks_position('none')
+    laxes.yaxis.set_ticks_position('none') 
+    laxes.set_xticklabels('')
+    laxes.set_yticklabels('')
+    legend_maker(laxes)
     for ax, im in zip(grid, [im1, im2, im3, im4,im5,im6,im7,im8,im9,im10]):
         # Iterating over the grid returns the Axes.
         ax.imshow(im)

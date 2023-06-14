@@ -20,6 +20,25 @@ import json
 ### Define the picture size and remove the ticks
 
 ### functions for whole column, row editing
+def legend_maker(text1,color_list,legend_title):
+    square6=plt.Rectangle((0.4, 0.1), 0.15, 0.25,color=color_list[0], clip_on=False)
+    text1.add_artist(square6)
+    square5=plt.Rectangle((0.55, 0.1), 0.15, 0.25,color=color_list[1], clip_on=False)
+    text1.add_artist(square5)
+    square5=plt.Rectangle((0.7, 0.1), 0.15, 0.25,color=color_list[2], clip_on=False)
+    text1.add_artist(square5)
+    square5=plt.Rectangle((0.85, 0.1), 0.15, 0.25,color=color_list[3], clip_on=False)
+    text1.add_artist(square5)
+    square5=plt.Rectangle((1.0, 0.1), 0.15, 0.25,color=color_list[4], clip_on=False)
+    text1.add_artist(square5)
+    plt.text(0.6, 0.4,legend_title, horizontalalignment='left',fontsize=12,fontweight='bold',color='k', verticalalignment='center', transform =text1.transAxes)
+    plt.text(0.42, 0.05,'<20', horizontalalignment='left',fontsize=12,fontweight='bold',color='k', verticalalignment='center', transform =text1.transAxes)
+    plt.text(0.57, 0.05,'20-40', horizontalalignment='left',fontsize=12,fontweight='bold',color='k', verticalalignment='center', transform =text1.transAxes)
+    plt.text(0.72, 0.05,'40-60', horizontalalignment='left',fontsize=12,fontweight='bold',color='k', verticalalignment='center', transform =text1.transAxes)
+    plt.text(0.87, 0.05,'60-80', horizontalalignment='left',fontsize=12,fontweight='bold',color='k', verticalalignment='center', transform =text1.transAxes)
+    plt.text(1.05, 0.05,'80<', horizontalalignment='left',fontsize=12,fontweight='bold',color='k', verticalalignment='center', transform =text1.transAxes)
+
+
 def set_align_for_column(table, col, align="left"):
     cells = [key for key in table._cells if key[1] == col]
     for cell in cells:
@@ -36,7 +55,7 @@ def set_height_for_row(table, row, height):
     for cell in cells:
         table._cells[cell]._height = height
 
-def colorcell(tablerows,tablecols,cellDict):
+def colorcell(tablerows,tablecols,cellDict,color_list):
     allcells=[(x,y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         cell_value0=json.loads(cellDict[alcls]._text.get_text())[0]
@@ -44,15 +63,15 @@ def colorcell(tablerows,tablecols,cellDict):
             cellDict[alcls].set_facecolor('#FFFFFF')
         else:
             if float(cell_value0) <=0.2:
-                cellDict[alcls].set_facecolor('#009600')
+                cellDict[alcls].set_facecolor(color_list[0])
             elif 0.2 < float(cell_value0) <= 0.4:
-                cellDict[alcls].set_facecolor('#64C800')
+                cellDict[alcls].set_facecolor(color_list[1])
             elif 0.4 < float(cell_value0) <= 0.6:
-                cellDict[alcls].set_facecolor('#ffff00')
+                cellDict[alcls].set_facecolor(color_list[2])
             elif 0.6 < float(cell_value0) <= 0.8:
-                cellDict[alcls].set_facecolor('#ff7800')
+                cellDict[alcls].set_facecolor(color_list[3])
             elif 0.8 < float(cell_value0) <= 1.0:
-                cellDict[alcls].set_facecolor('#ff0000')
+                cellDict[alcls].set_facecolor(color_list[4])
             else:
                 cellDict[alcls].set_facecolor('#FFFFFF')
 
@@ -89,18 +108,18 @@ def set_height_for_row_except_head(table, rowlist, height):
                 
 def table_header_colour(tablerows,tablecols,cellDict,mpl_table):
     allcells=[(x,y) for x in tablerows[0:1] for y in tablecols]
-    header_list=['SPI','District','Nov','Dec','Jan','Feb','Mar','Apr','May','',
+    header_list=['Region/ \n District','SPI','Nov','Dec','Jan','Feb','Mar','Apr','May','',
                  'Nov','Dec','Jan','Feb','Mar','Apr','May','','Nov','Dec','Jan','Feb','Mar','Apr','May','']
     for idx,alcls in enumerate(allcells):
         cellDict[alcls].set_facecolor('#FFFFFF')
         print(header_list[idx])
         text=header_list[idx]
-        mpl_table._cells[alcls]._text.set_text('text')
+        mpl_table._cells[alcls]._text.set_text(text)
         
     
 
 ### funciton for table creation
-def render_mpl_table(data, col_width=1.0, row_height=1.625, font_size=8,
+def render_mpl_table(data,color_list, col_width=1.0, row_height=1.625, font_size=12,
                      header_color='#40466e', row_colors=['#f1f1f2', 'w'], edge_color='w',
                      bbox=[0, 0, 1, 1], header_columns=0,
                      ax=None, **kwargs):
@@ -120,32 +139,49 @@ def render_mpl_table(data, col_width=1.0, row_height=1.625, font_size=8,
     for k, cell in  six.iteritems(mpl_table._cells):
         cell.set_edgecolor(edge_color)
         if k[0] == 0 or k[1] < header_columns:
-            cell.set_text_props(weight='bold', color='w')
+            cell.set_text_props(weight='bold', color='black')
             cell.set_facecolor(header_color)
         else:
             cell.set_facecolor(row_colors[k[0]%len(row_colors) ])
-    colorcell(tablerows,tablecols,cellDict)
+    colorcell(tablerows,tablecols,cellDict,color_list)
     headings=data.columns
+    plt.text(0.245, 1.0,'Moderate', fontsize=10, fontweight='bold',color='black', ha='left', va ='center',transform =ax.transAxes)
+    plt.text(0.545, 1.0,'Extreme', fontsize=10, fontweight='bold',color='black', ha='left', va ='center',transform =ax.transAxes)
+    plt.text(0.845, 1.0,'Severe', fontsize=10, fontweight='bold',color='black', ha='left', va ='center',transform =ax.transAxes)
     table_header_colour(tablerows,tablecols,cellDict,mpl_table)
     add_certain_value(tablerows,tablecols,mpl_table,cellDict)
     return ax
     
 
-def plot_data_table(data_table):
+def plot_data_table(data_table,stat_var):
     fig = plt.figure()
-    fig.set_size_inches(18,18)
-    table=fig.add_axes([0.08, 0.02, 0.55, 0.9], frame_on=False) 
+    fig.set_size_inches(14,18)
+    table=fig.add_axes([0.04, 0.06, 0.93, 0.93], frame_on=False) 
     table.xaxis.set_ticks_position('none')
     table.yaxis.set_ticks_position('none') 
     table.set_xticklabels('')
     table.set_yticklabels('')
-    req_list=['spi_prod_x', 'region_x', 'nov_x', 'dec_x', 'jan_x', 'feb_x', 'mar_x',
+    #######
+    laxes=fig.add_axes([0.32, 0.015, 0.3, 0.1], frame_on=False,zorder=0)
+    laxes.xaxis.set_ticks_position('none')
+    laxes.yaxis.set_ticks_position('none') 
+    laxes.set_xticklabels('')
+    laxes.set_yticklabels('')
+    if stat_var=='FAR':
+        legend_title='False Alarm Ratio %'
+        color_list=['#009600','#64C800','#ffff00','#ff7800','#ff0000']
+    else:
+        legend_title='Hit Rate %'
+        color_list=['#ff0000','#ff7800','#ffff00','#64C800','#009600']
+    legend_maker(laxes,color_list,legend_title)
+    #####
+    req_list=['region_x','spi_prod_x', 'nov_x', 'dec_x', 'jan_x', 'feb_x', 'mar_x',
            'apr_x', 'may_x','empty1', 'nov_y', 'dec_y','jan_y', 'feb_y', 'mar_y', 'apr_y', 'may_y',
             'empty2','nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may']
-    
     data1=data_table[req_list]
-    render_mpl_table(data1, header_columns=0, col_width=0.2,ax=table)
-    plt.savefig('tables/far_prob.jpg', dpi=150, alpha=True)
+    render_mpl_table(data1,color_list, header_columns=0, col_width=0.2,ax=table)
+    var=stat_var.lower()
+    plt.savefig(f'output/tables/{var}_prob.jpg', dpi=150)
 
     
 #%% df csv creator, pivot for plot  
@@ -372,9 +408,9 @@ def far_pod_table_all(thre):
         return fdb_high,pdb_high
     
     
-def table_plot_df_maker(thre,rdict,sdict):
+def table_plot_df_maker(thre,rdict,sdict,stat_var):
     db=pd.read_csv(f'output/tables/final_db_{thre}.csv')
-    dbv=db.pivot_table(index=['spi_prod','region'], columns=['lt_month'], values=['prob','FAR',])
+    dbv=db.pivot_table(index=['spi_prod','region'], columns=['lt_month'], values=['prob',stat_var])
     dbv1=dbv.replace(np.nan,-999)
     db2 = dbv1.reorder_levels([1, 0], axis=1)
     #https://stackoverflow.com/a/67818894/2501953
@@ -402,24 +438,23 @@ def table_plot_df_maker(thre,rdict,sdict):
     return db8
 
 
-def thre_df_table_plot():
-    regions_list=['Abim','Napak','Nabilatuk','Kotido', 
-                  'Moroto','Nakapiripirit', 'Kaabong', 'Karenga',
-                  'Amudat','Karamoja']
-    rorder_list=[1,2,3,4,5,6,7,8,9,0]
+def thre_df_table_plot(stat_var):
+    regions_list=['Karamoja','Abim','Amudat','Kaabong', 'Karenga','Kotido', 
+                  'Moroto','Nabilatuk','Nakapiripirit','Napak']
+    rorder_list=[0,1,2,3,4,5,6,7,8,9]
     spi_prodlist=['mam','jjas','mamjja','amjjas']
     rorder_splist=[0,1,2,3]
     sdict=dict(zip(spi_prodlist, rorder_splist))
     rdict = dict(zip(regions_list, rorder_list))
-    adb=table_plot_df_maker('low',rdict,sdict)
-    bdb=table_plot_df_maker('mid',rdict,sdict)
-    cdb=table_plot_df_maker('high',rdict,sdict)
+    adb=table_plot_df_maker('low',rdict,sdict,stat_var)
+    bdb=table_plot_df_maker('mid',rdict,sdict,stat_var)
+    cdb=table_plot_df_maker('high',rdict,sdict,stat_var)
     data_frames = [adb, bdb, cdb]
     df_merged = reduce(lambda  left,right: pd.merge(left,right,on=['idx'],
                                             how='outer'), data_frames)
     df_merged['empty1']='[999.0,999.0]'
     df_merged['empty2']='[999.0,999.0]'
-    req_list=['spi_prod_x', 'region_x', 'nov_x', 'dec_x', 'jan_x', 'feb_x', 'mar_x',
+    req_list=['region_x','spi_prod_x', 'nov_x', 'dec_x', 'jan_x', 'feb_x', 'mar_x',
        'apr_x', 'may_x','empty1', 'nov_y', 'dec_y','jan_y', 'feb_y', 'mar_y', 'apr_y', 'may_y',
         'empty2','nov', 'dec', 'jan', 'feb', 'mar', 'apr', 'may']
     df_merged1=df_merged[req_list]

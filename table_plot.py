@@ -13,6 +13,7 @@ from utils_tables import thres_db_maker
 
 from utils_tables import far_pod_table_all
 from utils_tables import thre_df_table_plot
+from utils_tables import plot_data_table
 # mdb=metric_db()
 
 # pdb=prob_db()
@@ -31,4 +32,13 @@ from utils_tables import thre_df_table_plot
 # thre='high'
 # fdb_high,pdb_high=far_pod_table_all(thre)
 
-df=thre_df_table_plot()
+stat_var='FAR'
+df=thre_df_table_plot(stat_var)
+df.to_csv('output/tables/far.csv')
+plot_data_table(df,stat_var)
+
+stat_var='POD'
+df=thre_df_table_plot(stat_var)
+df.to_csv('output/tables/pod.csv')
+plot_data_table(df,stat_var)
+
