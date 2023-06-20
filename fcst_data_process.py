@@ -2,15 +2,15 @@
 #add total precentipation per month value 
 #
 
-from data_process_utils import foldercreator
-from data_process_utils import seas5_grib_processor
-from data_process_utils import seas5_regridder
-from data_process_utils import seas5_tpm_creator
-from data_process_utils import lead_month_wise_df_create
+from utils_data_process import foldercreator
+from utils_data_process import seas5_grib_processor
+from utils_data_process import seas5_regridder
+from utils_data_process import seas5_tpm_creator
+from utils_data_process import lead_month_wise_df_create
 
-from data_process_utils import three_months_spi_creator
-from data_process_utils import four_months_spi_creator
-from data_process_utils import six_months_spi_creator
+from utils_data_process import three_months_spi_creator
+from utils_data_process import four_months_spi_creator
+from utils_data_process import six_months_spi_creator
 #######
 from utils import spi3_prob_ncfile_creator
 from utils import spi4_prob_ncfile_creator
@@ -26,11 +26,11 @@ from utils import spi6_mean_ncfile_creator_a
 from utils import spi6_mean_ncfile_creator_b
 
 #####
-from data_process_utils import chrips_data_regridder
-from data_process_utils import chrips_spi_mam_creator
-from data_process_utils import chrips_spi_jjas_creator
-from data_process_utils import chrips_spi_mamjja_creator
-from data_process_utils import chrips_spi_amjjas_creator
+from utils_data_process import chrips_data_regridder
+from utils_data_process import chrips_spi_mam_creator
+from utils_data_process import chrips_spi_jjas_creator
+from utils_data_process import chrips_spi_mamjja_creator
+from utils_data_process import chrips_spi_amjjas_creator
 
 
 
