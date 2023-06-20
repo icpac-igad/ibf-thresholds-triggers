@@ -1,4 +1,5 @@
-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import os
 import ntpath
 
@@ -16,17 +17,8 @@ import numpy as np
 from typing import Dict
 from climate_indices.indices import spi, Distribution
 from climate_indices.compute import Periodicity
-import numpy as np
-import pandas as pd
-import requests
-import xarray as xr
 
-#from utils import spi3_prod_name_creator
-#from utils import spi4_prod_name_creator
-#from utils import spi6_prod_name_creator
-
-
-
+#%% common function 
 
 def path_leaf(path):
     """
@@ -60,129 +52,6 @@ def foldercreator(path):
    if not os.path.exists(path):
         os.makedirs(path)
 
-#%% seas5 data processing utils
-
-def seas5_grib_processor(input_path_location):
-    """
-    the input grib file download from cds
-    https://cds.climate.copernicus.eu/cdsapp#!/dataset/seasonal-monthly-single-levels?tab=form
-    but the different version are needed to avoid the missing forecast months, such as for 2022. 05 month
-    
-    This function combines all the grib files into one single dataset
-    """
-    p1_input_data=f'{input_path_location}seas5_v51_1981-2016_m26_lt6_tp.grib'
-    ds_p1 = xr.open_dataset(p1_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p2_input_data=f'{input_path_location}seas5_v5_2017-2021_m51_lt6_tp.grib'
-    ds_p2 = xr.open_dataset(p2_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p3_input_data=f'{input_path_location}seas5_v51_2022_m51_lt6_tp.grib'
-    ds_p3 = xr.open_dataset(p3_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p4_input_data=f'{input_path_location}seas5_v51_2023_m51_lt6_tp.grib'
-    ds_p4 = xr.open_dataset(p4_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    p5_input_data=f'{input_path_location}seas5_v5_2022_m51_lt6_tp_may.grib'
-    ds_p5 = xr.open_dataset(p5_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
-    ds_p5a=ds_p5.sel(time='2022-05-01T00:00:00.000000000')
-    ds_2022=xr.concat([ds_p3,ds_p5a],dim='time')
-    ds_p=xr.concat([ds_p1,ds_p2,ds_2022,ds_p4],dim='time')
-    return ds_p
-
-
-
-
-def seas5_regridder(grib_array,output_path_location):
-    """
-    
-
-    Parameters
-    ----------
-    grib_array : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    None.
-
-    """
-    for fm in [1,2,3,4,5,6]:
-        ds_p_m1=grib_array.sel(forecastMonth=fm)
-        ds_out = xr.Dataset(
-              {"lat": (["lat"], np.arange(0.0, 5.0, 0.25), {"units": "degrees_north"}),
-              "lon": (["lon"], np.arange(31.0, 36.0, 0.25), {"units": "degrees_east"}),})
-        gd2=ds_p_m1.rename({'longitude':'lon','latitude':'lat'})
-        agd = gd2["tprate"]
-        regridder = xe.Regridder(gd2, ds_out, "bilinear")
-        dr_out = regridder(agd, keep_attrs=True)
-        ds2=dr_out.to_dataset()
-        #monthname=mnl.lower().split('.')[0]
-        ds2.to_netcdf(f'{output_path_location}kmj_25km_lt_month_{fm}.nc')
-    
-   
-   
-def seas5_tpm_creator(output_path_location):
-    """
-    
-
-    Returns
-    -------
-    None.
-
-    """
-    for mnth in [1,2,3,4,5,6]:
-        db=xr.open_dataset(f'{output_path_location}kmj_25km_lt_month_{mnth}.nc')
-        aa=pd.to_datetime(db.time.values)
-        cont_vdt=[]
-        for itu in aa:
-            vd_t=itu+relativedelta(months=mnth)
-            cont_vdt.append(vd_t)
-        db = db.assign_coords(valid_time=('time',cont_vdt))
-        numdays = [monthrange(dd.year,dd.month)[1] for dd in cont_vdt]
-        db = db.assign_coords(numdays=('time',numdays))
-        db = db * db.numdays * 24 * 60 * 60 * 1000
-        db.attrs['units'] = 'mm/month'
-        db.attrs['long_name'] = 'Total precipitation' 
-        db.to_netcdf(f'{output_path_location}tp_kmj_25km_lt_month_{mnth}.nc')
-        
-        
-        
-def lead_month_wise_df_create(output_path_location):
-    """
-    
-
-    Returns
-    -------
-    None.
-
-    """
-    dates = pd.date_range('1981-01-01', '2023-10-01', freq='MS')
-    months_needed=[1,2,3,4,5,11,12]
-    for mnthn in months_needed:
-        mnth_dates=dates[dates.month.isin([mnthn])]
-        jd1=mnth_dates.strftime('%Y-%m-%dT00:00:00.000000000')
-        cont_mdb=[]
-        for jd in jd1:
-            db_m1=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_1.nc')
-            db1_m1=db_m1.sel(time=jd)
-            db_m2=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_2.nc')
-            db1_m2=db_m2.sel(time=jd)
-            db_m3=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_3.nc')
-            db1_m3=db_m3.sel(time=jd)
-            db_m4=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_4.nc')
-            db1_m4=db_m4.sel(time=jd)
-            db_m5=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_5.nc')
-            db1_m5=db_m5.sel(time=jd)
-            db_m6=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_6.nc')
-            db1_m6=db_m6.sel(time=jd)
-            db1_m=xr.concat([db1_m1,db1_m2,db1_m3,db1_m4,db1_m5,db1_m6],dim='time')
-            cont_mdb.append(db1_m)
-        erf1=xr.concat(cont_mdb,dim='time')
-        erf1 = erf1.assign_coords(time=('time',erf1.valid_time.values))
-        month_dateformat=datetime.strptime(str(mnthn) , '%m')
-        month_str=month_dateformat.strftime('%b').lower()
-        erf1.to_netcdf(f'{output_path_location}{month_str}_tp_kmj_25km_6m_fcstd_1981.nc')
-    
-    
-#%% spi generate utils            
-    
-    
 def spi_wrapper(
     obj: xr.DataArray,
     precip_var: str,
@@ -195,6 +64,10 @@ def spi_wrapper(
     fitting_params: Dict = None,
 ) -> xr.DataArray:
     # compute SPI for this timeseries
+    """
+    The function from https://gist.github.com/monocongo/978348233b4bde80e9bcc52fe8e4150c
+    using climate_indices lib https://github.com/monocongo/climate_indices
+    """
     spi_data = spi(
         values=obj[precip_var].to_numpy(), #TODO find why we need to use the variable name rather than already using the variables's DataArray (i.e. why is obj a Dataset?)
         scale=scale,
@@ -224,8 +97,461 @@ def spi_wrapper(
         data = spi_data,
     )
     return da_spi
-        
+    
+def ens_mem_combiner(input_path):
+    """
+    The SPI wrapper only work with single member forecast for SPI
+    calcualtion. SPI gen for SEAS5 was made for single member, this
+    function combines the individual SPI output into all enemsble 
+    data for further usage
+    
+    Parameters
+    ----------
+    input_path : file path
+        location of SEAS5 individual SPI output.
 
+    Returns
+    -------
+    ds_ens : Xarray dataframe
+        combines spi output into SEAS5 ensemble members.
+
+    """
+    member_list=np.arange(0,51,1)
+    mem_data_arrays = []
+    for mem in member_list:
+        mem_file_path=f'{input_path}{mem}.nc'
+        ds=xr.open_dataset(mem_file_path)
+        mem_data_arrays.append(ds)
+        #ds=[]
+        # concatenate list of data arrays along new dimension into xarray dataset
+    ds_ens = xr.concat(mem_data_arrays, dim='ens_mem')
+    return ds_ens
+
+def excprob(X, X_thr, ignore_nan=False):
+    """
+    The function from https://github.com/pySTEPS/pysteps/blob/master/pysteps/postprocessing/ensemblestats.py
+    the function was edited to follow the paper Nobre, Gabriela Guimarães, et al 2023
+    which looked for less than the threshold value.
+    
+    For a given forecast ensemble field, compute exceedance probabilities
+    for the given intensity thresholds.
+    Parameters
+    ----------
+    X: array_like
+        Array of shape (k, m, n, ...) containing an k-member ensemble of
+        forecasts with shape (m, n, ...).
+    X_thr: float or a sequence of floats
+        Intensity threshold(s) for which the exceedance probabilities are
+        computed.
+    ignore_nan: bool
+        If True, ignore nan values.
+    Returns
+    -------
+    out: ndarray
+        Array of shape (len(X_thr), m, n) containing the exceedance
+        probabilities for the given intensity thresholds.
+        If len(X_thr)=1, the first dimension is dropped.
+        
+    
+    """
+    #  Checks
+    X = np.asanyarray(X)
+    X_ndim = X.ndim
+
+    if X_ndim < 3:
+        raise Exception(
+            f"Number of dimensions of X should be 3 or more. It was: {X_ndim}"
+        )
+
+    P = []
+
+    if np.isscalar(X_thr):
+        X_thr = [X_thr]
+        scalar_thr = True
+    else:
+        scalar_thr = False
+
+    for x in X_thr:
+        X_ = X.copy()
+        #original
+        #X_[X >= x] = 1.0
+        #X_[X < x] = 0.0
+        #changes to make less than threnshold
+        #based on MOZ paper, Nobre, Gabriela Guimarães, et al 2023 
+        X_[X <= x] = 1.0
+        X_[X > x] = 0.0
+        X_[~np.isfinite(X)] = np.nan
+
+        if ignore_nan:
+            P.append(np.nanmean(X_, axis=0))
+        else:
+            P.append(np.mean(X_, axis=0))
+
+    if not scalar_thr:
+        return np.stack(P)
+    else:
+        return P[0]
+    
+    
+def spi3_prod_name_creator(ds_ens):
+    """
+    Convenience function to generate a list of SPI product
+    names, such as MAM, so that can be used to filter the 
+    SPI product from dataframe
+
+    Parameters
+    ----------
+    ds_ens : xarray dataframe
+        The data farme with SPI output organized for 
+        the period 1981-2023.
+
+    Returns
+    -------
+    spi_prod_list : String list
+        List of names with iteration of SPI3 product names such as
+        ['JFM','FMA','MAM',......]
+
+    """
+    db=pd.DataFrame()
+    db['dt']=ds_ens['time'].values
+    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
+    db['year']=db['dt'].dt.strftime('%Y')
+    db['spi_prod'] = db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
+    spi_prod_list=db['spi_prod'].tolist()
+    return spi_prod_list
+
+def spi4_prod_name_creator(ds_ens):
+    """
+    Convenience function to generate a list of SPI 4 month product
+    names, such as JJAS, so that can be used to filter the 
+    SPI product from dataframe
+
+    Parameters
+    ----------
+    ds_ens : xarray dataframe
+        The data farme with SPI output organized for 
+        the period 1981-2023.
+
+    Returns
+    -------
+    spi_prod_list : String list
+        List of names with iteration of SPI3 product names such as
+        ['JFMA','FMAM','MAMJ',......]
+
+    """
+    db=pd.DataFrame()
+    db['dt']=ds_ens['time'].values
+    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
+    db['year']=db['dt'].dt.strftime('%Y')
+    db['spi_prod'] = db.groupby('year')['month'].shift(3)+db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
+    spi_prod_list=db['spi_prod'].tolist()
+    return spi_prod_list
+
+
+
+def spi6_prod_name_creator(ds_ens):
+    """
+    Convenience function to generate a list of SPI 6 months product
+    names, such as JJAS, so that can be used to filter the 
+    SPI product from dataframe
+
+    Parameters
+    ----------
+    ds_ens : xarray dataframe
+        The data farme with SPI output organized for 
+        the period 1981-2023.
+
+    Returns
+    -------
+    spi_prod_list : String list
+        List of names with iteration of SPI3 product names such as
+        ['JFMAMJ','FMAMJJ','MAMJJA',......]
+
+    """
+    db=pd.DataFrame()
+    db['dt']=ds_ens['time'].values
+    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
+    db['year']=db['dt'].dt.strftime('%Y')
+    db['spi_prod'] = db.groupby('year')['month'].shift(5)+db.groupby('year')['month'].shift(4)+db.groupby('year')['month'].shift(3)+db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
+    spi_prod_list=db['spi_prod'].tolist()
+    return spi_prod_list
+           
+#%% CHRIPS data processor utils 
+
+def chrips_data_regridder():
+    """
+    Regridding of the chrips data using xe lib
+    From 5km to 25 km to match with seas5 forecast data
+
+    Returns
+    -------
+    saves the regridded files 
+
+    """
+    db=xr.open_dataset('data/chirps-v2.0.monthly.nc')
+    ea_db = db.sel(latitude=slice(0.0,5.0), longitude=slice(31.0,36.0))
+    local_path_nc='data/kmj_chirps-v2.0.monthly.nc'
+    ea_db.to_netcdf(local_path_nc)
+    ds=xr.open_dataset(local_path_nc)
+    ds1=ds.rename({'longitude':'lon','latitude':'lat'})
+    dr = ds1["precip"] 
+    ds_out = xr.Dataset(
+          {"lat": (["lat"], np.arange(0.0, 5.0, 0.25), {"units": "degrees_north"}),
+          "lon": (["lon"], np.arange(31.0, 36.0, 0.25), {"units": "degrees_east"}),})
+    regridder = xe.Regridder(ds1, ds_out, "bilinear")
+    regridder  # print basic regridder information.
+    dr_out = regridder(dr, keep_attrs=True)
+    ds2=dr_out.to_dataset()
+    ds2.to_netcdf('data/kmj_km25_chirps-v2.0.monthly.nc')
+    
+
+    
+def chrips_spi_mam_creator():
+    """
+    Generate SPI 3 months product outof regridded CHRIPS data
+
+    Returns
+    -------
+    saves the spi netcdf file
+
+    """
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=3,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi3_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAM', drop=True)
+    spi_cdb3.to_netcdf('output/obs/mam_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+def chrips_spi_jjas_creator():
+    """
+    Generate SPI 4 months product outof regridded CHRIPS data
+
+    Returns
+    -------
+    saves the spi netcdf file
+
+    """
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=4,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi4_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='JJAS', drop=True)
+    spi_cdb3.to_netcdf('output/obs/jjas_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+    
+def chrips_spi_mamjja_creator():
+    """
+    Generate SPI 6 months product outof regridded CHRIPS data
+
+    Returns
+    -------
+    saves the spi netcdf file
+
+    """
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=6,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi4_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAMJJA', drop=True)
+    print(spi_cdb2)
+    spi_cdb3.to_netcdf('output/obs/mamjja_kmj_km25_chirps-v2.0.monthly.nc')
+    
+    
+def chrips_spi_amjjas_creator():
+    """
+    Generate SPI 6 months product outof regridded CHRIPS data
+
+    Returns
+    -------
+    saves the spi netcdf file
+
+    """
+    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
+    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
+    spi_cdb = cdb_sc.groupby('grid_cells').apply(
+        spi_wrapper,
+        precip_var='precip',
+        scale=6,
+        distribution=Distribution.gamma,
+        data_start_year=1981,
+        calibration_year_initial=1981,
+        calibration_year_final=2018,
+        periodicity=Periodicity.monthly,
+    ).unstack('grid_cells')
+    spi_cdb1=spi_cdb.to_dataset(name='spi')
+    spi_prod_list=spi6_prod_name_creator(spi_cdb1)
+    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
+    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='AMJJAS', drop=True)
+    spi_cdb3.to_netcdf('output/obs/amjjas_kmj_km25_chirps-v2.0.monthly.nc')
+    
+
+
+#%% seas5 data processing utils
+
+def seas5_grib_processor(input_path_location):
+    """
+    the input grib file download from cds
+    but the different version are needed to avoid the missing forecast months, such as for 2022. 05 month
+    
+    The reading of seas5 grib file based on the note in https://cds.climate.copernicus.eu/cdsapp#!/dataset/seasonal-monthly-single-levels?tab=form
+    This function combines all the grib files into one single dataset
+    
+    returns the xarray df
+    """
+    p1_input_data=f'{input_path_location}seas5_v51_1981-2016_m26_lt6_tp.grib'
+    ds_p1 = xr.open_dataset(p1_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    p2_input_data=f'{input_path_location}seas5_v5_2017-2021_m51_lt6_tp.grib'
+    ds_p2 = xr.open_dataset(p2_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    p3_input_data=f'{input_path_location}seas5_v51_2022_m51_lt6_tp.grib'
+    ds_p3 = xr.open_dataset(p3_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    p4_input_data=f'{input_path_location}seas5_v51_2023_m51_lt6_tp.grib'
+    ds_p4 = xr.open_dataset(p4_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    p5_input_data=f'{input_path_location}seas5_v5_2022_m51_lt6_tp_may.grib'
+    ds_p5 = xr.open_dataset(p5_input_data, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    ds_p5a=ds_p5.sel(time='2022-05-01T00:00:00.000000000')
+    ds_2022=xr.concat([ds_p3,ds_p5a],dim='time')
+    ds_p=xr.concat([ds_p1,ds_p2,ds_2022,ds_p4],dim='time')
+    return ds_p
+
+
+
+
+def seas5_regridder(grib_array,output_path_location):
+    """
+    Regridding of the SEAS5 data using xe lib
+    From 100km to 25 km to match with regridded CHRIPS data
+
+    Parameters
+    ----------
+    grib_array : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    Saves the netcdf file
+
+    """
+    for fm in [1,2,3,4,5,6]:
+        ds_p_m1=grib_array.sel(forecastMonth=fm)
+        ds_out = xr.Dataset(
+              {"lat": (["lat"], np.arange(0.0, 5.0, 0.25), {"units": "degrees_north"}),
+              "lon": (["lon"], np.arange(31.0, 36.0, 0.25), {"units": "degrees_east"}),})
+        gd2=ds_p_m1.rename({'longitude':'lon','latitude':'lat'})
+        agd = gd2["tprate"]
+        regridder = xe.Regridder(gd2, ds_out, "bilinear")
+        dr_out = regridder(agd, keep_attrs=True)
+        ds2=dr_out.to_dataset()
+        #monthname=mnl.lower().split('.')[0]
+        ds2.to_netcdf(f'{output_path_location}kmj_25km_lt_month_{fm}.nc')
+    
+   
+   
+def seas5_tpm_creator(output_path_location):
+    """
+    The SEAS5 data is in format of precenpitaiton per second, 
+    which is needed to convert into total preceiption per month
+    following the method in https://cds.climate.copernicus.eu/cdsapp#!/dataset/seasonal-monthly-single-levels?tab=form
+
+    Returns
+    -------
+    saves the converted netcdf file
+
+    """
+    for mnth in [1,2,3,4,5,6]:
+        db=xr.open_dataset(f'{output_path_location}kmj_25km_lt_month_{mnth}.nc')
+        aa=pd.to_datetime(db.time.values)
+        cont_vdt=[]
+        for itu in aa:
+            vd_t=itu+relativedelta(months=mnth)
+            cont_vdt.append(vd_t)
+        db = db.assign_coords(valid_time=('time',cont_vdt))
+        numdays = [monthrange(dd.year,dd.month)[1] for dd in cont_vdt]
+        db = db.assign_coords(numdays=('time',numdays))
+        db = db * db.numdays * 24 * 60 * 60 * 1000
+        db.attrs['units'] = 'mm/month'
+        db.attrs['long_name'] = 'Total precipitation' 
+        db.to_netcdf(f'{output_path_location}tp_kmj_25km_lt_month_{mnth}.nc')
+        
+        
+        
+def lead_month_wise_df_create(output_path_location):
+    """
+    Reorgnize the forecasted data based on the lead month, joining
+    each forecast month into a single dataframe, which becomes the 
+    timeseries of month for every lead month for the period 1981-2023
+    which can be directly used for SPI calculation using SPI wrapper.
+
+    Returns
+    -------
+    saves lead month focused time series of SEAS5 data in netcdf
+
+    """
+    dates = pd.date_range('1981-01-01', '2023-10-01', freq='MS')
+    months_needed=[1,2,3,4,5,11,12]
+    for mnthn in months_needed:
+        mnth_dates=dates[dates.month.isin([mnthn])]
+        jd1=mnth_dates.strftime('%Y-%m-%dT00:00:00.000000000')
+        cont_mdb=[]
+        for jd in jd1:
+            db_m1=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_1.nc')
+            db1_m1=db_m1.sel(time=jd)
+            db_m2=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_2.nc')
+            db1_m2=db_m2.sel(time=jd)
+            db_m3=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_3.nc')
+            db1_m3=db_m3.sel(time=jd)
+            db_m4=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_4.nc')
+            db1_m4=db_m4.sel(time=jd)
+            db_m5=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_5.nc')
+            db1_m5=db_m5.sel(time=jd)
+            db_m6=xr.open_dataset(f'{output_path_location}tp_kmj_25km_lt_month_6.nc')
+            db1_m6=db_m6.sel(time=jd)
+            db1_m=xr.concat([db1_m1,db1_m2,db1_m3,db1_m4,db1_m5,db1_m6],dim='time')
+            cont_mdb.append(db1_m)
+        erf1=xr.concat(cont_mdb,dim='time')
+        erf1 = erf1.assign_coords(time=('time',erf1.valid_time.values))
+        month_dateformat=datetime.strptime(str(mnthn) , '%m')
+        month_str=month_dateformat.strftime('%b').lower()
+        erf1.to_netcdf(f'{output_path_location}{month_str}_tp_kmj_25km_6m_fcstd_1981.nc')
+    
+        
+    
+#%% SEAS5 spi generate utils            
+    
 
 def three_months_spi_creator(output_path_location):
     """
@@ -239,7 +565,7 @@ def three_months_spi_creator(output_path_location):
 
     Returns
     -------
-    None.
+    saves netcdf file
 
     """
     sdb_list=['jan_tp_kmj_25km_6m_fcstd_1981.nc',
@@ -275,7 +601,7 @@ def three_months_spi_creator(output_path_location):
             
 def four_months_spi_creator(output_path_location):
     """
-    MAM SPI only using the lead time from months
+    JJAS SPI only using the lead time from months
     'mar','apr','may'
 
     Parameters
@@ -285,7 +611,7 @@ def four_months_spi_creator(output_path_location):
 
     Returns
     -------
-    None.
+    saves netcdf file
 
     """
     sdb_list=['mar_tp_kmj_25km_6m_fcstd_1981.nc',
@@ -319,7 +645,7 @@ def four_months_spi_creator(output_path_location):
             
 def six_months_spi_creator(output_path_location):
     """
-    MAM SPI only using the lead time from months
+    MAMJJA or AMJJAS SPI only using the lead time from months
     'feb','mar'
 
     Parameters
@@ -329,7 +655,7 @@ def six_months_spi_creator(output_path_location):
 
     Returns
     -------
-    None.
+    saves netcdf file
 
     """
     sdb_list=['feb_tp_kmj_25km_6m_fcstd_1981.nc',
@@ -357,318 +683,42 @@ def six_months_spi_creator(output_path_location):
             ens_output_path=f'{output_path_location}{spi_prod}/{sdbl1}'
             foldercreator(ens_output_path)
             #spi_ds2.to_csv(f'{output_path}month6_{meml}.csv')
-            spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')
-           
-#%% CHRIPS data processor utils 
-
-def chrips_data_regridder():
-    db=xr.open_dataset('data/chirps-v2.0.monthly.nc')
-    ea_db = db.sel(latitude=slice(0.0,5.0), longitude=slice(31.0,36.0))
-    local_path_nc='data/kmj_chirps-v2.0.monthly.nc'
-    ea_db.to_netcdf(local_path_nc)
-    ds=xr.open_dataset(local_path_nc)
-    ds1=ds.rename({'longitude':'lon','latitude':'lat'})
-    dr = ds1["precip"] 
-    ds_out = xr.Dataset(
-          {"lat": (["lat"], np.arange(0.0, 5.0, 0.25), {"units": "degrees_north"}),
-          "lon": (["lon"], np.arange(31.0, 36.0, 0.25), {"units": "degrees_east"}),})
-    regridder = xe.Regridder(ds1, ds_out, "bilinear")
-    regridder  # print basic regridder information.
-    dr_out = regridder(dr, keep_attrs=True)
-    ds2=dr_out.to_dataset()
-    ds2.to_netcdf('data/kmj_km25_chirps-v2.0.monthly.nc')
-    
-    
-def chrips_spi_mam_creator():
-    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
-    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
-    spi_cdb = cdb_sc.groupby('grid_cells').apply(
-        spi_wrapper,
-        precip_var='precip',
-        scale=3,
-        distribution=Distribution.gamma,
-        data_start_year=1981,
-        calibration_year_initial=1981,
-        calibration_year_final=2018,
-        periodicity=Periodicity.monthly,
-    ).unstack('grid_cells')
-    spi_cdb1=spi_cdb.to_dataset(name='spi')
-    spi_prod_list=spi3_prod_name_creator(spi_cdb1)
-    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
-    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAM', drop=True)
-    spi_cdb3.to_netcdf('output/obs/mam_kmj_km25_chirps-v2.0.monthly.nc')
-    
-    
-def chrips_spi_jjas_creator():
-    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
-    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
-    spi_cdb = cdb_sc.groupby('grid_cells').apply(
-        spi_wrapper,
-        precip_var='precip',
-        scale=4,
-        distribution=Distribution.gamma,
-        data_start_year=1981,
-        calibration_year_initial=1981,
-        calibration_year_final=2018,
-        periodicity=Periodicity.monthly,
-    ).unstack('grid_cells')
-    spi_cdb1=spi_cdb.to_dataset(name='spi')
-    spi_prod_list=spi4_prod_name_creator(spi_cdb1)
-    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
-    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='JJAS', drop=True)
-    spi_cdb3.to_netcdf('output/obs/jjas_kmj_km25_chirps-v2.0.monthly.nc')
-    
-    
-    
-def chrips_spi_mamjja_creator():
-    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
-    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
-    spi_cdb = cdb_sc.groupby('grid_cells').apply(
-        spi_wrapper,
-        precip_var='precip',
-        scale=6,
-        distribution=Distribution.gamma,
-        data_start_year=1981,
-        calibration_year_initial=1981,
-        calibration_year_final=2018,
-        periodicity=Periodicity.monthly,
-    ).unstack('grid_cells')
-    spi_cdb1=spi_cdb.to_dataset(name='spi')
-    spi_prod_list=spi4_prod_name_creator(spi_cdb1)
-    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
-    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAMJJA', drop=True)
-    print(spi_cdb2)
-    spi_cdb3.to_netcdf('output/obs/mamjja_kmj_km25_chirps-v2.0.monthly.nc')
-    
-    
-def chrips_spi_amjjas_creator():
-    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
-    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
-    spi_cdb = cdb_sc.groupby('grid_cells').apply(
-        spi_wrapper,
-        precip_var='precip',
-        scale=6,
-        distribution=Distribution.gamma,
-        data_start_year=1981,
-        calibration_year_initial=1981,
-        calibration_year_final=2018,
-        periodicity=Periodicity.monthly,
-    ).unstack('grid_cells')
-    spi_cdb1=spi_cdb.to_dataset(name='spi')
-    spi_prod_list=spi6_prod_name_creator(spi_cdb1)
-    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
-    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='AMJJAS', drop=True)
-    spi_cdb3.to_netcdf('output/obs/amjjas_kmj_km25_chirps-v2.0.monthly.nc')
-    
-def chrips_spi_amjjas_creator_a():
-    cdb=xr.open_dataset('data/kmj_km25_chirps-v2.0.monthly.nc')
-    cdb_sc = cdb.stack(grid_cells=('lat', 'lon',))
-    spi_cdb = cdb_sc.groupby('grid_cells').apply(
-        spi_wrapper,
-        precip_var='precip',
-        scale=6,
-        distribution=Distribution.gamma,
-        data_start_year=1981,
-        calibration_year_initial=1981,
-        calibration_year_final=2018,
-        periodicity=Periodicity.monthly,
-    ).unstack('grid_cells')
-    spi_cdb1=spi_cdb.to_dataset(name='spi')
-    spi_prod_list=spi6_prod_name_creator(spi_cdb1)
-    spi_cdb2 = spi_cdb1.assign_coords(spi_prod=('time',spi_prod_list))
-    spi_cdb3=spi_cdb2.where(spi_cdb2.spi_prod=='MAMJJA', drop=True)
-    spi_cdb3.to_netcdf('output/obs/mamjja_kmj_km25_chirps-v2.0.monthly.nc')
+            spi_ds1.to_netcdf(f'{ens_output_path}/{meml}.nc')    
     
     
 #%% spi probablity ncfile creator
 
-def excprob(X, X_thr, ignore_nan=False):
-    """
-    For a given forecast ensemble field, compute exceedance probabilities
-    for the given intensity thresholds.
-    Parameters
-    ----------
-    X: array_like
-        Array of shape (k, m, n, ...) containing an k-member ensemble of
-        forecasts with shape (m, n, ...).
-    X_thr: float or a sequence of floats
-        Intensity threshold(s) for which the exceedance probabilities are
-        computed.
-    ignore_nan: bool
-        If True, ignore nan values.
-    Returns
-    -------
-    out: ndarray
-        Array of shape (len(X_thr), m, n) containing the exceedance
-        probabilities for the given intensity thresholds.
-        If len(X_thr)=1, the first dimension is dropped.
-        
-    https://github.com/pySTEPS/pysteps/blob/master/pysteps/postprocessing/ensemblestats.py
-    """
-    #  Checks
-    X = np.asanyarray(X)
-    X_ndim = X.ndim
-
-    if X_ndim < 3:
-        raise Exception(
-            f"Number of dimensions of X should be 3 or more. It was: {X_ndim}"
-        )
-
-    P = []
-
-    if np.isscalar(X_thr):
-        X_thr = [X_thr]
-        scalar_thr = True
-    else:
-        scalar_thr = False
-
-    for x in X_thr:
-        X_ = X.copy()
-        #original
-        #X_[X >= x] = 1.0
-        #X_[X < x] = 0.0
-        #changes to make less than threnshold
-        #based on MOZ paper method 
-        X_[X <= x] = 1.0
-        X_[X > x] = 0.0
-        X_[~np.isfinite(X)] = np.nan
-
-        if ignore_nan:
-            P.append(np.nanmean(X_, axis=0))
-        else:
-            P.append(np.mean(X_, axis=0))
-
-    if not scalar_thr:
-        return np.stack(P)
-    else:
-        return P[0]
-
-
-
-
-def ens_mem_combiner(input_path):
-    """
-    
-
-    Parameters
-    ----------
-    input_path : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    ds_ens : TYPE
-        DESCRIPTION.
-
-    """
-    member_list=np.arange(0,51,1)
-    mem_data_arrays = []
-    for mem in member_list:
-        mem_file_path=f'{input_path}{mem}.nc'
-        ds=xr.open_dataset(mem_file_path)
-        mem_data_arrays.append(ds)
-        #ds=[]
-        # concatenate list of data arrays along new dimension into xarray dataset
-    ds_ens = xr.concat(mem_data_arrays, dim='ens_mem')
-    return ds_ens
-    
-    
-    
-def spi3_prod_name_creator(ds_ens):
-    """
-    
-
-    Parameters
-    ----------
-    ds_ens : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    spi_prod_list : TYPE
-        DESCRIPTION.
-
-    """
-    db=pd.DataFrame()
-    db['dt']=ds_ens['time'].values
-    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
-    db['year']=db['dt'].dt.strftime('%Y')
-    db['spi_prod'] = db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
-    spi_prod_list=db['spi_prod'].tolist()
-    return spi_prod_list
-
-def spi4_prod_name_creator(ds_ens):
-    """
-    
-
-    Parameters
-    ----------
-    ds_ens : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    spi_prod_list : TYPE
-        DESCRIPTION.
-
-    """
-    db=pd.DataFrame()
-    db['dt']=ds_ens['time'].values
-    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
-    db['year']=db['dt'].dt.strftime('%Y')
-    db['spi_prod'] = db.groupby('year')['month'].shift(3)+db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
-    spi_prod_list=db['spi_prod'].tolist()
-    return spi_prod_list
-
-
-
-def spi6_prod_name_creator(ds_ens):
-    """
-    
-
-    Parameters
-    ----------
-    ds_ens : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    spi_prod_list : TYPE
-        DESCRIPTION.
-
-    """
-    db=pd.DataFrame()
-    db['dt']=ds_ens['time'].values
-    db['month']=db['dt'].dt.strftime('%b').astype(str).str[0]
-    db['year']=db['dt'].dt.strftime('%Y')
-    db['spi_prod'] = db.groupby('year')['month'].shift(5)+db.groupby('year')['month'].shift(4)+db.groupby('year')['month'].shift(3)+db.groupby('year')['month'].shift(2)+db.groupby('year')['month'].shift(1) + db.groupby('year')['month'].shift(0)
-    spi_prod_list=db['spi_prod'].tolist()
-    return spi_prod_list
-
-    
-    
-
 def ds_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     """
+    Given a spi ensmble data frame, this function generate 
+    emprical porbablity by counting number of ensembles exceeding below 
+    the threshold and diveded by total number of ensemble forecast.
+    
+    Using the function excprob, which is supplied with list of threshold
+    values and a ensemble datafram, which returns the count of dataarray 
+    in ensemble dataframe for every threshold given in the threshold list
+    
+    This function works as a wrapper for excprob and returns three set of
+    dataarray with emprical probablity calculated on it.  
     
 
     Parameters
     ----------
-    spi_ds_ens : TYPE
-        DESCRIPTION.
-    month : TYPE
-        DESCRIPTION.
-    threshold : TYPE
-        DESCRIPTION.
+    spi_ds_ens : xarray dataframe
+        Ensemble dataframe with SPI values.
+    month : Int
+        Integer which represent the month to filter the SPI product.
+    threshold : List of thresholds in float
+        List of values having thresholds for low, medium and high.
 
     Returns
     -------
-    cont_data_xds_mild1 : TYPE
-        DESCRIPTION.
-    cont_data_xds_moderate1 : TYPE
-        DESCRIPTION.
-    cont_data_xds_severe1 : TYPE
-        DESCRIPTION.
+    cont_data_xds_mild1 : dataarray
+        Data array having emprical probablity for low.
+    cont_data_xds_moderate1 : dataarray
+        Data array having emprical probablity for medium.
+    cont_data_xds_severe1 : dataarray
+        Data array having emprical probablity for high.
 
     """
     start_dt=spi_ds_ens['valid_time'].values[0]
@@ -706,6 +756,21 @@ def ds_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     
 
 def spi3_prob_ncfile_creator(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_emprical_prbablity_creator
+    Creates SPI3 emprical probablity netcdf output for low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='mam'
     lt_month=['nov','dec','jan','feb']
     threshold=[-0.03, -0.56,-0.99]
@@ -727,6 +792,21 @@ def spi3_prob_ncfile_creator(output_path):
         
         
 def spi4_prob_ncfile_creator(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_emprical_prbablity_creator
+    Creates SPI4 emprical probablity netcdf output for low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='jjas'
     lt_month=['mar','apr','may']
     threshold=[-0.01, -0.41,-0.99]
@@ -747,6 +827,21 @@ def spi4_prob_ncfile_creator(output_path):
         
         
 def spi6_prob_ncfile_creator_a(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_emprical_prbablity_creator
+    Creates SPI6 MAMJJA emprical probablity netcdf output for low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='mamjja'
     lt_month=['feb']
     threshold=[-0.02, -0.38,-1.01]
@@ -767,6 +862,21 @@ def spi6_prob_ncfile_creator_a(output_path):
         
         
 def spi6_prob_ncfile_creator_b(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_emprical_prbablity_creator
+    Creates SPI6 AMJJAS emprical probablity netcdf output for low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='amjjas'
     lt_month=['mar']
     threshold=[-0.02, -0.38,-1.01]
@@ -790,26 +900,35 @@ def spi6_prob_ncfile_creator_b(output_path):
 
 def ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     """
+    Given a spi ensmble data frame, this function generate 
+    number counts of ensembles exceeding below 
+    the threshold and average only those ensmbles exceeded thresholds.
+    
+    This output is used for doing metrices computation for different
+    thresholds of low, mid, high and different SPI product to compare
+    with CHRIPS observation data and carry out stas metrics.
+    
+    This function works as a wrapper for excprob and returns three set of
+    dataarray with average of ensemble forecasts exceeding thresholds.
     
 
     Parameters
     ----------
-    spi_ds_ens : TYPE
-        DESCRIPTION.
-    month : TYPE
-        DESCRIPTION.
-    threshold : TYPE
-        DESCRIPTION.
+    spi_ds_ens : xarray dataframe
+        Ensemble dataframe with SPI values.
+    month : Int
+        Integer which represent the month to filter the SPI product.
+    threshold : List of thresholds in float
+        List of values having thresholds for low, medium and high.
 
     Returns
     -------
-    cont_data_xds_mild1 : TYPE
-        DESCRIPTION.
-    cont_data_xds_moderate1 : TYPE
-        DESCRIPTION.
-    cont_data_xds_severe1 : TYPE
-        DESCRIPTION.
-
+    cont_data_xds_mild1 : dataarray
+        Data array having mean of ensemlbe forecasts exceeding threshold for low.
+    cont_data_xds_moderate1 : dataarray
+        Data array having mean of ensemlbe forecasts exceeding threshold for mid.
+    cont_data_xds_severe1 : dataarray
+        Data array having mean of ensemlbe forecasts exceeding threshold for high.
     """
     start_dt=spi_ds_ens['valid_time'].values[0]
     end_dt=spi_ds_ens['valid_time'].values[-1]
@@ -859,6 +978,21 @@ def ds_spi_mean_emprical_prbablity_creator(spi_ds_ens,month,threshold):
     
 
 def spi3_mean_ncfile_creator(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_spi_mean_emprical_prbablity_creator
+    Creates netcdf output for SPI3 MAM average/mean of ensemble forecasts exceeded low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='mam'
     lt_month=['nov','dec','jan','feb']
     threshold=[-0.03, -0.56,-0.99]
@@ -880,6 +1014,21 @@ def spi3_mean_ncfile_creator(output_path):
         
         
 def spi4_mean_ncfile_creator(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_spi_mean_emprical_prbablity_creator
+    Creates netcdf output for SPI4 JJAS average/mean of ensemble forecasts exceeded low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='jjas'
     lt_month=['mar','apr','may']
     threshold=[-0.01, -0.41,-0.99]
@@ -900,6 +1049,21 @@ def spi4_mean_ncfile_creator(output_path):
         
         
 def spi6_mean_ncfile_creator_a(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_spi_mean_emprical_prbablity_creator
+    Creates netcdf output for SPI6 MAMJJA average/mean of ensemble forecasts exceeded low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='mamjja'
     lt_month=['feb']
     threshold=[-0.02, -0.38,-1.01]
@@ -920,6 +1084,21 @@ def spi6_mean_ncfile_creator_a(output_path):
         
         
 def spi6_mean_ncfile_creator_b(output_path):
+    """
+        
+    Wrapper for functions ens_mem_combiner, excprob, ds_spi_mean_emprical_prbablity_creator
+    Creates netcdf output for SPI6 AMJJAS average/mean of ensemble forecasts exceeded low, mid, high
+    thresholds.
+    Parameters
+    ----------
+    output_path : File path
+        location to save the netcdf files.
+
+    Returns
+    -------
+    Saves netcdf files for low, mid, high thresholds.
+
+    """
     spi_prod='amjjas'
     lt_month=['mar']
     threshold=[-0.02, -0.38,-1.01]
