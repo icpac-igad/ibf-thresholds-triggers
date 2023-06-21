@@ -2,26 +2,33 @@
 # -*- coding: utf-8 -*-
 
 import os
-import regionmask
 import numpy as np
-import cartopy.crs as ccrs
-import geopandas as gp
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
-import numpy as np
-
 from mpl_toolkits.axes_grid1 import ImageGrid
-import numpy as np
-
-import numpy as np
-import xarray as xr
-
 import pandas as pd
-import xskillscore as xs
+import xarray as xr
+import cartopy.crs as ccrs
+import geopandas as gp
 
+import xskillscore as xs
+import regionmask
 import collections
 
+#%% common functions
+
 def kmj_mask_creator():
+    """
+    
+
+    Returns
+    -------
+    the_mask : TYPE
+        DESCRIPTION.
+    rl_dict : TYPE
+        DESCRIPTION.
+
+    """
     dis=gp.read_file('data/Karamoja_9_districts.shp')
     reg=gp.read_file('data/Karamoja_boundary_dissolved.shp')
     mds=pd.concat([dis,reg])
@@ -34,6 +41,7 @@ def kmj_mask_creator():
     return the_mask, rl_dict
 
 
+#%% probablity exceedance plots utilitiy functions
         
         
 def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
@@ -160,6 +168,19 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_d
     plt.savefig(f'output/prob_plot/{region_idx}_{spi_prod}_{lt_month}.png',bbox_inches='tight')
     
 def legend_maker(laxes):
+    """
+    
+
+    Parameters
+    ----------
+    laxes : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
     square6=plt.Rectangle((0.4, 0.1), 0.25, 0.15,color='#ffff00', clip_on=False)
     laxes.add_artist(square6)
     square5=plt.Rectangle((0.75, 0.1), 0.25, 0.15,color='#ffa500', clip_on=False)
@@ -224,6 +245,21 @@ def stitch_plots(image_folder,spi_prod,lt_month):
     
     
 def plot_prob(spi_prod,lt_month):
+    """
+    
+
+    Parameters
+    ----------
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
     the_mask, rl_dict=kmj_mask_creator()
     ncfile_path='output/prob/'
     #spi_prod='mam'
@@ -235,6 +271,8 @@ def plot_prob(spi_prod,lt_month):
     image_folder='output/prob_plot/'
     stitch_plots(image_folder,spi_prod,lt_month)
     
+#%% csv file creator for probablity of exceedance     
+
 def prob_exceed_csv(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
     """
     https://stackoverflow.com/questions/29766827/matplotlib-make-axis-ticks-label-for-dates-bold
@@ -313,6 +351,21 @@ def prob_exceed_csv(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
     
     
 def csv_prob(spi_prod,lt_month):
+    """
+    
+
+    Parameters
+    ----------
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
     the_mask, rl_dict=kmj_mask_creator()
     ncfile_path='output/prob/'
     #spi_prod='mam'
@@ -327,9 +380,11 @@ def csv_prob(spi_prod,lt_month):
     cont1.to_csv(f'output/prob_csv/{spi_prod}_{lt_month}.csv',index=False)
     
 
+#%% utilitiy function for stat metrices, create contigency table, apply statt metrices   
         
 def det_cat_fct_init(thr, axis=None):
     """
+    function from https://github.com/pySTEPS/pysteps/blob/master/pysteps/verification/detcatscores.py
     Initialize a contingency table object.
     Parameters
     ----------
@@ -435,10 +490,25 @@ def det_cat_fct_accum(contab, pred, obs):
 
     
 def get_iterable(x):
-        if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
-            return x
-        else:
-            return (x,)    
+    """
+    Helper function for stat metrics, copied from 
+    https://github.com/pySTEPS/pysteps/blob/master/pysteps/verification/detcatscores.py
+
+    Parameters
+    ----------
+    x : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    x : TYPE
+        DESCRIPTION.
+
+    """
+    if isinstance(x, collections.abc.Iterable) and not isinstance(x, str):
+        return x
+    else:
+        return (x,)    
 
     
 def det_cat_fct_compute(contab, scores=""):
@@ -565,6 +635,34 @@ def det_cat_fct_compute(contab, scores=""):
 
 
 def verif_cont_stats(spi_prod,lt_month,thr_str,thr_val,the_mask,region_idx,rl_dict):
+    """
+    Funtion to do the stat metrics, supply the functin with name of spi product,
+    lead month, threshold string to open the forcast netcdf file and obseration
+    netcdf file. 
+
+    Parameters
+    ----------
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+    thr_str : TYPE
+        DESCRIPTION.
+    thr_val : TYPE
+        DESCRIPTION.
+    the_mask : TYPE
+        DESCRIPTION.
+    region_idx : TYPE
+        DESCRIPTION.
+    rl_dict : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    db : TYPE
+        DESCRIPTION.
+
+    """
     obs_w=xr.open_dataset(f'output/obs/{spi_prod}_kmj_km25_chirps-v2.0.monthly.nc')
     end_dt=obs_w['time'].values[-1]    
     fct_w=xr.open_dataset(f'output/mean_spi/{spi_prod}_{lt_month}_{thr_str}.nc')
@@ -609,6 +707,23 @@ def verif_cont_stats(spi_prod,lt_month,thr_str,thr_val,the_mask,region_idx,rl_di
 
 
 def metrics_csv(spi_prod,lt_month,thr_val_list):
+    """
+    
+
+    Parameters
+    ----------
+    spi_prod : TYPE
+        DESCRIPTION.
+    lt_month : TYPE
+        DESCRIPTION.
+    thr_val_list : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
     the_mask, rl_dict=kmj_mask_creator()
     ridx_list=[0,1,2,3,4,5,6,7,8,9]
     thr_str_list=['low','mid','high']
