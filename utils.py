@@ -19,7 +19,7 @@ import collections
 
 def kmj_mask_creator():
     """
-    
+    Utiliity for generating region/district masks using regionmask library
 
     Returns
     -------
@@ -46,6 +46,7 @@ def kmj_mask_creator():
         
 def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_dict):
     """
+    Plot probablity exceed for the period 1981-2023 for a single region/district
     https://stackoverflow.com/questions/29766827/matplotlib-make-axis-ticks-label-for-dates-bold
 
     Parameters
@@ -169,7 +170,7 @@ def prob_exceed_year_plot(ncfile_path,spi_prod,lt_month,the_mask,region_idx,rl_d
     
 def legend_maker(laxes):
     """
-    
+    Helper function to make probality plot legends after the multi region is stiched
 
     Parameters
     ----------
@@ -195,6 +196,8 @@ def legend_maker(laxes):
     
 def stitch_plots(image_folder,spi_prod,lt_month):
     """
+    Stciches the multi region plots(9 indipendant plots) into a single plot
+    
     https://matplotlib.org/stable/gallery/axes_grid1/simple_axesgrid.html
 
     Parameters

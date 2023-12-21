@@ -292,6 +292,17 @@ def final_des(db):
 
 
 def all_var_except_thre_string_maker():
+    """
+    Simple function to get all the combination strings of spi product, its lead time for
+    every region/district
+
+    Returns
+    -------
+    db : dataframe
+        A dataframe with 90 rows from 10 spi products, lead time 
+        combination X 9 region/district.
+
+    """
     spi_prod_list=['mam','jjas','mamjja','amjjas']
     spi_prod={'mam':['nov','dec','jan','feb'],'jjas':['mar','apr','may'],'mamjja':['feb'],'amjjas':['mar']}
     # fl_name=[]

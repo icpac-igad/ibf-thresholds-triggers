@@ -6,9 +6,10 @@ Created on Mon Jun 12 08:30:16 2023
 @author: bulbul
 """
 
+import pandas as pd
+
 from utils_tables import metric_db
 from utils_tables import prob_db
-import pandas as pd
 from utils_tables import thres_db_maker
 
 from utils_tables import far_pod_table_all
