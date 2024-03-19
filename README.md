@@ -9,3 +9,5 @@ and select triggers for AA.
 4. 04-dichotomous-contingency-scores, set of functions to carry out dichotomous contingency based scores
 5. 05-trigger-decisions-tableplot, methods for to filter tested triggers with suitable scores to be used for AA
 6. 06-plot-table, table plots of selected triggers with FAR and POD scores
+
+Each notebooks has documentation on the steps and methods used. 
