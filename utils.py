@@ -508,73 +508,73 @@ def emprical_probablity(ens_data, threshold_dict):
     return fct_mod, fct_sev, fct_ext
 
 
-def mean_emp_prob(fct_mod, fct_sev, fct_ext):
+def mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
     fct_mod_mean = fct_mod.mean(dim=["lat", "lon"])
     fct_mod_df = fct_mod_mean.to_dataframe().reset_index()
-    fct_mod_df1 = fct_mod_df[["valid_time", "spi3"]]
+    fct_mod_df1 = fct_mod_df[["valid_time", spi_string_name]]
     fct_mod_df1 = fct_mod_df1.assign(cat="mod")
     fct_sev_mean = fct_sev.mean(dim=["lat", "lon"])
     fct_sev_df = fct_sev_mean.to_dataframe().reset_index()
-    fct_sev_df1 = fct_sev_df[["valid_time", "spi3"]]
+    fct_sev_df1 = fct_sev_df[["valid_time", spi_string_name]]
     fct_sev_df1 = fct_sev_df1.assign(cat="sev")
     fct_ext_mean = fct_ext.mean(dim=["lat", "lon"])
     fct_ext_df = fct_ext_mean.to_dataframe().reset_index()
-    fct_ext_df1 = fct_ext_df[["valid_time", "spi3"]]
+    fct_ext_df1 = fct_ext_df[["valid_time", spi_string_name]]
     fct_ext_df1 = fct_ext_df1.assign(cat="ext")
     wdf = pd.concat([fct_mod_df1, fct_sev_df1, fct_ext_df1])
     wdf["year0"] = wdf["valid_time"].apply(
         lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
     )
     wdf["year"] = wdf["year0"].dt.strftime("%Y")
-    wdf1 = wdf[["spi3", "cat", "year"]]
+    wdf1 = wdf[[spi_string_name, "cat", "year"]]
     return wdf1
 
 
-def min_emp_prob(fct_mod, fct_sev, fct_ext):
+def min_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
     fct_mod_mean = fct_mod.min(dim=["lat", "lon"])
     fct_mod_df = fct_mod_mean.to_dataframe().reset_index()
-    fct_mod_df1 = fct_mod_df[["valid_time", "spi3"]]
+    fct_mod_df1 = fct_mod_df[["valid_time", spi_string_name]]
     fct_mod_df1 = fct_mod_df1.assign(cat="mod")
     fct_sev_mean = fct_sev.min(dim=["lat", "lon"])
     fct_sev_df = fct_sev_mean.to_dataframe().reset_index()
-    fct_sev_df1 = fct_sev_df[["valid_time", "spi3"]]
+    fct_sev_df1 = fct_sev_df[["valid_time", spi_string_name]]
     fct_sev_df1 = fct_sev_df1.assign(cat="sev")
     fct_ext_mean = fct_ext.min(dim=["lat", "lon"])
     fct_ext_df = fct_ext_mean.to_dataframe().reset_index()
-    fct_ext_df1 = fct_ext_df[["valid_time", "spi3"]]
+    fct_ext_df1 = fct_ext_df[["valid_time", spi_string_name]]
     fct_ext_df1 = fct_ext_df1.assign(cat="ext")
     wdf = pd.concat([fct_mod_df1, fct_sev_df1, fct_ext_df1])
     wdf["year0"] = wdf["valid_time"].apply(
         lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
     )
     wdf["year"] = wdf["year0"].dt.strftime("%Y")
-    wdf1 = wdf[["spi3", "cat", "year"]]
+    wdf1 = wdf[[spi_string_name, "cat", "year"]]
     return wdf1
 
 
-def max_emp_prob(fct_mod, fct_sev, fct_ext):
+def max_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
     fct_mod_max = fct_mod.max(dim=["lat", "lon"])
     fct_mod_df = fct_mod_max.to_dataframe().reset_index()
-    fct_mod_df1 = fct_mod_df[["valid_time", "spi3"]]
+    fct_mod_df1 = fct_mod_df[["valid_time", spi_string_name]]
     fct_mod_df1 = fct_mod_df1.assign(cat="mod")
     fct_sev_max = fct_sev.max(dim=["lat", "lon"])
     fct_sev_df = fct_sev_max.to_dataframe().reset_index()
-    fct_sev_df1 = fct_sev_df[["valid_time", "spi3"]]
+    fct_sev_df1 = fct_sev_df[["valid_time", spi_string_name]]
     fct_sev_df1 = fct_sev_df1.assign(cat="sev")
     fct_ext_max = fct_ext.max(dim=["lat", "lon"])
     fct_ext_df = fct_ext_max.to_dataframe().reset_index()
-    fct_ext_df1 = fct_ext_df[["valid_time", "spi3"]]
+    fct_ext_df1 = fct_ext_df[["valid_time", spi_string_name]]
     fct_ext_df1 = fct_ext_df1.assign(cat="ext")
     wdf = pd.concat([fct_mod_df1, fct_sev_df1, fct_ext_df1])
     wdf["year0"] = wdf["valid_time"].apply(
         lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
     )
     wdf["year"] = wdf["year0"].dt.strftime("%Y")
-    wdf1 = wdf[["spi3", "cat", "year"]]
+    wdf1 = wdf[[spi_string_name, "cat", "year"]]
     return wdf1
 
 
-def ep_process_data(region_id, season_str, lead_int):
+def ep_process_data(region_id, season_str, lead_int, spi_string_name):
     sc_season_str = season_str.lower()
     threshold_dict = get_threshold(region_id, sc_season_str)
     obs_data, ens_data, a_fc, a_obs = make_obs_fct_dataset(
@@ -582,13 +582,85 @@ def ep_process_data(region_id, season_str, lead_int):
     )
     fct_mod, fct_sev, fct_ext = emprical_probablity(ens_data, threshold_dict)
 
-    df_mn = mean_emp_prob(fct_mod, fct_sev, fct_ext)
+    df_mn = mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
     df_mn = df_mn.assign(subset="mean", lt=str(lead_int))
 
-    df_mi = min_emp_prob(fct_mod, fct_sev, fct_ext)
+    df_mi = min_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
     df_mi = df_mi.assign(subset="min", lt=str(lead_int))
 
-    df_mx = max_emp_prob(fct_mod, fct_sev, fct_ext)
+    df_mx = max_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
     df_mx = df_mx.assign(subset="max", lt=str(lead_int))
 
     return df_mn, df_mi, df_mx
+
+
+def compute_metrics(obs_data, ens_data, df):
+    obs_times = pd.to_datetime(obs_data["time"].values)
+    cftime_dates = ens_data["valid_time"].values
+    numpy_dates = np.array([np.datetime64(date.isoformat()) for date in cftime_dates])
+    ens_data = ens_data.assign_coords(
+        valid_time=(ens_data["valid_time"].dims, numpy_dates)
+    )
+    fct_times = pd.to_datetime(ens_data["valid_time"].values)
+
+    for idx, row in df.iterrows():
+        print(idx, row["year"])
+        obs_edges = np.array(row["cat_value"])
+        fct_edges = np.array(row["tr_be"])
+        obs_mask = obs_times.year == int(row["year"])
+        fct_mask = fct_times.year == int(row["year"])
+
+        multicategory_contingency = xs.Contingency(
+            obs_data.isel(time=obs_mask),
+            ens_data.isel(init=fct_mask),
+            obs_edges,
+            fct_edges,
+            dim=["lat", "lon", "member"],
+        )
+
+        df.at[idx, "metric_time"] = multicategory_contingency.heidke_score()[
+            "time"
+        ].values
+        df.at[idx, "heidke_score"] = multicategory_contingency.heidke_score().values
+        df.at[idx, "bias_score"] = multicategory_contingency.bias_score().values
+        df.at[idx, "hit_rate"] = multicategory_contingency.hit_rate().values
+        df.at[
+            idx, "false_alarm_ratio"
+        ] = multicategory_contingency.false_alarm_ratio().values
+        df.at[idx, "peirce_score"] = multicategory_contingency.peirce_score().values
+
+    return df
+
+
+def metrices_process_data(region_id, season_str, lead_int, spi_string_name):
+    sc_season_str = season_str.lower()
+    threshold_dict = get_threshold(region_id, sc_season_str)
+    obs_be = get_thresholds_bin_edges(
+        threshold_dict, lowest_bound=-4.0, highest_bound=4.0
+    )
+    obs_data, ens_data, a_fc, a_obs = make_obs_fct_dataset(
+        region_id, season_str, lead_int
+    )
+    fct_mod, fct_sev, fct_ext = emprical_probablity(ens_data, threshold_dict)
+
+    df_mn = mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
+    df_mn = df_mn.assign(subset="mean", lt=str(lead_int))
+    df_mn["tr_be"] = df_mn[spi_string_name].apply(lambda x: [x - 0.01, x, x + 0.01])
+    cat_df = pd.DataFrame({"cat": ["ext", "sev", "mod"], "cat_value": obs_be})
+    df_mn = pd.merge(df_mn, cat_df, on="cat")
+    mdf_mn = compute_metrics(obs_data, ens_data, df_mn)
+
+    df_mi = min_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
+    df_mi = df_mi.assign(subset="min", lt=str(lead_int))
+    df_mi["tr_be"] = df_mi[spi_string_name].apply(lambda x: [x - 0.01, x, x + 0.01])
+    cat_df = pd.DataFrame({"cat": ["ext", "sev", "mod"], "cat_value": obs_be})
+    df_mi = pd.merge(df_mi, cat_df, on="cat")
+    mdf_mi = compute_metrics(obs_data, ens_data, df_mi)
+
+    df_mx = max_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
+    df_mx = df_mx.assign(subset="max", lt=str(lead_int))
+    df_mx["tr_be"] = df_mx[spi_string_name].apply(lambda x: [x - 0.01, x, x + 0.01])
+    cat_df = pd.DataFrame({"cat": ["ext", "sev", "mod"], "cat_value": obs_be})
+    df_mx = pd.merge(df_mx, cat_df, on="cat")
+    mdf_mx = compute_metrics(obs_data, ens_data, df_mx)
+    return mdf_mn, mdf_mi, mdf_mx

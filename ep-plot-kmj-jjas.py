@@ -14,13 +14,15 @@ from utils import ep_process_data
 
 region_id = 0
 season_str = "JJAS"
-
+spi_string_name = "spi4"
 dfs_mn = []
 dfs_mi = []
 dfs_mx = []
 
 for lead_int in range(6):
-    df_mn, df_mi, df_mx = ep_process_data(region_id, season_str, lead_int)
+    df_mn, df_mi, df_mx = ep_process_data(
+        region_id, season_str, lead_int, spi_string_name
+    )
     dfs_mn.append(df_mn)
     dfs_mi.append(df_mi)
     dfs_mx.append(df_mx)
@@ -31,7 +33,8 @@ df_mi_final = pd.concat(dfs_mi, ignore_index=True)
 df_mx_final = pd.concat(dfs_mx, ignore_index=True)
 
 df = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-df["spi3p"] = df["spi3"] * 100
+df["percentage_spi"] = df[spi_string_name] * 100
+
 
 row_annotations = [
     alt.Chart(pd.DataFrame({"text": ["lt=0"]}))
@@ -78,7 +81,7 @@ base_plot = (
     .mark_area()
     .encode(
         x=alt.X("year:N", axis=alt.Axis(labelAngle=90)),
-        y=alt.Y("spi3p:Q", title="Probablity (%)", stack=None),
+        y=alt.Y("percentage_spi:Q", title="Probablity (%)", stack=None),
         color=alt.Color("cat:N", scale=alt.Scale(scheme="category10")),
     )
     .properties(width=400, height=200)
@@ -173,4 +176,6 @@ panels.configure_view(stroke=None).configure_axisY(
 )
 
 
-panels.save("ep-kmj-jjas.pdf")
+# panels.save("ep-kmj-jjas.pdf")
+
+panels.save(f"{region_id}-{season_str}.pdf")
