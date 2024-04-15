@@ -602,33 +602,29 @@ def compute_metrics(obs_data, ens_data, df):
         valid_time=(ens_data["valid_time"].dims, numpy_dates)
     )
     fct_times = pd.to_datetime(ens_data["valid_time"].values)
-
+    masked_obs_data=obs_data.isel(time=obs_mask)
+    masked_fct_data=ens_data.isel(init=fct_mask)
+    if masked_obs_data.sizes['time'] == 0 or masked_fct_data.sizes['init'] == 0:
+        pass
+    else:
     for idx, row in df.iterrows():
-        print(idx, row["year"])
+        # print(idx, row["year"])
         obs_edges = np.array(row["cat_value"])
         fct_edges = np.array(row["tr_be"])
         obs_mask = obs_times.year == int(row["year"])
         fct_mask = fct_times.year == int(row["year"])
-
-        multicategory_contingency = xs.Contingency(
-            obs_data.isel(time=obs_mask),
-            ens_data.isel(init=fct_mask),
-            obs_edges,
-            fct_edges,
-            dim=["lat", "lon", "member"],
-        )
-
-        df.at[idx, "metric_time"] = multicategory_contingency.heidke_score()[
-            "time"
-        ].values
-        df.at[idx, "heidke_score"] = multicategory_contingency.heidke_score().values
-        df.at[idx, "bias_score"] = multicategory_contingency.bias_score().values
-        df.at[idx, "hit_rate"] = multicategory_contingency.hit_rate().values
-        df.at[
-            idx, "false_alarm_ratio"
-        ] = multicategory_contingency.false_alarm_ratio().values
-        df.at[idx, "peirce_score"] = multicategory_contingency.peirce_score().values
-
+        masked_obs_data=obs_data.isel(time=obs_mask)
+        masked_fct_data=ens_data.isel(init=fct_mask) 
+        if masked_obs_data.sizes['time'] == 0 or masked_fct_data.sizes['init'] == 0:
+           pass
+        else:
+           multicategory_contingency = xs.Contingency(masked_obs_data, masked_fct_data, obs_edges, fct_edges, dim=["lat","lon","member"])
+           df.at[idx,'metric_time']=multicategory_contingency.heidke_score()['time'].values
+           df.at[idx, 'heidke_score'] = multicategory_contingency.heidke_score().values
+           df.at[idx, 'bias_score']=multicategory_contingency.bias_score().values
+           df.at[idx, 'hit_rate']=multicategory_contingency.hit_rate().values
+           df.at[idx, 'false_alarm_ratio']=multicategory_contingency.false_alarm_ratio().values
+           df.at[idx, 'peirce_score']=multicategory_contingency.peirce_score().values
     return df
 
 
@@ -664,3 +660,156 @@ def metrices_process_data(region_id, season_str, lead_int, spi_string_name):
     df_mx = pd.merge(df_mx, cat_df, on="cat")
     mdf_mx = compute_metrics(obs_data, ens_data, df_mx)
     return mdf_mn, mdf_mi, mdf_mx
+
+
+def temp_kimwa_metrices():
+    region_id = 0
+    season_str = "MAM"
+    spi_string_name = "spi3"
+    dfs_mn = []
+    dfs_mi = []
+    dfs_mx = []
+    for lead_int in range(6):
+        df_mn, df_mi, df_mx = metrices_process_data(
+            region_id, season_str, lead_int, spi_string_name
+        )
+        dfs_mn.append(df_mn)
+        dfs_mi.append(df_mi)
+        dfs_mx.append(df_mx)
+        print(f"done on {lead_int}")
+    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
+    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
+    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
+    df_kmj_mam = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
+    df_kmj_mam["percentage_spi"] = df_kmj_mam[spi_string_name] * 100
+    df_kmj_mam = df_kmj_mam.assign(
+        region_id=region_id, season=season_str, spi_name=spi_string_name
+    )
+    df_mn_final, df_mi_final, df_mx_final = [], [], []
+    print(f"{region_id}-{season_str}-{spi_string_name}")
+
+    region_id = 0
+    season_str = "JJAS"
+    spi_string_name = "spi4"
+    dfs_mn = []
+    dfs_mi = []
+    dfs_mx = []
+    for lead_int in range(6):
+        df_mn, df_mi, df_mx = metrices_process_data(
+            region_id, season_str, lead_int, spi_string_name
+        )
+        dfs_mn.append(df_mn)
+        dfs_mi.append(df_mi)
+        dfs_mx.append(df_mx)
+    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
+    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
+    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
+    df_kmj_jjas = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
+    df_kmj_jjas["percentage_spi"] = df_kmj_jjas[spi_string_name] * 100
+    df_kmj_jjas = df_kmj_mam.assign(
+        region_id=region_id, season=season_str, spi_name=spi_string_name
+    )
+    df_mn_final, df_mi_final, df_mx_final = [], [], []
+    print(f"{region_id}-{season_str}-{spi_string_name}")
+
+    region_id = 1
+    season_str = "MAM"
+    spi_string_name = "spi3"
+    dfs_mn = []
+    dfs_mi = []
+    dfs_mx = []
+    for lead_int in range(6):
+        df_mn, df_mi, df_mx = metrices_process_data(
+            region_id, season_str, lead_int, spi_string_name
+        )
+        dfs_mn.append(df_mn)
+        dfs_mi.append(df_mi)
+        dfs_mx.append(df_mx)
+    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
+    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
+    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
+    df_mbt_mam = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
+    df_mbt_mam["percentage_spi"] = df_mbt_mam[spi_string_name] * 100
+    df_mbt_mam = df_mbt_mam.assign(
+        region_id=region_id, season=season_str, spi_name=spi_string_name
+    )
+    df_mn_final, df_mi_final, df_mx_final = [], [], []
+    print(f"{region_id}-{season_str}-{spi_string_name}")
+
+    region_id = 1
+    season_str = "OND"
+    spi_string_name = "spi3"
+    dfs_mn = []
+    dfs_mi = []
+    dfs_mx = []
+    for lead_int in range(6):
+        df_mn, df_mi, df_mx = metrices_process_data(
+            region_id, season_str, lead_int, spi_string_name
+        )
+        dfs_mn.append(df_mn)
+        dfs_mi.append(df_mi)
+        dfs_mx.append(df_mx)
+    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
+    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
+    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
+    df_mbt_ond = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
+    df_mbt_ond["percentage_spi"] = df_mbt_ond[spi_string_name] * 100
+    df_mbt_ond = df_mbt_ond.assign(
+        region_id=region_id, season=season_str, spi_name=spi_string_name
+    )
+    df_mn_final, df_mi_final, df_mx_final = [], [], []
+    print(f"{region_id}-{season_str}-{spi_string_name}")
+
+    region_id = 2
+    season_str = "MAM"
+    spi_string_name = "spi3"
+    dfs_mn = []
+    dfs_mi = []
+    dfs_mx = []
+    for lead_int in range(6):
+        df_mn, df_mi, df_mx = metrices_process_data(
+            region_id, season_str, lead_int, spi_string_name
+        )
+        dfs_mn.append(df_mn)
+        dfs_mi.append(df_mi)
+        dfs_mx.append(df_mx)
+    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
+    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
+    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
+    df_wjr_mam = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
+    df_wjr_mam["percentage_spi"] = df_wjr_mam[spi_string_name] * 100
+    df_wjr_mam = df_wjr_mam.assign(
+        region_id=region_id, season=season_str, spi_name=spi_string_name
+    )
+    df_mn_final, df_mi_final, df_mx_final = [], [], []
+    print(f"{region_id}-{season_str}-{spi_string_name}")
+
+    region_id = 2
+    season_str = "OND"
+    spi_string_name = "spi3"
+    dfs_mn = []
+    dfs_mi = []
+    dfs_mx = []
+    for lead_int in range(6):
+        df_mn, df_mi, df_mx = metrices_process_data(
+            region_id, season_str, lead_int, spi_string_name
+        )
+        dfs_mn.append(df_mn)
+        dfs_mi.append(df_mi)
+        dfs_mx.append(df_mx)
+    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
+    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
+    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
+    df_wjr_ond = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
+    df_wjr_ond["percentage_spi"] = df_wjr_ond[spi_string_name] * 100
+    df_wjr_ond = df_wjr_ond.assign(
+        region_id=region_id, season=season_str, spi_name=spi_string_name
+    )
+    df_mn_final, df_mi_final, df_mx_final = [], [], []
+    print(f"{region_id}-{season_str}-{spi_string_name}")
+
+    df = pd.concat(
+        [df_kmj_mam, df_kmj_jjas, df_mbt_mam, df_mbt_ond, df_wjr_mam, df_wjr_ond],
+        axis=0,
+    )
+    return df
