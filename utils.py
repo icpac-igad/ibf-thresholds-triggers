@@ -602,29 +602,34 @@ def compute_metrics(obs_data, ens_data, df):
         valid_time=(ens_data["valid_time"].dims, numpy_dates)
     )
     fct_times = pd.to_datetime(ens_data["valid_time"].values)
-    masked_obs_data=obs_data.isel(time=obs_mask)
-    masked_fct_data=ens_data.isel(init=fct_mask)
-    if masked_obs_data.sizes['time'] == 0 or masked_fct_data.sizes['init'] == 0:
-        pass
-    else:
     for idx, row in df.iterrows():
         # print(idx, row["year"])
         obs_edges = np.array(row["cat_value"])
         fct_edges = np.array(row["tr_be"])
         obs_mask = obs_times.year == int(row["year"])
         fct_mask = fct_times.year == int(row["year"])
-        masked_obs_data=obs_data.isel(time=obs_mask)
-        masked_fct_data=ens_data.isel(init=fct_mask) 
-        if masked_obs_data.sizes['time'] == 0 or masked_fct_data.sizes['init'] == 0:
-           pass
+        masked_obs_data = obs_data.isel(time=obs_mask)
+        masked_fct_data = ens_data.isel(init=fct_mask)
+        if masked_obs_data.sizes["time"] == 0 or masked_fct_data.sizes["init"] == 0:
+            pass
         else:
-           multicategory_contingency = xs.Contingency(masked_obs_data, masked_fct_data, obs_edges, fct_edges, dim=["lat","lon","member"])
-           df.at[idx,'metric_time']=multicategory_contingency.heidke_score()['time'].values
-           df.at[idx, 'heidke_score'] = multicategory_contingency.heidke_score().values
-           df.at[idx, 'bias_score']=multicategory_contingency.bias_score().values
-           df.at[idx, 'hit_rate']=multicategory_contingency.hit_rate().values
-           df.at[idx, 'false_alarm_ratio']=multicategory_contingency.false_alarm_ratio().values
-           df.at[idx, 'peirce_score']=multicategory_contingency.peirce_score().values
+            multicategory_contingency = xs.Contingency(
+                masked_obs_data,
+                masked_fct_data,
+                obs_edges,
+                fct_edges,
+                dim=["lat", "lon", "member"],
+            )
+            df.at[idx, "metric_time"] = multicategory_contingency.heidke_score()[
+                "time"
+            ].values
+            df.at[idx, "heidke_score"] = multicategory_contingency.heidke_score().values
+            df.at[idx, "bias_score"] = multicategory_contingency.bias_score().values
+            df.at[idx, "hit_rate"] = multicategory_contingency.hit_rate().values
+            df.at[
+                idx, "false_alarm_ratio"
+            ] = multicategory_contingency.false_alarm_ratio().values
+            df.at[idx, "peirce_score"] = multicategory_contingency.peirce_score().values
     return df
 
 
@@ -669,7 +674,7 @@ def temp_kimwa_metrices():
     dfs_mn = []
     dfs_mi = []
     dfs_mx = []
-    for lead_int in range(6):
+    for lead_int in range(5):
         df_mn, df_mi, df_mx = metrices_process_data(
             region_id, season_str, lead_int, spi_string_name
         )
@@ -694,7 +699,7 @@ def temp_kimwa_metrices():
     dfs_mn = []
     dfs_mi = []
     dfs_mx = []
-    for lead_int in range(6):
+    for lead_int in range(4):
         df_mn, df_mi, df_mx = metrices_process_data(
             region_id, season_str, lead_int, spi_string_name
         )
@@ -718,7 +723,7 @@ def temp_kimwa_metrices():
     dfs_mn = []
     dfs_mi = []
     dfs_mx = []
-    for lead_int in range(6):
+    for lead_int in range(5):
         df_mn, df_mi, df_mx = metrices_process_data(
             region_id, season_str, lead_int, spi_string_name
         )
@@ -742,7 +747,7 @@ def temp_kimwa_metrices():
     dfs_mn = []
     dfs_mi = []
     dfs_mx = []
-    for lead_int in range(6):
+    for lead_int in range(5):
         df_mn, df_mi, df_mx = metrices_process_data(
             region_id, season_str, lead_int, spi_string_name
         )
@@ -766,7 +771,7 @@ def temp_kimwa_metrices():
     dfs_mn = []
     dfs_mi = []
     dfs_mx = []
-    for lead_int in range(6):
+    for lead_int in range(5):
         df_mn, df_mi, df_mx = metrices_process_data(
             region_id, season_str, lead_int, spi_string_name
         )
@@ -790,7 +795,7 @@ def temp_kimwa_metrices():
     dfs_mn = []
     dfs_mi = []
     dfs_mx = []
-    for lead_int in range(6):
+    for lead_int in range(5):
         df_mn, df_mi, df_mx = metrices_process_data(
             region_id, season_str, lead_int, spi_string_name
         )
