@@ -643,3 +643,68 @@ def plot_data_table(data_table, stat_var):
     # set_height_for_row_except_head(mpl_table, row_height=0.125)
     var = stat_var.lower()
     plt.savefig(f"{data_path}{var}_prob.jpg", dpi=300)
+
+
+def decide_for_region_season(df, region_id, season):
+    df_no0 = df[df["lt"] != 0]
+    mask = (df_no0["lt"] == 1) & (df_no0["season"] == season)
+    df_no1 = df_no0[~mask]
+    df_no2 = df_no1[df_no1["subset"] == "mean"]
+    # db2.info()
+    df_no3 = df_no2[df_no2["region_id"] == region_id]
+    df_no4 = df_no3[df_no3["season"] == season]
+    df3 = create_new_column(df_no4)
+    df3 = df3.assign(
+        identify=df3["region_id"].astype(str)
+        + "-"
+        + df3["season"]
+        + "-"
+        + df3["new_column"]
+        + "-"
+        + df3["cat"]
+    )
+    _ = df3.drop_duplicates("identify")
+    identify_list = _["identify"].tolist()
+    d_odb = []
+    for idl in identify_list:
+        odb = df3[df3["identify"] == idl]
+        odb1 = get_subset(odb)
+        odb2 = choose_row(odb1)
+        d_odb.append(odb2)
+    ddf = pd.concat(d_odb)
+    # ddf1=ddf[ddf['region_id']==region_id]
+    # ddf2=ddf1[ddf1['season']==season]
+    return ddf
+
+
+def get_ep_for_region_season(df, region_id, season):
+    df_no0 = df[df["lt"] != 0]
+    mask = (df_no0["lt"] == 1) & (df_no0["season"] == "JJAS")
+    df_no1 = df_no0[~mask]
+    df_no2 = df_no1[df_no1["subset"] == "mean"]
+    df_no3 = df_no2[df_no2["region_id"] == region_id]
+    df_no4 = df_no3[df_no3["season"] == season]
+    df_no5 = create_new_column(df_no4)
+    df_no5 = df_no5.assign(
+        identify=df_no5["region_id"].astype(str)
+        + "-"
+        + df_no5["season"]
+        + "-"
+        + df_no5["new_column"]
+        + "-"
+        + df_no5["cat"]
+    )
+    return df_no5
+
+
+def mean_obs_spi(obs_data, spi_string_name):
+    obs_data_mean = obs_data.mean(dim=["lat", "lon"])
+    obs_data_df = obs_data_mean.to_dataframe().reset_index()
+    obs_data_df1 = obs_data_df[["time", spi_string_name]]
+    wdf = obs_data_df1
+    wdf["year0"] = wdf["time"].apply(
+        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
+    )
+    wdf["year"] = wdf["year0"].dt.strftime("%Y")
+    wdf1 = wdf[[spi_string_name, "year"]]
+    return wdf1

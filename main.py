@@ -6,9 +6,14 @@ from utils import temp_kimwa_metrices
 
 from plot_utils import temp_kimwa_ep_plot
 
-# to make the matrices calcualtion and create a large 11000 rows of csv file
-# temp_kimwa_metrices()
+from plot_utils import temp_mises_ep_obs_plot
 
+temp_mises_ep_obs_plot()
+
+
+# to make the matrices calcualtion and create a large 11000 rows of csv file
+df = temp_kimwa_metrices()
+df.to_csv(f"{data_path}kimwa-metrix-v1.csv")
 
 # to make plots of emprical probablity for the 87 combinations
 # temp_kimwa_ep_plot()
