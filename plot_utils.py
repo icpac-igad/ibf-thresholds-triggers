@@ -461,7 +461,9 @@ def create_rule(df, lt_value):
         return alt.Chart(pd.DataFrame({"percentage_spi": [0]})).mark_rule(opacity=0)
 
 
-def misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict):
+def temp_obs_fct_bar_plot(
+    df, odf, region_id, season_str, spi_string_name, threshold_dict
+):
     if region_id == 0:
         region_name = "Karamoja"
     if region_id == 1:
@@ -473,7 +475,7 @@ def misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
             pd.DataFrame(
                 {
                     "text": [
-                        f"{region_name}-{season_str} lt=0, Mean of the pixel wise SPI observation and forecast Probablities for the region "
+                        f"{region_name}-{season_str} lt=2, Mean of the pixel wise SPI observation and forecast Probablities for the region "
                     ]
                 }
             )
@@ -488,11 +490,19 @@ def misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
         )
         .encode(text="text:N")
         .properties(width=400, height=200),
-        alt.Chart(pd.DataFrame({"text": ["lt=1"]}))
+        alt.Chart(
+            pd.DataFrame(
+                {
+                    "text": [
+                        f"{region_name}-{season_str} lt=1, Mean of the pixel wise SPI observation and forecast Probablities for the region "
+                    ]
+                }
+            )
+        )
         .mark_text(
             align="left",
             baseline="middle",
-            fontSize=14,
+            fontSize=12,
             fontWeight="bold",
             dx=-190,
             dy=-90,
@@ -522,6 +532,17 @@ def misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
         .encode(text="text:N")
         .properties(width=400, height=200),
         alt.Chart(pd.DataFrame({"text": ["lt=4"]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200),
+        alt.Chart(pd.DataFrame({"text": ["lt=5"]}))
         .mark_text(
             align="left",
             baseline="middle",
@@ -567,31 +588,70 @@ def misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
     ).configure_axisX(labelFontSize=8, titleFontSize=12).configure_legend(
         labelFontSize=12, titleFontSize=14
     )
+    if season_str == "JJAS":
+        panel_1_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 2) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[0],
+        ) + create_rule(df, 2)
 
-    panel_1_mean = alt.layer(
-        base_plot.transform_filter((alt.datum.lt == 1) & (alt.datum.subset == "mean")),
-        row_annotations[0],
-    ) + create_rule(df, 1)
+        panel_2_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 3) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[3],
+        ) + create_rule(df, 3)
 
-    panel_2_mean = alt.layer(
-        base_plot.transform_filter((alt.datum.lt == 2) & (alt.datum.subset == "mean")),
-        row_annotations[1],
-    ) + create_rule(df, 2)
+        panel_3_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 4) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[4],
+        ) + create_rule(df, 4)
 
-    panel_3_mean = alt.layer(
-        base_plot.transform_filter((alt.datum.lt == 3) & (alt.datum.subset == "mean")),
-        row_annotations[2],
-    ) + create_rule(df, 3)
+        panel_4_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 5) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[5],
+        ) + create_rule(df, 5)
 
-    panel_4_mean = alt.layer(
-        base_plot.transform_filter((alt.datum.lt == 4) & (alt.datum.subset == "mean")),
-        row_annotations[3],
-    ) + create_rule(df, 4)
+    else:
+        panel_1_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 1) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[1],
+        ) + create_rule(df, 1)
 
-    panel_5_mean = alt.layer(
-        base_plot.transform_filter((alt.datum.lt == 5) & (alt.datum.subset == "mean")),
-        row_annotations[4],
-    ) + create_rule(df, 5)
+        panel_2_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 2) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[2],
+        ) + create_rule(df, 2)
+
+        panel_3_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 3) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[3],
+        ) + create_rule(df, 3)
+
+        panel_4_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 4) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[4],
+        ) + create_rule(df, 4)
+
+        panel_5_mean = alt.layer(
+            base_plot.transform_filter(
+                (alt.datum.lt == 5) & (alt.datum.subset == "mean")
+            ),
+            row_annotations[5],
+        ) + create_rule(df, 5)
 
     #####
     obs_plot = (
@@ -651,14 +711,21 @@ def misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
         .encode()
         .properties(width=400, height=200)
     )
-
-    panels = alt.vconcat(
-        alt.hconcat(chart_obs, panel_1_mean),
-        alt.hconcat(emtpy_plot, panel_2_mean),
-        alt.hconcat(emtpy_plot, panel_3_mean),
-        alt.hconcat(emtpy_plot, panel_4_mean),
-        alt.hconcat(emtpy_plot, panel_5_mean),
-    )
+    if season_str == "JJAS":
+        panels = alt.vconcat(
+            alt.hconcat(chart_obs, panel_1_mean),
+            alt.hconcat(emtpy_plot, panel_2_mean),
+            alt.hconcat(emtpy_plot, panel_3_mean),
+            alt.hconcat(emtpy_plot, panel_4_mean),
+        )
+    else:
+        panels = alt.vconcat(
+            alt.hconcat(chart_obs, panel_1_mean),
+            alt.hconcat(emtpy_plot, panel_2_mean),
+            alt.hconcat(emtpy_plot, panel_3_mean),
+            alt.hconcat(emtpy_plot, panel_4_mean),
+            alt.hconcat(emtpy_plot, panel_5_mean),
+        )
 
     panels.configure_view(stroke=None).configure_axisY(
         labelFontSize=12, titleFontSize=14
@@ -690,15 +757,16 @@ def temp_mises_ep_obs_plot():
     threshold_dict = get_threshold(region_id, sc_season_str)
     odf = mean_obs_spi(obs_data, spi_string_name)
 
-    plot = misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
-    plot.save(f"{region_id}-{sc_season_str}.pdf")
+    barplot = temp_obs_fct_bar_plot(
+        df, odf, region_id, season_str, spi_string_name, threshold_dict
+    )
+
+    barplot.save(f"{data_path}{region_id}-{sc_season_str}.pdf")
+
+    # barplot=[]
 
     region_id = 0
-    season_str = "JJASfrom plot_utils import temp_mises_ep_obs_plot
-
-temp_mises_ep_obs_plot()
-
-"
+    season_str = "JJAS"
     spi_string_name = "spi4"
     sc_season_str = season_str.lower()
 
@@ -715,8 +783,10 @@ temp_mises_ep_obs_plot()
     threshold_dict = get_threshold(region_id, sc_season_str)
     odf = mean_obs_spi(obs_data, spi_string_name)
 
-    plot = misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
-    plot.save(f"{region_id}-{sc_season_str}.pdf")
+    barplot = temp_obs_fct_bar_plot(
+        df, odf, region_id, season_str, spi_string_name, threshold_dict
+    )
+    barplot.save(f"{data_path}{region_id}-{sc_season_str}.pdf")
 
     region_id = 1
     season_str = "MAM"
@@ -736,8 +806,10 @@ temp_mises_ep_obs_plot()
     threshold_dict = get_threshold(region_id, sc_season_str)
     odf = mean_obs_spi(obs_data, spi_string_name)
 
-    plot = misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
-    plot.save(f"{region_id}-{sc_season_str}.pdf")
+    barplot = temp_obs_fct_bar_plot(
+        df, odf, region_id, season_str, spi_string_name, threshold_dict
+    )
+    barplot.save(f"{data_path}{region_id}-{sc_season_str}.pdf")
 
     region_id = 1
     season_str = "OND"
@@ -757,8 +829,10 @@ temp_mises_ep_obs_plot()
     threshold_dict = get_threshold(region_id, sc_season_str)
     odf = mean_obs_spi(obs_data, spi_string_name)
 
-    plot = misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
-    plot.save(f"{region_id}-{sc_season_str}.pdf")
+    barplot = temp_obs_fct_bar_plot(
+        df, odf, region_id, season_str, spi_string_name, threshold_dict
+    )
+    barplot.save(f"{data_path}{region_id}-{sc_season_str}.pdf")
 
     region_id = 2
     season_str = "MAM"
@@ -778,11 +852,13 @@ temp_mises_ep_obs_plot()
     threshold_dict = get_threshold(region_id, sc_season_str)
     odf = mean_obs_spi(obs_data, spi_string_name)
 
-    plot = misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
-    plot.save(f"{region_id}-{sc_season_str}.pdf")
+    barplot = temp_obs_fct_bar_plot(
+        df, odf, region_id, season_str, spi_string_name, threshold_dict
+    )
+    barplot.save(f"{data_path}{region_id}-{sc_season_str}.pdf")
 
     region_id = 2
-    season_str = "JJAS"
+    season_str = "OND"
     spi_string_name = "spi3"
     sc_season_str = season_str.lower()
 
@@ -799,5 +875,7 @@ temp_mises_ep_obs_plot()
     threshold_dict = get_threshold(region_id, sc_season_str)
     odf = mean_obs_spi(obs_data, spi_string_name)
 
-    plot = misses_plot(df, odf, region_id, season_str, spi_string_name, threshold_dict)
-    plot.save(f"{region_id}-{sc_season_str}.pdf")
+    barplot = temp_obs_fct_bar_plot(
+        df, odf, region_id, season_str, spi_string_name, threshold_dict
+    )
+    barplot.save(f"{data_path}{region_id}-{sc_season_str}.pdf")
