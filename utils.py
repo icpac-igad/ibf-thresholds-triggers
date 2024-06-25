@@ -6,7 +6,7 @@ import climpred
 import xarray as xr
 import xesmf as xe
 import numpy as np
-import pandas as pd
+import pandas as pda
 import regionmask
 import geopandas as gp
 from climpred import HindcastEnsemble
@@ -16,13 +16,38 @@ import xhistogram.xarray as xhist
 from sklearn.metrics import roc_auc_score
 import pandas as pd
 
+
 import xskillscore as xs
 from xbootstrap import block_bootstrap
 from dask.distributed import Client
 
+import altair as alt
+
+
+import numpy as np
+import pandas as pd
+
+import pandas as pd
+import numpy as np
+import matplotlib
+
+import os
+from dotenv import load_dotenv
+
+# matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import six
+from datetime import datetime
+import textwrap as tw
+from functools import reduce
+import json
+
+
 load_dotenv()
 
 data_path = os.getenv("data_path")
+
+latex_path = os.getenv("latex_path")
 
 
 def ken_mask_creator():
@@ -164,112 +189,6 @@ def make_obs_fct_dataset(region_id, season_str, lead_int):
     for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
     """
     if len(season_str) == 3:
-        kn_fct = xr.open_dataset(f"{data_path}clip_kn_fct_spi3.nc")
-        kn_obs = xr.open_dataset(f"{data_path}clip_kn_obs_spi3.nc")
-    else:
-        kn_fct = xr.open_dataset(f"{data_path}clip_kn_fct_spi4.nc")
-        kn_obs = xr.open_dataset(f"{data_path}clip_kn_obs_spi4.nc")
-    the_mask, rl_dict, mds1 = ken_mask_creator()
-    bounds = mds1.bounds
-    # bounds.iloc[0].minx
-    llon = bounds.iloc[region_id].minx
-    llat = bounds.iloc[region_id].miny
-    ulon = bounds.iloc[region_id].maxx
-    ulat = bounds.iloc[region_id].maxy
-    a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    hindcast = HindcastEnsemble(a_fc)
-    hindcast = hindcast.add_observations(a_obs)
-    # hindcast
-    # spi_cdb1spi3_prod_name_creator(ds_ens)
-    a_fc1 = hindcast.get_initialized()
-    a_fc2 = a_fc1.isel(lead=lead_int)
-    if len(season_str) == 3:
-        spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
-    else:
-        spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
-    a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
-    a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
-    # obsertations
-    a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
-    a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
-    # valid_time_series = a_fc3.valid_time.to_series().reset_index(drop=True).drop_duplicates()
-    valid_time_flattened = (
-        a_fc2.valid_time.to_dataframe()
-        .reset_index()
-        .drop_duplicates(subset="valid_time")["valid_time"]
-    )
-    valid_time_flattened.columns = ["valid_time", "cc"]
-    # valid_time_flattened['valid_time'] = pd.to_datetime(valid_time_flattened['valid_time'])
-    # Apply lambda function to create 'dt1' column
-    # valid_time_flattened['dt1'] = valid_time_flattened['valid_time'].apply(
-    #    lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
-    # )
-    #
-    valid_time_flattened["dt1"] = valid_time_flattened["valid_time"].apply(
-        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
-    )
-    # Ensure the valid_time is in 'YYYY-MM-DD' string format
-    # valid_time_flattened['dt2'] = valid_time_flattened['dt1'].dt.strftime('%Y-%m-%d')
-    valid_time_flattened["dt1"] = valid_time_flattened["dt1"].dt.strftime(
-        "%Y-%m-%dT%H:%M:%S.%f"
-    )
-    valid_time_flattened["dt1"] = pd.to_datetime(valid_time_flattened["dt1"])
-    # Convert to xarray DataArray with time as the dimension name
-    # valid_time_da = xr.DataArray(valid_time_flattened['dt1'], dims=['time'])
-    valid_time_da = xr.DataArray(
-        valid_time_flattened["dt1"], dims=["time"], coords=valid_time_flattened["dt1"]
-    )
-    a_obs3 = a_obs2.reindex(time=valid_time_da)
-    # a_obs4 = a_obs3.reindex(time=a_obs2.time)
-    # a_obs4 = a_obs3.sel(time=a_obs2.time, drop=True)
-    a_obs3 = a_obs3.dropna(dim="time")
-    if len(season_str) == 3:
-        obs_data = a_obs3["spi3"]
-        ens_data = a_fc3["spi3"]
-    else:
-        obs_data = a_obs3["spi4"]
-        ens_data = a_fc3["spi4"]
-    return obs_data, ens_data, a_fc, a_obs
-
-
-def make_obs_fct_dataset(region_id, season_str, lead_int):
-    """
-    Prepares observed and forecasted dataset subsets for a specific region, season, and lead time.
-
-    This function loads observed and forecasted datasets based on the season string length (indicating SPI3 or SPI4),
-    applies regional masking, selects the data for the given region by its ID, and subsets the data for the specified
-    season and lead time. It then aligns the observed dataset time coordinates with the forecasted dataset valid time
-    coordinates and returns both datasets.
-
-    Parameters:
-    - region_id (int): The identifier for the region of interest.
-    - season_str (str): A string representing the season. The length of this string determines whether SPI3 or SPI4
-                        datasets are used ('mam', 'jjas', etc. for SPI3, and longer strings for SPI4).
-    - lead_int (int): The lead time index for which the forecast dataset is to be subset.
-
-    Returns:
-    - obs_data (xarray.DataArray): The subsetted observed data array for the specified region, season, and aligned time coordinates.
-    - ens_data (xarray.DataArray): The subsetted forecast data array for the specified region, season, lead time, and aligned time coordinates.
-
-    Notes:
-    - The function assumes the existence of a `data_path` variable that specifies the base path to the dataset files.
-    - It requires the `xarray` library for data manipulation and assumes specific naming conventions for the dataset files.
-    - Regional masking and season-specific processing rely on externally defined functions and naming conventions.
-    - The final alignment of observed dataset time coordinates with forecasted dataset valid time coordinates ensures
-      comparability between observed and forecasted values for verification purposes.
-
-    Example Usage:
-    >>> obs_data, ens_data = make_obs_fct_dataset(1, 'mam', 0)
-    >>> print(obs_data)
-    >>> print(ens_data)
-
-    This would load the observed and forecasted SPI3 datasets for region 1 during the 'mam' season and subset them
-    for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
-    """
-    if len(season_str) == 3:
         kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3.nc")
         kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3.nc")
     else:
@@ -338,7 +257,7 @@ def make_obs_fct_dataset(region_id, season_str, lead_int):
     else:
         obs_data = a_obs3["spi4"]
         ens_data = a_fc3["spi4"]
-    return obs_data, ens_data, a_fc, a_obs
+    return obs_data, ens_data
 
 
 def get_threshold(region_id, season):
@@ -396,104 +315,17 @@ def get_threshold(region_id, season):
     return season_thresholds
 
 
-def get_triggers_bin_edges():
-    """
-    Generate bin edges for triggers based on forecast category edges.
-
-    Returns:
-    list of lists: Bin edges arranged with three elements each.
-    """
-    forecast_category_edges = np.linspace(0, 1, 101)
-    # Initialize an empty list to hold your list of lists
-    list_of_lists = []
-    # Iterate through forecast_category_edges to construct each [n1, n2, n3]
-    for i, edge in enumerate(forecast_category_edges):
-        if i == 0:
-            # For the first element, there is no lower edge within the range, so you might set n1 to 0 or any other logic
-            n1 = 0  # or edge itself if you want to keep it within valid probability bounds
-        else:
-            n1 = forecast_category_edges[i - 1]
-        n2 = edge  # The current edge value
-        if i == len(forecast_category_edges) - 1:
-            # For the last element, there is no upper edge within the range, so you might set n3 to 1 or any other logic
-            n3 = 1  # or edge itself if you want to keep it within valid probability bounds
-        else:
-            n3 = forecast_category_edges[i + 1]
-        # Append the [n1, n2, n3] list to your list of lists
-        list_of_lists.append([n1, n2, n3])
-    return list_of_lists
-
-
-def get_thresholds_bin_edges(threshold_dict, lowest_bound=-4.0, highest_bound=4.0):
-    """
-    Generate bin edges based on provided thresholds, ensuring all sublists have three elements:
-    [lower_edge, threshold, upper_edge], including the extreme bounds.
-
-    Parameters:
-    - threshold_dict (dict): Dictionary with levels as keys and thresholds as values.
-    - lowest_bound (float): Lowest boundary for the bins.
-    - highest_bound (float): Highest boundary for the bins.
-
-    Returns:
-    - list of lists: Bin edges arranged with three elements each.
-
-    TODO
-    merge the dict call on level and then return the sepcific bin edges for that level
-    """
-    # Extract thresholds and sort them in ascending order
-    sorted_thresholds = sorted(threshold_dict.values())
-
-    # Initialize list of lists with the first bin
-    list_of_lists = []
-
-    # Handle the first bin separately
-    if sorted_thresholds:
-        list_of_lists.append(
-            [
-                lowest_bound,
-                sorted_thresholds[0],
-                sorted_thresholds[1] if len(sorted_thresholds) > 1 else highest_bound,
-            ]
-        )
-
-    # Loop through the sorted thresholds to create bins for the middle thresholds
-    for i in range(1, len(sorted_thresholds) - 1):
-        list_of_lists.append(
-            [sorted_thresholds[i - 1], sorted_thresholds[i], sorted_thresholds[i + 1]]
-        )
-
-    # Handle the last bin separately if there are at least two thresholds
-    if len(sorted_thresholds) > 1:
-        list_of_lists.append(
-            [sorted_thresholds[-2], sorted_thresholds[-1], highest_bound]
-        )
-
-    # Special case: If there is only one threshold, adjust the initial list to include highest_bound
-    if len(sorted_thresholds) == 1:
-        list_of_lists[0][
-            -1
-        ] = highest_bound  # Replace the last element of the first sublist with highest_bound
-
-    return list_of_lists
-
-
-def del_emprical_probablity(ens_data, threshold_dict):
-    mod_thr = threshold_dict["mod"]
-    fct_mod = (ens_data <= mod_thr).mean(dim="member")
-    fct_mod_mean = fct_mod.mean(dim=["lat", "lon"])
-    fct_mod_min = fct_mod.min(dim=["lat", "lon"])
-    fct_mod_max = fct_mod.max(dim=["lat", "lon"])
-    ####
-    sev_thr = threshold_dict["sev"]
-    fct_sev = (ens_data <= sev_thr).mean(dim="member")
-    fct_sev_mean = fct_sev.mean(dim=["lat", "lon"])
-    fct_sev_min = fct_sev.min(dim=["lat", "lon"])
-    fct_sev_max = fct_sev.max(dim=["lat", "lon"])
-    ext_thr = threshold_dict["ext"]
-    fct_ext = (ens_data <= ext_thr).mean(dim="member")
-    fct_ext_mean = fct_ext.mean(dim=["lat", "lon"])
-    fct_ext_min = fct_ext.min(dim=["lat", "lon"])
-    fct_ext_max = fct_ext.max(dim=["lat", "lon"])
+def mean_obs_spi(obs_data, spi_string_name):
+    obs_data_mean = obs_data.mean(dim=["lat", "lon"])
+    obs_data_df = obs_data_mean.to_dataframe().reset_index()
+    obs_data_df1 = obs_data_df[["time", spi_string_name]]
+    wdf = obs_data_df1
+    wdf["year0"] = wdf["time"].apply(
+        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
+    )
+    wdf["year"] = wdf["year0"].dt.strftime("%Y")
+    wdf1 = wdf[[spi_string_name, "year"]]
+    return wdf1
 
 
 def emprical_probablity(ens_data, threshold_dict):
@@ -527,294 +359,1026 @@ def mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
     )
     wdf["year"] = wdf["year0"].dt.strftime("%Y")
     wdf1 = wdf[[spi_string_name, "cat", "year"]]
+    wdf1.columns = ["ep", "cat", "year"]
+    # wdf1['ep']=wdf1['ep']*100
+    wdf1.loc[:, "ep"] = wdf1["ep"] * 100
     return wdf1
 
 
-def min_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
-    fct_mod_mean = fct_mod.min(dim=["lat", "lon"])
-    fct_mod_df = fct_mod_mean.to_dataframe().reset_index()
-    fct_mod_df1 = fct_mod_df[["valid_time", spi_string_name]]
-    fct_mod_df1 = fct_mod_df1.assign(cat="mod")
-    fct_sev_mean = fct_sev.min(dim=["lat", "lon"])
-    fct_sev_df = fct_sev_mean.to_dataframe().reset_index()
-    fct_sev_df1 = fct_sev_df[["valid_time", spi_string_name]]
-    fct_sev_df1 = fct_sev_df1.assign(cat="sev")
-    fct_ext_mean = fct_ext.min(dim=["lat", "lon"])
-    fct_ext_df = fct_ext_mean.to_dataframe().reset_index()
-    fct_ext_df1 = fct_ext_df[["valid_time", spi_string_name]]
-    fct_ext_df1 = fct_ext_df1.assign(cat="ext")
-    wdf = pd.concat([fct_mod_df1, fct_sev_df1, fct_ext_df1])
-    wdf["year0"] = wdf["valid_time"].apply(
-        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
+# Calculate AUROC using bootstrap
+def calculate_auroc(hits, misses, false_alarms, correct_negatives):
+    """
+    Calculates the Area Under the Receiver Operating Characteristic (AUROC) curve for a set of forecasts relative to observations.
+
+    This function computes the AUROC score as a measure of the forecast's ability to discriminate between two classes:
+    events that occurred (drought) and events that did not occur (no drought). The AUROC score ranges from 0 to 1,
+    where a score of 0.5 suggests no discriminative ability (equivalent to random chance), and a score of 1 indicates perfect discrimination.
+
+    Parameters:
+    - hits (int): The number of correctly forecasted events (true positives).
+    - misses (int): The number of events that were observed but not forecasted (false negatives).
+    - false_alarms (int): The number of non-events that were incorrectly forecasted as events (false positives).
+    - correct_negatives (int): The number of non-events that were correctly forecasted (true negatives).
+
+    Returns:
+    - auroc (float): The calculated AUROC score for the given contingency table values.
+
+    Note:
+    - This function is designed to work with binary classification problems, such as predicting the occurrence or non-occurrence of drought events.
+    - It requires the `roc_auc_score` function from the `sklearn.metrics` module and `numpy` for handling arrays.
+
+    Example usage:
+    >>> auroc_score = calculate_auroc(50, 30, 20, 100)
+    >>> print(f"AUROC Score: {auroc_score}")
+    """
+    total_positives = hits + misses
+    total_negatives = correct_negatives + false_alarms
+    y_true = np.concatenate((np.ones(total_positives), np.zeros(total_negatives)))
+    y_scores = np.concatenate(
+        (np.ones(hits), np.zeros(misses + false_alarms + correct_negatives))
     )
-    wdf["year"] = wdf["year0"].dt.strftime("%Y")
-    wdf1 = wdf[[spi_string_name, "cat", "year"]]
-    return wdf1
+    auroc = roc_auc_score(y_true, y_scores)
+    return auroc
 
 
-def max_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
-    fct_mod_max = fct_mod.max(dim=["lat", "lon"])
-    fct_mod_df = fct_mod_max.to_dataframe().reset_index()
-    fct_mod_df1 = fct_mod_df[["valid_time", spi_string_name]]
-    fct_mod_df1 = fct_mod_df1.assign(cat="mod")
-    fct_sev_max = fct_sev.max(dim=["lat", "lon"])
-    fct_sev_df = fct_sev_max.to_dataframe().reset_index()
-    fct_sev_df1 = fct_sev_df[["valid_time", spi_string_name]]
-    fct_sev_df1 = fct_sev_df1.assign(cat="sev")
-    fct_ext_max = fct_ext.max(dim=["lat", "lon"])
-    fct_ext_df = fct_ext_max.to_dataframe().reset_index()
-    fct_ext_df1 = fct_ext_df[["valid_time", spi_string_name]]
-    fct_ext_df1 = fct_ext_df1.assign(cat="ext")
-    wdf = pd.concat([fct_mod_df1, fct_sev_df1, fct_ext_df1])
-    wdf["year0"] = wdf["valid_time"].apply(
-        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
+def xhist_metrices(pdb, trigger_value, threshold_dict, cat_str):
+    ds = xr.Dataset.from_dataframe(pdb)
+    obs_ext = ds[f"spi3_{cat_str}"]
+    fct_ext = ds[f"ep_{cat_str}"]
+    obs_event = obs_ext <= threshold_dict[cat_str]
+    fct_event = fct_ext >= trigger_value
+    obs_event_int = obs_event.astype(int)
+    fct_event_int = fct_event.astype(int)
+    contingency_table = xhist.histogram(
+        obs_event_int, fct_event_int, bins=[2, 2], density=False
     )
-    wdf["year"] = wdf["year0"].dt.strftime("%Y")
-    wdf1 = wdf[[spi_string_name, "cat", "year"]]
-    return wdf1
+    contingency_table = contingency_table.data
+    correct_negatives = contingency_table[0, 0]
+    false_alarms = contingency_table[0, 1]
+    misses = contingency_table[1, 0]
+    hits = contingency_table[1, 1]
+    total = hits + false_alarms + misses + correct_negatives
+    hit_rates = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+    false_alarm_ratios = (
+        false_alarms / (false_alarms + hits) if (false_alarms + hits) > 0 else np.nan
+    )
+    # false_alarm_ratios[i] = false_alarms / (false_alarms + correct_negatives) if (false_alarms + correct_negatives) > 0 else np.nan
+    bias_scores = (
+        (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+    )
+    n_hit_rates = np.mean(hits.astype(int))  # Calculate hit rate as mean of hits
+    n_false_alarm_ratios = np.mean(false_alarm_ratios.astype(int))
+    hanssen_kuipers_scores = n_hit_rates - n_false_alarm_ratios
+    heidke_skill_scores = (hits * correct_negatives - misses * false_alarms) / total
+
+    fct_ext_pb = fct_ext / 100
+    tv_pb = trigger_value / 100
+    o1 = block_bootstrap(
+        obs_event_int,
+        blocks={"index": 1},
+        n_iteration=1000,
+        circular=True,
+    )
+    f1 = block_bootstrap(
+        fct_ext_pb,
+        blocks={"index": 1},
+        n_iteration=1000,
+        circular=True,
+    )
+    fpr, tpr, auroc_bootstrap_scores = xs.roc(
+        o1,
+        f1,
+        bin_edges=[0, tv_pb, 1],
+        dim=["index"],
+        return_results="all_as_metric_dim",
+    )
+    auroc_scores = np.mean(auroc_bootstrap_scores)
+    auroc_lb, auroc_ub = np.percentile(auroc_bootstrap_scores, [2.5, 97.5])
+    df = pd.DataFrame(
+        {
+            "#dry-seas": len(obs_ext.index.values),
+            "hits": [hits],
+            "misses": [misses],
+            "FA": [false_alarms],
+            "CN": [correct_negatives],
+            "hit_rates": [hit_rates],
+            "false_alarm_ratios": [false_alarm_ratios],
+            "bias_scores": [bias_scores],
+            "hanssen_kuipers_scores": [hanssen_kuipers_scores],
+            "heidke_skill_scores": [heidke_skill_scores],
+            "auroc_scores": auroc_scores.values,
+            "auroc_lb": auroc_lb,
+            "auroc_ub": auroc_ub,
+        }
+    )
+    df.insert(0, "threshold", threshold_dict[cat_str])
+    df.insert(0, "trigger_values", trigger_value)
+    return df
 
 
-def ep_process_data(region_id, season_str, lead_int, spi_string_name):
+def get_subset(dfa, cat_str):
+    # Filter out rows with null values in 'hit_rate' and 'false_alarm_ratio'
+    # df = df.dropna(subset=['hit_rate', 'false_alarm_ratio'])
+    df = dfa[dfa["cat"] == cat_str]
+    # Sort the DataFrame by 'peirce_score' in descending order
+    df = df.sort_values(by="hanssen_kuipers_scores", ascending=False)
+
+    # Get the row with the maximum 'peirce_score'
+    max_peirce_row = df.iloc[0]
+
+    # Sort the DataFrame by 'bias_score' in descending order, and filter for 'bias_score' < 1.0
+    df = df.loc[df["bias_scores"] < 1.0].sort_values(by="bias_scores", ascending=False)
+
+    # Get the row with the maximum 'bias_score' < 1.0
+    max_bias_row = df.iloc[0]
+
+    # Sort the DataFrame by 'heidke_score' in descending order
+    df = df.sort_values(by="heidke_skill_scores", ascending=False)
+
+    # Get the row with the maximum 'heidke_score'
+    max_heidke_row = df.iloc[0]
+
+    # Combine the three rows into a subset
+    subset = pd.concat(
+        [
+            pd.DataFrame([max_peirce_row]),
+            pd.DataFrame([max_bias_row]),
+            pd.DataFrame([max_heidke_row]),
+        ],
+        ignore_index=True,
+    )
+
+    return subset
+
+
+def trigger_decision_dict(df0):
+    df = df0[df0["auroc_scores"] >= 0.5]
+    df_mod = get_subset(df, "mod")
+    mod_max_cn = df_mod["CN"].max()
+    mod_df_max_cn = df_mod[df_mod["CN"] == mod_max_cn]
+    mod_max_hits = mod_df_max_cn["hits"].max()
+    mod_df_max_hits = mod_df_max_cn[mod_df_max_cn["hits"] == mod_max_hits]
+
+    df_sev = get_subset(df, "sev")
+    sev_max_cn = df_sev["CN"].max()
+    sev_df_max_cn = df_sev[df_sev["CN"] == sev_max_cn]
+    sev_max_hits = sev_df_max_cn["hits"].max()
+    sev_df_max_hits = sev_df_max_cn[sev_df_max_cn["hits"] == sev_max_hits]
+
+    df_ext = get_subset(df, "ext")
+    ext_max_cn = df_ext["CN"].max()
+    ext_df_max_cn = df_ext[df_ext["CN"] == ext_max_cn]
+    ext_max_hits = ext_df_max_cn["hits"].max()
+    ext_df_max_hits = ext_df_max_cn[ext_df_max_cn["hits"] == ext_max_hits]
+    tri_dict = {
+        "mod": mod_df_max_hits["trigger_values"].values[0],
+        "sev": sev_df_max_hits["trigger_values"].values[0],
+        "ext": ext_df_max_hits["trigger_values"].values[0],
+    }
+    df0 = pd.concat([mod_df_max_hits, sev_df_max_hits, ext_df_max_hits])
+    return tri_dict, df0
+
+
+def get_mean_ens_triggers(region_id, season_str, lead_int):
+    if len(season_str) == 3:
+        spi_string_name = "spi3"
+    else:
+        spi_string_name = "spi4"
     sc_season_str = season_str.lower()
+    obs_data, ens_data = make_obs_fct_dataset(region_id, season_str, lead_int)
+    obs_df = mean_obs_spi(obs_data, spi_string_name)
     threshold_dict = get_threshold(region_id, sc_season_str)
-    obs_data, ens_data, a_fc, a_obs = make_obs_fct_dataset(
-        region_id, season_str, lead_int
-    )
     fct_mod, fct_sev, fct_ext = emprical_probablity(ens_data, threshold_dict)
+    fct_df = mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
+    db = pd.merge(fct_df, obs_df, on="year")
+    pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
+    pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
+    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb2 = pdb.reset_index()
+    cnt_df = []
+    for idx, row in pdb2.iterrows():
+        mod_trigger_value = row["ep_mod"]
+        mod_df = xhist_metrices(pdb2, mod_trigger_value, threshold_dict, "mod")
+        mod_df.insert(0, "region", region_id)
+        mod_df.insert(1, "season", season_str)
+        mod_df.insert(2, "cat", "mod")
+        mod_df.insert(3, "year", row["year"])
+        cnt_df.append(mod_df)
 
-    df_mn = mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
-    df_mn = df_mn.assign(subset="mean", lt=str(lead_int))
+        sev_trigger_value = row["ep_sev"]
+        sev_df = xhist_metrices(pdb2, sev_trigger_value, threshold_dict, "sev")
+        sev_df.insert(0, "region", region_id)
+        sev_df.insert(1, "season", season_str)
+        sev_df.insert(2, "cat", "sev")
+        sev_df.insert(3, "year", row["year"])
+        cnt_df.append(sev_df)
 
-    df_mi = min_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
-    df_mi = df_mi.assign(subset="min", lt=str(lead_int))
+        ext_trigger_value = row["ep_ext"]
+        ext_df = xhist_metrices(pdb2, ext_trigger_value, threshold_dict, "ext")
+        ext_df.insert(0, "region", region_id)
+        ext_df.insert(1, "season", season_str)
+        ext_df.insert(2, "cat", "ext")
+        ext_df.insert(3, "year", row["year"])
+        cnt_df.append(ext_df)
 
-    df_mx = max_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
-    df_mx = df_mx.assign(subset="max", lt=str(lead_int))
-
-    return df_mn, df_mi, df_mx
-
-
-def compute_metrics(obs_data, ens_data, df):
-    obs_times = pd.to_datetime(obs_data["time"].values)
-    cftime_dates = ens_data["valid_time"].values
-    numpy_dates = np.array([np.datetime64(date.isoformat()) for date in cftime_dates])
-    ens_data = ens_data.assign_coords(
-        valid_time=(ens_data["valid_time"].dims, numpy_dates)
+    metrix_df = pd.concat(cnt_df)
+    decision_dict, decision_df = trigger_decision_dict(metrix_df)
+    decision_df["lead_time"] = lead_int
+    pdb_melt = pdb.rename(columns={"ep_ext": "ext", "ep_sev": "sev", "ep_mod": "mod"})
+    plot_df = pd.melt(
+        pdb_melt.reset_index(),
+        id_vars=["year"],
+        value_vars=["mod", "sev", "ext"],
+        var_name="cat",
+        value_name="ep_pb",
     )
-    fct_times = pd.to_datetime(ens_data["valid_time"].values)
-    for idx, row in df.iterrows():
-        # print(idx, row["year"])
-        obs_edges = np.array(row["cat_value"])
-        fct_edges = np.array(row["tr_be"])
-        obs_mask = obs_times.year == int(row["year"])
-        fct_mask = fct_times.year == int(row["year"])
-        masked_obs_data = obs_data.isel(time=obs_mask)
-        masked_fct_data = ens_data.isel(init=fct_mask)
-        if masked_obs_data.sizes["time"] == 0 or masked_fct_data.sizes["init"] == 0:
-            pass
-        else:
-            multicategory_contingency = xs.Contingency(
-                masked_obs_data,
-                masked_fct_data,
-                obs_edges,
-                fct_edges,
-                dim=["lat", "lon", "member"],
+    return obs_df, fct_df, metrix_df, decision_dict, decision_df, plot_df
+
+
+def obs_chart_with_triggers(
+    plot_type, df, year_column, spi_column, threshold_dict, row_annotations
+):
+    """
+    Create an Altair chart with a bar chart overlaid by trigger lines.
+
+    Parameters:
+    df : pandas.DataFrame
+        The DataFrame containing the data.
+    year_column : str
+        The name of the DataFrame column containing the year.
+    spi_column : str
+        The name of the DataFrame column containing SPI values.
+    threshold_dict : dict
+        A dictionary with keys as threshold names and values as threshold values.
+    """
+
+    # Bar chart
+    if plot_type == "obs":
+        bar_chart = (
+            alt.Chart(df)
+            .mark_bar()
+            .encode(
+                x=alt.X(f"{year_column}:N", axis=alt.Axis(labelAngle=90)),
+                y=alt.Y(
+                    f"{spi_column}:Q", title=spi_column, scale=alt.Scale(domain=[-4, 4])
+                ),
+                color=alt.condition(
+                    alt.datum[spi_column] > 0,
+                    alt.value("blue"),  # Color for positive values
+                    alt.value("red"),  # Color for negative values
+                ),
             )
-            df.at[idx, "metric_time"] = multicategory_contingency.heidke_score()[
-                "time"
-            ].values
-            df.at[idx, "heidke_score"] = multicategory_contingency.heidke_score().values
-            df.at[idx, "bias_score"] = multicategory_contingency.bias_score().values
-            df.at[idx, "hit_rate"] = multicategory_contingency.hit_rate().values
-            df.at[
-                idx, "false_alarm_ratio"
-            ] = multicategory_contingency.false_alarm_ratio().values
-            df.at[idx, "peirce_score"] = multicategory_contingency.peirce_score().values
+            .properties(width=400, height=200)
+        )
+    else:
+        color_scale = alt.Scale(
+            # domain=["ext", "sev", "mod"], range=["#880203", "#ffa400", "#fffe00"]
+            domain=["mod", "sev", "ext"],
+            range=["#f4eb13", "#f89821", "#ed2227"],
+        )
+
+        bar_chart = (
+            alt.Chart(df)
+            .mark_bar()
+            .encode(
+                x=alt.X(f"{year_column}:N", axis=alt.Axis(labelAngle=90)),
+                y=alt.Y(f"{spi_column}:Q", title="Probability (%)", stack=None),
+                color=alt.Color("cat:N", scale=color_scale, sort=["sev", "mod", "ext"]),
+            )
+            .properties(width=400, height=200)
+            + row_annotations
+        )
+
+    # Adding trigger lines
+    rules = []
+    for key, value in threshold_dict.items():
+        rule = (
+            alt.Chart(pd.DataFrame({"y": [value]}))
+            .mark_rule(
+                strokeWidth=2,
+                stroke={"ext": "#ed2227", "sev": "#f89821", "mod": "#f4eb13"}[
+                    key
+                ],  # Conditional color assignment
+            )
+            .encode(y="y:Q")
+        )
+        rules.append(rule)
+
+    # Combine the bar chart with trigger lines
+    final_chart = alt.layer(bar_chart, *rules)
+
+    return final_chart
+
+
+def make_barchart_annotations():
+    row_annotations = [
+        alt.Chart(pd.DataFrame({"text": ["lt=1"]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200),
+        alt.Chart(pd.DataFrame({"text": ["lt=2, Sep"]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200),
+        alt.Chart(pd.DataFrame({"text": ["lt=3, Aug"]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200),
+        alt.Chart(pd.DataFrame({"text": ["lt=4, Jul"]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200),
+        alt.Chart(pd.DataFrame({"text": ["lt=5"]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200),
+    ]
+    return row_annotations
+
+
+def decision_table(df):
+    return (
+        alt.Chart(df.reset_index())
+        .mark_text()
+        .transform_fold(df.columns.tolist())
+        .encode(
+            alt.X(
+                "key",
+                type="nominal",
+                axis=alt.Axis(
+                    # flip x labels upside down
+                    orient="top",
+                    # put x labels into horizontal direction
+                    labelAngle=0,
+                    title=None,
+                    ticks=False,
+                ),
+                scale=alt.Scale(padding=10),
+                sort=None,
+            ),
+            alt.Y("index", type="ordinal", axis=None),
+            alt.Text("value", type="nominal"),
+        )
+    )
+
+
+def create_month_column(df):
+    new_column = []
+
+    for _, row in df.iterrows():
+        lt = row["lt"]
+        cat = row["cat"]
+        season = row["season"]
+
+        if season == "MAM":
+            if lt == 1:
+                if cat == "mod":
+                    new_column.append("mar_x")
+                elif cat == "sev":
+                    new_column.append("mar_y")
+                elif cat == "ext":
+                    new_column.append("mar_z")
+            elif lt == 2:
+                if cat == "mod":
+                    new_column.append("feb_x")
+                elif cat == "sev":
+                    new_column.append("feb_y")
+                elif cat == "ext":
+                    new_column.append("feb_z")
+            elif lt == 3:
+                if cat == "mod":
+                    new_column.append("jan_x")
+                elif cat == "sev":
+                    new_column.append("jan_y")
+                elif cat == "ext":
+                    new_column.append("jan_z")
+            elif lt == 4:
+                if cat == "mod":
+                    new_column.append("dec_x")
+                elif cat == "sev":
+                    new_column.append("dec_y")
+                elif cat == "ext":
+                    new_column.append("dec_z")
+            elif lt == 5:
+                if cat == "mod":
+                    new_column.append("nov_x")
+                elif cat == "sev":
+                    new_column.append("nov_y")
+                elif cat == "ext":
+                    new_column.append("nov_z")
+        elif season == "OND":
+            if lt == 1:
+                if cat == "mod":
+                    new_column.append("oct_x")
+                elif cat == "sev":
+                    new_column.append("oct_y")
+                elif cat == "ext":
+                    new_column.append("oct_z")
+            elif lt == 2:
+                if cat == "mod":
+                    new_column.append("sep_x")
+                elif cat == "sev":
+                    new_column.append("sep_y")
+                elif cat == "ext":
+                    new_column.append("sep_z")
+            elif lt == 3:
+                if cat == "mod":
+                    new_column.append("aug_x")
+                elif cat == "sev":
+                    new_column.append("aug_y")
+                elif cat == "ext":
+                    new_column.append("aug_z")
+            elif lt == 4:
+                if cat == "mod":
+                    new_column.append("jul_x")
+                elif cat == "sev":
+                    new_column.append("jul_y")
+                elif cat == "ext":
+                    new_column.append("jul_z")
+            elif lt == 5:
+                if cat == "mod":
+                    new_column.append("jun_x")
+                elif cat == "sev":
+                    new_column.append("jun_y")
+                elif cat == "ext":
+                    new_column.append("jun_z")
+        elif season == "JJAS":
+            if lt == 2:
+                if cat == "mod":
+                    new_column.append("jun_x")
+                elif cat == "sev":
+                    new_column.append("jun_y")
+                elif cat == "ext":
+                    new_column.append("jun_z")
+            elif lt == 3:
+                if cat == "mod":
+                    new_column.append("may_x")
+                elif cat == "sev":
+                    new_column.append("may_y")
+                elif cat == "ext":
+                    new_column.append("may_z")
+            elif lt == 4:
+                if cat == "mod":
+                    new_column.append("apr_x")
+                elif cat == "sev":
+                    new_column.append("apr_y")
+                elif cat == "ext":
+                    new_column.append("apr_z")
+            elif lt == 5:
+                if cat == "mod":
+                    new_column.append("mar_x")
+                elif cat == "sev":
+                    new_column.append("mar_y")
+                elif cat == "ext":
+                    new_column.append("mar_z")
+        else:
+            new_column.append("")
+
+    df["new_column"] = new_column
     return df
 
 
-def metrices_process_data(region_id, season_str, lead_int, spi_string_name):
-    sc_season_str = season_str.lower()
-    threshold_dict = get_threshold(region_id, sc_season_str)
-    obs_be = get_thresholds_bin_edges(
-        threshold_dict, lowest_bound=-4.0, highest_bound=4.0
+def replace_with_list(x):
+    """
+    Replaces NaN float values with a predefined list of replacement values.
+
+    Parameters:
+    - x (float): The input value to be checked and potentially replaced.
+
+    Returns:
+    - A list of replacement values if `x` is a float and is NaN. Otherwise, returns `x` unchanged.
+
+    Note:
+    - This function is designed to handle cases where cell values in a dataset need to be replaced with a list of values
+      for indicating missing or special cases.
+    """
+    replacement_values = [-999.0, -999.0]
+    # If x is a float and it is nan (meaning the cell was originally empty), return the replacement list
+    if isinstance(x, float) and np.isnan(x):
+        return replacement_values
+    # Otherwise, return x as it is
+    return x
+
+
+def round_list(lst, decimal_places):
+    """
+    Rounds each element in a list to a specified number of decimal places.
+
+    Parameters:
+    - lst (list of float): The list of numbers to be rounded.
+    - decimal_places (int): The number of decimal places to round each number to.
+
+    Returns:
+    - A list containing the rounded values of the input list.
+
+    Note:
+    - This function is useful for rounding numerical values in a list to ensure consistency or to improve readability.
+    """
+    return [round(x, decimal_places) for x in lst]
+
+
+# %% table plot matplotlib
+
+### Define the picture size and remove the ticks
+
+
+### functions for whole column, row editing
+def legend_maker(text1, color_list, legend_title):
+    square6 = plt.Rectangle((0.4, 0.1), 0.15, 0.25, color=color_list[0], clip_on=False)
+    text1.add_artist(square6)
+    square5 = plt.Rectangle((0.55, 0.1), 0.15, 0.25, color=color_list[1], clip_on=False)
+    text1.add_artist(square5)
+    square5 = plt.Rectangle((0.7, 0.1), 0.15, 0.25, color=color_list[2], clip_on=False)
+    text1.add_artist(square5)
+    square5 = plt.Rectangle((0.85, 0.1), 0.15, 0.25, color=color_list[3], clip_on=False)
+    text1.add_artist(square5)
+    square5 = plt.Rectangle((1.0, 0.1), 0.15, 0.25, color=color_list[4], clip_on=False)
+    text1.add_artist(square5)
+    plt.text(
+        0.6,
+        0.4,
+        legend_title,
+        horizontalalignment="left",
+        fontsize=6,
+        fontweight="bold",
+        color="k",
+        verticalalignment="center",
+        transform=text1.transAxes,
     )
-    obs_data, ens_data, a_fc, a_obs = make_obs_fct_dataset(
-        region_id, season_str, lead_int
+    plt.text(
+        0.42,
+        0.05,
+        "<20",
+        horizontalalignment="left",
+        fontsize=6,
+        fontweight="bold",
+        color="k",
+        verticalalignment="center",
+        transform=text1.transAxes,
     )
-    fct_mod, fct_sev, fct_ext = emprical_probablity(ens_data, threshold_dict)
-
-    df_mn = mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
-    df_mn = df_mn.assign(subset="mean", lt=str(lead_int))
-    df_mn["tr_be"] = df_mn[spi_string_name].apply(lambda x: [x - 0.01, x, x + 0.01])
-    cat_df = pd.DataFrame({"cat": ["ext", "sev", "mod"], "cat_value": obs_be})
-    df_mn = pd.merge(df_mn, cat_df, on="cat")
-    mdf_mn = compute_metrics(obs_data, ens_data, df_mn)
-
-    df_mi = min_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
-    df_mi = df_mi.assign(subset="min", lt=str(lead_int))
-    df_mi["tr_be"] = df_mi[spi_string_name].apply(lambda x: [x - 0.01, x, x + 0.01])
-    cat_df = pd.DataFrame({"cat": ["ext", "sev", "mod"], "cat_value": obs_be})
-    df_mi = pd.merge(df_mi, cat_df, on="cat")
-    mdf_mi = compute_metrics(obs_data, ens_data, df_mi)
-
-    df_mx = max_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
-    df_mx = df_mx.assign(subset="max", lt=str(lead_int))
-    df_mx["tr_be"] = df_mx[spi_string_name].apply(lambda x: [x - 0.01, x, x + 0.01])
-    cat_df = pd.DataFrame({"cat": ["ext", "sev", "mod"], "cat_value": obs_be})
-    df_mx = pd.merge(df_mx, cat_df, on="cat")
-    mdf_mx = compute_metrics(obs_data, ens_data, df_mx)
-    return mdf_mn, mdf_mi, mdf_mx
-
-
-def temp_kimwa_metrices():
-    region_id = 0
-    season_str = "MAM"
-    spi_string_name = "spi3"
-    dfs_mn = []
-    dfs_mi = []
-    dfs_mx = []
-    for lead_int in range(5):
-        df_mn, df_mi, df_mx = metrices_process_data(
-            region_id, season_str, lead_int, spi_string_name
-        )
-        dfs_mn.append(df_mn)
-        dfs_mi.append(df_mi)
-        dfs_mx.append(df_mx)
-        print(f"done on {lead_int}")
-    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
-    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
-    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
-    df_kmj_mam = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-    df_kmj_mam["percentage_spi"] = df_kmj_mam[spi_string_name] * 100
-    df_kmj_mam = df_kmj_mam.assign(
-        region_id=region_id, season=season_str, spi_name=spi_string_name
+    plt.text(
+        0.57,
+        0.05,
+        "20-40",
+        horizontalalignment="left",
+        fontsize=6,
+        fontweight="bold",
+        color="k",
+        verticalalignment="center",
+        transform=text1.transAxes,
     )
-    df_mn_final, df_mi_final, df_mx_final = [], [], []
-    print(f"{region_id}-{season_str}-{spi_string_name}")
-
-    region_id = 0
-    season_str = "JJAS"
-    spi_string_name = "spi4"
-    dfs_mn = []
-    dfs_mi = []
-    dfs_mx = []
-    for lead_int in range(4):
-        df_mn, df_mi, df_mx = metrices_process_data(
-            region_id, season_str, lead_int, spi_string_name
-        )
-        dfs_mn.append(df_mn)
-        dfs_mi.append(df_mi)
-        dfs_mx.append(df_mx)
-    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
-    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
-    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
-    df_kmj_jjas = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-    df_kmj_jjas["percentage_spi"] = df_kmj_jjas[spi_string_name] * 100
-    df_kmj_jjas = df_kmj_mam.assign(
-        region_id=region_id, season=season_str, spi_name=spi_string_name
+    plt.text(
+        0.72,
+        0.05,
+        "40-60",
+        horizontalalignment="left",
+        fontsize=6,
+        fontweight="bold",
+        color="k",
+        verticalalignment="center",
+        transform=text1.transAxes,
     )
-    df_mn_final, df_mi_final, df_mx_final = [], [], []
-    print(f"{region_id}-{season_str}-{spi_string_name}")
-
-    region_id = 1
-    season_str = "MAM"
-    spi_string_name = "spi3"
-    dfs_mn = []
-    dfs_mi = []
-    dfs_mx = []
-    for lead_int in range(5):
-        df_mn, df_mi, df_mx = metrices_process_data(
-            region_id, season_str, lead_int, spi_string_name
-        )
-        dfs_mn.append(df_mn)
-        dfs_mi.append(df_mi)
-        dfs_mx.append(df_mx)
-    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
-    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
-    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
-    df_mbt_mam = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-    df_mbt_mam["percentage_spi"] = df_mbt_mam[spi_string_name] * 100
-    df_mbt_mam = df_mbt_mam.assign(
-        region_id=region_id, season=season_str, spi_name=spi_string_name
+    plt.text(
+        0.87,
+        0.05,
+        "60-80",
+        horizontalalignment="left",
+        fontsize=6,
+        fontweight="bold",
+        color="k",
+        verticalalignment="center",
+        transform=text1.transAxes,
     )
-    df_mn_final, df_mi_final, df_mx_final = [], [], []
-    print(f"{region_id}-{season_str}-{spi_string_name}")
-
-    region_id = 1
-    season_str = "OND"
-    spi_string_name = "spi3"
-    dfs_mn = []
-    dfs_mi = []
-    dfs_mx = []
-    for lead_int in range(5):
-        df_mn, df_mi, df_mx = metrices_process_data(
-            region_id, season_str, lead_int, spi_string_name
-        )
-        dfs_mn.append(df_mn)
-        dfs_mi.append(df_mi)
-        dfs_mx.append(df_mx)
-    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
-    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
-    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
-    df_mbt_ond = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-    df_mbt_ond["percentage_spi"] = df_mbt_ond[spi_string_name] * 100
-    df_mbt_ond = df_mbt_ond.assign(
-        region_id=region_id, season=season_str, spi_name=spi_string_name
+    plt.text(
+        1.05,
+        0.05,
+        "80<",
+        horizontalalignment="left",
+        fontsize=6,
+        fontweight="bold",
+        color="k",
+        verticalalignment="center",
+        transform=text1.transAxes,
     )
-    df_mn_final, df_mi_final, df_mx_final = [], [], []
-    print(f"{region_id}-{season_str}-{spi_string_name}")
 
-    region_id = 2
-    season_str = "MAM"
-    spi_string_name = "spi3"
-    dfs_mn = []
-    dfs_mi = []
-    dfs_mx = []
-    for lead_int in range(5):
-        df_mn, df_mi, df_mx = metrices_process_data(
-            region_id, season_str, lead_int, spi_string_name
-        )
-        dfs_mn.append(df_mn)
-        dfs_mi.append(df_mi)
-        dfs_mx.append(df_mx)
-    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
-    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
-    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
-    df_wjr_mam = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-    df_wjr_mam["percentage_spi"] = df_wjr_mam[spi_string_name] * 100
-    df_wjr_mam = df_wjr_mam.assign(
-        region_id=region_id, season=season_str, spi_name=spi_string_name
-    )
-    df_mn_final, df_mi_final, df_mx_final = [], [], []
-    print(f"{region_id}-{season_str}-{spi_string_name}")
 
-    region_id = 2
-    season_str = "OND"
-    spi_string_name = "spi3"
-    dfs_mn = []
-    dfs_mi = []
-    dfs_mx = []
-    for lead_int in range(5):
-        df_mn, df_mi, df_mx = metrices_process_data(
-            region_id, season_str, lead_int, spi_string_name
-        )
-        dfs_mn.append(df_mn)
-        dfs_mi.append(df_mi)
-        dfs_mx.append(df_mx)
-    df_mn_final = pd.concat(dfs_mn, ignore_index=True)
-    df_mi_final = pd.concat(dfs_mi, ignore_index=True)
-    df_mx_final = pd.concat(dfs_mx, ignore_index=True)
-    df_wjr_ond = pd.concat([df_mn_final, df_mi_final, df_mx_final], axis=0)
-    df_wjr_ond["percentage_spi"] = df_wjr_ond[spi_string_name] * 100
-    df_wjr_ond = df_wjr_ond.assign(
-        region_id=region_id, season=season_str, spi_name=spi_string_name
-    )
-    df_mn_final, df_mi_final, df_mx_final = [], [], []
-    print(f"{region_id}-{season_str}-{spi_string_name}")
+def set_align_for_column(table, col, align="left"):
+    cells = [key for key in table._cells if key[1] == col]
+    for cell in cells:
+        table._cells[cell]._loc = align
 
-    df = pd.concat(
-        [df_kmj_mam, df_kmj_jjas, df_mbt_mam, df_mbt_ond, df_wjr_mam, df_wjr_ond],
-        axis=0,
+
+def set_width_for_column(table, col, width):
+    cells = [key for key in table._cells if key[1] == col]
+    for cell in cells:
+        table._cells[cell]._width = width
+
+
+def set_height_for_row(table, row, height):
+    cells = [key for key in table._cells if key[0] == row]
+    for cell in cells:
+        table._cells[cell]._height = height
+
+
+def colorcell(tablerows, tablecols, cellDict, color_list):
+    allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
+    for alcls in allcells:
+        cell_value0 = json.loads(cellDict[alcls]._text.get_text())[0]
+        if cell_value0 == -999.0:
+            cellDict[alcls].set_facecolor("#FFFFFF")
+        else:
+            if float(cell_value0) <= 0.2:
+                cellDict[alcls].set_facecolor(color_list[0])
+            elif 0.2 < float(cell_value0) <= 0.4:
+                cellDict[alcls].set_facecolor(color_list[1])
+            elif 0.4 < float(cell_value0) <= 0.6:
+                cellDict[alcls].set_facecolor(color_list[2])
+            elif 0.6 < float(cell_value0) <= 0.8:
+                cellDict[alcls].set_facecolor(color_list[3])
+            elif 0.8 < float(cell_value0) <= 1.0:
+                cellDict[alcls].set_facecolor(color_list[4])
+            else:
+                cellDict[alcls].set_facecolor("#FFFFFF")
+
+
+def remove_value(tablerows, tablecols, mpl_table):
+    allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
+    for alcls in allcells:
+        mpl_table._cells[alcls]._text.set_text("")
+
+
+def add_certain_value(tablerows, tablecols, mpl_table, cellDict):
+    allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
+    for alcls in allcells:
+        # print(cellDict[alcls]._text.get_text())
+        cell_value0 = json.loads(cellDict[alcls]._text.get_text())[1]
+        mpl_table._cells[alcls]._text.set_text("")
+        # cell_value0=(cellDict[alcls]._text.get_text())
+        if cell_value0 == -999.0:
+            mpl_table._cells[alcls]._text.set_text("")
+        elif cell_value0 == 999.0:
+            mpl_table._cells[alcls]._text.set_text("")
+        else:
+            ncl = "%.1f" % cell_value0
+            mpl_table._cells[alcls]._text.set_text(ncl)
+
+
+def aset_height_for_row_except_head(table, rowlist, height):
+    cells_list = []
+    for row in rowlist:
+        cells = [key for key in table._cells if key[0] == row]
+        cells_list.append(cells)
+    for cells in cells_list:
+        for cell in cells:
+            table._cells[cell]._height = height
+
+
+def bset_height_for_row_except_head(table, rowlist, height):
+    for row in rowlist:
+        for col in range(len(table[row])):
+            cell = table[row, col]
+            cell._height = height
+
+
+def cset_height_for_row_except_head(table, row_height):
+    """chatGPT function"""
+    for i, cell in six.iteritems(table._cells):
+        if i[0] == 0:  # Skip header row
+            continue
+        cell.set_height(row_height)
+
+
+def set_height_for_row_except_head(cellDict, header_row_count, height):
+    for cell_key, cell in cellDict.items():
+        row, col = cell_key
+        if row < header_row_count:
+            continue  # skip header rows
+        cell.set_height(height)
+
+
+def table_header_colour(tablerows, tablecols, cellDict, mpl_table):
+    allcells = [(x, y) for x in tablerows[0:1] for y in tablecols]
+    header_list = [
+        "Region",
+        "SPI",
+        "Jul",
+        "Aug",
+        "Sep",
+        "",
+        "Jul",
+        "Aug",
+        "Sep",
+        "",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "",
+        "Nov",
+        "Dec",
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "",
+        "Nov",
+        "Dec",
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "",
+    ]
+    for idx, alcls in enumerate(allcells):
+        cellDict[alcls].set_facecolor("#FFFFFF")
+        print(header_list[idx])
+        text = header_list[idx]
+        mpl_table._cells[alcls]._text.set_text(text)
+
+
+### funciton for table creation
+def render_mpl_table(
+    data,
+    color_list,
+    col_width=1.0,
+    row_height=0.425,
+    font_size=5,
+    header_color="#40466e",
+    row_colors=["#f1f1f2", "w"],
+    edge_color="w",
+    bbox=[0, 0, 1, 1],
+    header_columns=0,
+    ax=None,
+    **kwargs,
+):
+    """
+    Renders a matplotlib table from a pandas DataFrame, allowing for customization of various aesthetic parameters.
+
+    Parameters:
+    - data (pandas.DataFrame): The data to display in the table.
+    - color_list (list): A list of colors to use for cell background coloring based on cell values.
+    - col_width (float): The width of the columns. Default is 1.0.
+    - row_height (float): The height of the rows. Default is 0.625.
+    - font_size (int): Font size for the cell texts. Default is 5.
+    - header_color (str): Color code or name for the table header's background. Default is '#40466e'.
+    - row_colors (list): A list containing color codes for alternating row colors. Default is ['#f1f1f2', 'w'].
+    - edge_color (str): Color code or name for the cell edge lines. Default is 'w' (white).
+    - bbox (list): A 4-element list defining the bounding box of the table within the plot. Default is [0, 0, 1, 1].
+    - header_columns (int): The number of initial columns considered as header columns. Default is 0.
+    - ax (matplotlib.axes.Axes): The matplotlib axes object where the table will be rendered. If None, a new one will be created.
+
+    Returns:
+    - ax (matplotlib.axes.Axes): The matplotlib axes object with the rendered table.
+
+    This function creates a visual representation of a DataFrame as a static table in a matplotlib figure. It allows for
+    significant customization, including cell coloring based on values, flexible sizing, font adjustments, and more. The
+    function is particularly useful for creating detailed reports or visual summaries of data within a matplotlib figure.
+
+    Additional keyword arguments (**kwargs) are passed directly to the `matplotlib.axes.Axes.table` method.
+    """
+    mpl_table = ax.table(
+        cellText=data.values, bbox=bbox, colLabels=[""] * 42, cellLoc="center", **kwargs
     )
-    return df
+    set_align_for_column(mpl_table, col=0, align="left")
+    set_width_for_column(mpl_table, 0, 0.6)
+    set_width_for_column(mpl_table, 1, 0.5)
+    for idx in range(2, 42):
+        set_width_for_column(mpl_table, idx, 0.2)
+    set_height_for_row(mpl_table, 0, 0.01)
+    # set_height_for_row_except_head(mpl_table, np.arange(1, len(data.index)), 0.06)
+    # set_height_for_row_except_head(mpl_table, row_height=0.03)
+    cellDict = mpl_table.get_celld()
+    set_height_for_row_except_head(cellDict, header_row_count=1, height=0.03)
+    mpl_table.auto_set_font_size(False)
+    mpl_table.set_fontsize(font_size)
+    cellDict = mpl_table.get_celld()
+    tablerows = np.arange(0, len(data.index) + 1)
+    tablecols = np.arange(0, len(data.columns))
+    for k, cell in six.iteritems(mpl_table._cells):
+        cell.set_edgecolor(edge_color)
+        if k[0] == 0 or k[1] < header_columns:
+            cell.set_text_props(weight="bold", color="black")
+            cell.set_facecolor(header_color)
+        else:
+            cell.set_facecolor(row_colors[k[0] % len(row_colors)])
+    colorcell(tablerows, tablecols, cellDict, color_list)
+    headings = data.columns
+    plt.text(
+        0.245,
+        1.08,
+        "Moderate",
+        fontsize=10,
+        fontweight="bold",
+        color="black",
+        ha="left",
+        va="center",
+        transform=ax.transAxes,
+    )
+    plt.text(
+        0.545,
+        1.08,
+        "Severe",
+        fontsize=10,
+        fontweight="bold",
+        color="black",
+        ha="left",
+        va="center",
+        transform=ax.transAxes,
+    )
+    plt.text(
+        0.845,
+        1.08,
+        "Extreme",
+        fontsize=10,
+        fontweight="bold",
+        color="black",
+        ha="left",
+        va="center",
+        transform=ax.transAxes,
+    )
+    table_header_colour(tablerows, tablecols, cellDict, mpl_table)
+    add_certain_value(tablerows, tablecols, mpl_table, cellDict)
+    return ax
+
+
+def plot_data_table(data_table, stat_var, req_list):
+    # Width and height of A4 portrait with 1-inch margins
+    width = 3.67 - 2  # one inch margin on each side
+    height = 11.69 - 2  # one inch margin on the top and bottom
+    fig = plt.figure()
+    fig.set_size_inches(height, width)
+    # [left, bottom, width, height]
+    table = fig.add_axes([0.04, 0.15, 0.93, 0.75], frame_on=False)
+    table.xaxis.set_ticks_position("none")
+    table.yaxis.set_ticks_position("none")
+    table.set_xticklabels("")
+    table.set_yticklabels("")
+    #######
+    laxes = fig.add_axes([0.22, 0.01, 0.4, 0.3], frame_on=False, zorder=0)
+    laxes.xaxis.set_ticks_position("none")
+    laxes.yaxis.set_ticks_position("none")
+    laxes.set_xticklabels("")
+    laxes.set_yticklabels("")
+    if stat_var == "FAR":
+        legend_title = "False Alarm Ratio %"
+        color_list = ["#009600", "#64C800", "#ffff00", "#ff7800", "#ff0000"]
+    else:
+        legend_title = "Hit Rate %"
+        color_list = ["#ff0000", "#ff7800", "#ffff00", "#64C800", "#009600"]
+    legend_maker(laxes, color_list, legend_title)
+    #####
+    data1 = data_table[req_list]
+    print(data1.info())
+    mpl_table = render_mpl_table(
+        data1, color_list, header_columns=0, col_width=0.2, ax=table
+    )
+    # cellDict = mpl_table.get_celld()
+    # set_height_for_row_except_head(cellDict, header_row_count=1, height=0.06)
+    # set_height_for_row_except_head(mpl_table, row_height=0.125)
+    var = stat_var.lower()
+    plt.show
+    # plt.savefig(f"{latex_path}{var}_{region_id}_prob_v20240515.jpg", dpi=300)
+
+
+def pass_month_get_colnames(months):
+    original_list = [
+        "region_x",
+        "season",
+        "nov_x",
+        "dec_x",
+        "jan_x",
+        "feb_x",
+        "mar_x",
+        "apr_x",
+        "may_x",
+        "jun_x",
+        "jul_x",
+        "aug_x",
+        "sep_x",
+        "oct_x",
+        "empty1",
+        "nov_y",
+        "dec_y",
+        "jan_y",
+        "feb_y",
+        "mar_y",
+        "apr_y",
+        "may_y",
+        "jun_y",
+        "jul_y",
+        "aug_y",
+        "sep_y",
+        "oct_y",
+        "empty2",
+        "nov_z",
+        "dec_z",
+        "jan_z",
+        "feb_z",
+        "mar_z",
+        "apr_z",
+        "may_z",
+        "jun_z",
+        "jul_z",
+        "aug_z",
+        "sep_z",
+        "oct_z",
+    ]
+    # months = ['jul', 'aug', 'sep']
+    suffixes = ["_x", "_y", "_z"]
+
+    organized_list = [
+        "region_x",
+        "season",
+    ]
+
+    for suffix in suffixes:
+        for month in months:
+            item = month + suffix
+            if item in original_list:
+                organized_list.append(item)
+
+        if suffix == "_x":
+            organized_list.append("empty1")
+        elif suffix == "_y":
+            organized_list.append("empty2")
+    return organized_list
+
+
+def table_df(tab_df, stat_var):
+    tab_df_a = tab_df.rename(columns={"lead_time": "lt"})
+    tab_df_m = create_month_column(tab_df_a)
+    tab_df_m["pod_v"] = tab_df_m.apply(
+        lambda x: [x["hit_rates"], x["trigger_values"]], axis=1
+    )
+    tab_df_m["far_v"] = tab_df_m.apply(
+        lambda x: [x["false_alarm_ratios"], x["trigger_values"]], axis=1
+    )
+    tab_df_m["pod_v"] = tab_df_m["pod_v"].apply(lambda x: round_list(x, 2))
+    tab_df_m["far_v"] = tab_df_m["far_v"].apply(lambda x: round_list(x, 2))
+    mapping_dict = {0: "Karamoja", 1: "Marsabit", 2: "Wajir"}
+    tab_df_m["region_x"] = tab_df_m["region"].replace(mapping_dict)
+    p = tab_df_m.pivot_table(
+        index=["region_x", "season"],
+        columns="new_column",
+        values="pod_v",
+        aggfunc="first",
+    )
+    pf = p.reset_index()
+    # Apply the custom function to each cell in the DataFrame
+    pf1 = pf.applymap(replace_with_list)
+    pf1.columns.name = None
+    pf1["empty1"] = [[-999.0, -999.0]] * len(pf1)
+    pf1["empty2"] = [[-999.0, -999.0]] * len(pf1)
+    months = ["jul", "aug", "sep"]
+    organized_list = pass_month_get_colnames(months)
+    pf2 = pf1[organized_list]
+    mask = (pf2["region_x"].isin(["Marsabit", "Wajir"])) & (pf2["season"] == "OND")
+    pf3 = pf2[mask]
+    plot_data_table(pf3, stat_var, organized_list)
