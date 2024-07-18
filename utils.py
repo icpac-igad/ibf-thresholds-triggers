@@ -41,16 +41,116 @@ from datetime import datetime
 import textwrap as tw
 from functools import reduce
 import json
+from dateutil.relativedelta import relativedelta
+from calendar import monthrange
+
+#load_dotenv()
+
+#data_path = os.getenv("data_path")
+
+#latex_path = os.getenv("latex_path")
+
+def transform_data(data_at_time):
+    """
+    Transforms the input data to calculate total precipitation and adjust for the number of days in each month.
+
+    Parameters:
+    - data_at_time (xarray.Dataset): Input dataset containing precipitation data at different forecast times.
+
+    Returns:
+    - data_at_time_tp (xarray.Dataset): Transformed dataset with total precipitation adjusted for the number of days in each month.
+    """
+    valid_time = [pd.to_datetime(data_at_time.time.values) + relativedelta(months=fcmonth-1) 
+                  for fcmonth in data_at_time.forecastMonth]
+    data_at_time = data_at_time.assign_coords(valid_time=('forecastMonth', valid_time))
+    numdays = [monthrange(dtat.year, dtat.month)[1] for dtat in valid_time]
+    data_at_time = data_at_time.assign_coords(numdays=('forecastMonth', numdays))
+    data_at_time_tp = data_at_time * data_at_time.numdays * 24 * 60 * 60 * 1000
+    data_at_time_tp.attrs['units'] = 'mm'
+    data_at_time_tp.attrs['long_name'] = 'Total precipitation' 
+    return data_at_time_tp
 
 
-load_dotenv()
+def apply_spi(cont_db,lead_val,spi_name_int):
+    """
+    Calculates given spi_name_int value Standardized Precipitation Index (SPI) 
+    for a specified lead time.
 
-data_path = os.getenv("data_path")
+    Parameters:
+    - cont_db (xarray.Dataset): The input dataset containing total monthly precipitation data.
+    - lead_val (int): The lead time value for which the SPI is calculated.
 
-latex_path = os.getenv("latex_path")
+    Returns:
+    - cont_spi (list): A list of xarray.DataArrays containing the SPI values for each ensemble member.
+    """
+    lt1_db = cont_db.sel(forecastMonth=lead_val)
+    lt1_db['tprate'].attrs['units'] = 'mm/month'
+    cont_spi=[]
+    for nsl in lt1_db.number.values:
+        lt1_db2=lt1_db.sel(number=nsl)
+        #lt1_db3 = lt1_db2.chunk({'time': 4, 'latitude': 2, 'longitude': 2})
+        lt1_db3 = lt1_db2.chunk(-1)
+        aa=lt1_db3.tprate
+        spi_3 = standardized_precipitation_index(
+             aa,
+             freq="MS",
+             window=spi_name_int,
+             dist="gamma",
+             method="APP",
+             cal_start='1991-01-01',
+             cal_end='2018-01-01',
+        )  
+        a_s3=spi_3.compute()
+        cont_spi.append(a_s3)
+        aa=[]
+        lt1_db3 = []
+        lt1_db2 = []
+        print(nsl)
+    return cont_spi
 
 
-def ken_mask_creator():
+def apply_spii_mem(cont_db,lead_val,spi_name_int):
+    """
+    Calculates given spi_name_int value Standardized Precipitation Index (SPI) 
+    for a specified lead time.
+
+    Parameters:
+    - cont_db (xarray.Dataset): The input dataset containing total monthly precipitation data.
+    - lead_val (int): The lead time value for which the SPI is calculated.
+
+    Returns:
+    - cont_spi (list): A list of xarray.DataArrays containing the SPI values for each ensemble member.
+    """
+    lt1_db = cont_db.sel(forecastMonth=lead_val)
+    lt1_db['tprate'].attrs['units'] = 'mm/month'
+    cont_spi=[]
+    for nsl in lt1_db.number.values:
+        lt1_db2=lt1_db.sel(number=nsl)
+        #lt1_db3 = lt1_db2.chunk({'time': 4, 'latitude': 2, 'longitude': 2})
+        lt1_db3 = lt1_db2.chunk(-1)
+        aa=lt1_db3.tprate
+        spi_3 = standardized_precipitation_index(
+             aa,
+             freq="MS",
+             window=spi_name_int,
+             dist="gamma",
+             method="APP",
+             cal_start='2017-01-01',
+             cal_end='2023-12-01',
+        )  
+        a_s3=spi_3.compute()
+        cont_spi.append(a_s3)
+        aa=[]
+        lt1_db3 = []
+        lt1_db2 = []
+        print(nsl)
+    return cont_spi
+
+
+
+
+
+def ken_mask_creator(data_path):
     """
     Utiliity for generating region/district masks using regionmask library
 
@@ -63,7 +163,6 @@ def ken_mask_creator():
 
     """
     dis = gp.read_file(f"{data_path}Karamoja_boundary_dissolved.shp")
-    mbt_path = os.getenv("mbt_path")
     reg = gp.read_file(f"{data_path}wajir_mbt_extent.shp")
     mds = pd.concat([dis, reg])
     mds1 = mds.reset_index()
@@ -154,7 +253,7 @@ def spi4_prod_name_creator(ds_ens, var_name):
     return spi_prod_list
 
 
-def make_obs_fct_dataset(region_id, season_str, lead_int):
+def make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
     """
     Prepares observed and forecasted dataset subsets for a specific region, season, and lead time.
 
@@ -189,12 +288,12 @@ def make_obs_fct_dataset(region_id, season_str, lead_int):
     for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
     """
     if len(season_str) == 3:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3.nc")
+        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
+        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
     else:
         kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
         kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
-    the_mask, rl_dict, mds1 = ken_mask_creator()
+    the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
     bounds = mds1.bounds
     # bounds.iloc[0].minx
     llon = bounds.iloc[region_id].minx
@@ -260,6 +359,34 @@ def make_obs_fct_dataset(region_id, season_str, lead_int):
     return obs_data, ens_data
 
 
+
+def DEPRICATED_get_threshold(region_id, season):
+    data = """region_id,region,season,mod,sev,ext
+    0,kmj,mam,-0.03,-0.56,-0.99
+    0,kmj,jjas,-0.01,-0.41,-0.99
+    1,mbt,mam,-0.14,-0.38,-0.8
+    1,mbt,ond,-0.15,-0.53,-0.71
+    2,wjr,mam,-0.19,-0.45,-0.75
+    2,wjr,ond,-0.29,-0.76,-0.9
+    """
+    # Use StringIO to convert the string data to a file-like object
+    data_io = StringIO(data)
+    # Read the data into a pandas DataFrame
+    df = pd.read_csv(data_io)
+    thresholds_dict = {
+        (row["region_id"], row["season"]): {
+            "mod": row["mod"],
+            "sev": row["sev"],
+            "ext": row["ext"],
+        }
+        for _, row in df.iterrows()
+    }
+    # Retrieve the dictionary for the given region_id and season
+    season_thresholds = thresholds_dict.get((region_id, season), {})
+    # Return the threshold for the given level (mod, sev, ext), or None if not found
+    return season_thresholds
+
+
 def get_threshold(region_id, season):
     """
     Retrieves the drought threshold value for a specified region, season, and drought level.
@@ -292,10 +419,10 @@ def get_threshold(region_id, season):
     data = """region_id,region,season,mod,sev,ext
     0,kmj,mam,-0.03,-0.56,-0.99
     0,kmj,jjas,-0.01,-0.41,-0.99
-    1,mbt,mam,-0.14,-0.38,-0.8
-    1,mbt,ond,-0.15,-0.53,-0.71
-    2,wjr,mam,-0.19,-0.45,-0.75
-    2,wjr,ond,-0.29,-0.76,-0.9
+    1,mbt,mam,-0.14,-0.38,-1.0
+    1,mbt,ond,-0.44,-0.71,-1.0
+    2,wjr,mam,-0.19,-0.45,-1.0
+    2,wjr,ond,-0.46,-0.76,-1.0
     """
     # Use StringIO to convert the string data to a file-like object
     data_io = StringIO(data)
@@ -333,7 +460,7 @@ def emprical_probablity(ens_data, threshold_dict):
     fct_mod = (ens_data <= mod_thr).mean(dim="member")
     ####
     sev_thr = threshold_dict["sev"]
-    fct_sev = (ens_data <= sev_thr).mean(dim="member")
+    fct_sev = (ens_data <= sev_thr).mean(dim="member"get_mean_ens_triggers)
     ####
     ext_thr = threshold_dict["ext"]
     fct_ext = (ens_data <= ext_thr).mean(dim="member")
@@ -539,16 +666,26 @@ def trigger_decision_dict(df0):
     return tri_dict, df0
 
 
-def get_mean_ens_triggers(region_id, season_str, lead_int):
+def get_mean_ens_triggers(data_path,region_id, season_str, lead_int):
     if len(season_str) == 3:
         spi_string_name = "spi3"
     else:
         spi_string_name = "spi4"
     sc_season_str = season_str.lower()
-    obs_data, ens_data = make_obs_fct_dataset(region_id, season_str, lead_int)
+    obs_data, ens_data = make_obs_fct_dataset(data_path,region_id, season_str, lead_int)
     obs_df = mean_obs_spi(obs_data, spi_string_name)
     threshold_dict = get_threshold(region_id, sc_season_str)
-    fct_mod, fct_sev, fct_ext = emprical_probablity(ens_data, threshold_dict)
+    ###
+    m26_ens_data=ens_data.isel(init=slice(0,36))
+    m26_ens_data1=m26_ens_data.isel(member=slice(0, 25))
+    m26_fct_mod, m26_fct_sev, m26_fct_ext=emprical_probablity(m26_ens_data1, threshold_dict)
+    m51_ens_data=ens_data.isel(init=slice(36,len(ens_data)))
+    m51_fct_mod, m51_fct_sev, m51_fct_ext=emprical_probablity(m51_ens_data, threshold_dict)
+    fct_mod=xr.concat([m26_fct_mod,m51_fct_mod],dim='init')
+    fct_sev=xr.concat([m26_fct_sev,m51_fct_sev],dim='init')
+    fct_ext=xr.concat([m26_fct_ext,m51_fct_ext],dim='init')
+    ####
+    #fct_mod, fct_sev, fct_ext = emprical_probablity(ens_data, threshold_dict)
     fct_df = mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name)
     db = pd.merge(fct_df, obs_df, on="year")
     pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
@@ -1213,7 +1350,7 @@ def render_mpl_table(
     plt.text(
         0.245,
         1.08,
-        "Moderate",
+        "Mild",
         fontsize=10,
         fontweight="bold",
         color="black",
@@ -1224,7 +1361,7 @@ def render_mpl_table(
     plt.text(
         0.545,
         1.08,
-        "Severe",
+        "Moderate",
         fontsize=10,
         fontweight="bold",
         color="black",
@@ -1235,7 +1372,7 @@ def render_mpl_table(
     plt.text(
         0.845,
         1.08,
-        "Extreme",
+        "Severe",
         fontsize=10,
         fontweight="bold",
         color="black",
@@ -1248,7 +1385,7 @@ def render_mpl_table(
     return ax
 
 
-def plot_data_table(data_table, stat_var, req_list):
+def plot_data_table(data_table, stat_var, req_list,region_id):
     # Width and height of A4 portrait with 1-inch margins
     width = 3.67 - 2  # one inch margin on each side
     height = 11.69 - 2  # one inch margin on the top and bottom
@@ -1284,7 +1421,7 @@ def plot_data_table(data_table, stat_var, req_list):
     # set_height_for_row_except_head(mpl_table, row_height=0.125)
     var = stat_var.lower()
     plt.show
-    # plt.savefig(f"{latex_path}{var}_{region_id}_prob_v20240515.jpg", dpi=300)
+    plt.savefig(f"{latex_path}{var}_{region_id}_prob_v20240703.jpg", dpi=300)
 
 
 def pass_month_get_colnames(months):
