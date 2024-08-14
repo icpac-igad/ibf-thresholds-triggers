@@ -714,7 +714,7 @@ def get_mean_ens_triggers(data_path,region_id, season_str, lead_int):
     return obs_df, fct_df, metrix_df, decision_dict, decision_df, plot_df
 
 
-def arrange_obs_fct_stampplot():
+def arrange_obs_fct_stampplot(obs_data,ens_data):
     """
     take forecast and observations dataset into single xarray dataset
     The learning curve on extending a xarray is large and the lines in this funcitons
@@ -723,8 +723,8 @@ def arrange_obs_fct_stampplot():
     Where the observation dataset is added as an 51th memeber to have a stampl plot of forecast versus observations
 
     """
-    ens_data1=ens_data.to_dataset()
     obs_data1=obs_data.to_dataset()
+    ens_data1=ens_data.to_dataset()
     obs_data1 = obs_data1.rename_dims({'time': 'init'})
 
     # Step 2: Extend the 'init' dimension in obs_data1 to match the length of 'init' in ens_data1
@@ -760,7 +760,7 @@ def arrange_obs_fct_stampplot():
     return ds 
 
 
-def plot_obs_fct stamp(dataset, region, lead_time, variable='spi3'):
+def plot_obs_fct_stamp(dataset, region, lead_time, variable='spi3'):
     members = dataset.member.values
     inits = dataset.init.values
     lats = dataset.lat.values
