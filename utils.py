@@ -6,7 +6,7 @@ import climpred
 import xarray as xr
 import xesmf as xe
 import numpy as np
-import pandas as pda
+import pandas as pd
 import regionmask
 import geopandas as gp
 from climpred import HindcastEnsemble
@@ -47,6 +47,7 @@ from calendar import monthrange
 #load_dotenv()
 
 #data_path = os.getenv("data_path")
+
 
 #latex_path = os.getenv("latex_path")
 
@@ -360,32 +361,6 @@ def make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
 
 
 
-def DEPRICATED_get_threshold(region_id, season):
-    data = """region_id,region,season,mod,sev,ext
-    0,kmj,mam,-0.03,-0.56,-0.99
-    0,kmj,jjas,-0.01,-0.41,-0.99
-    1,mbt,mam,-0.14,-0.38,-0.8
-    1,mbt,ond,-0.15,-0.53,-0.71
-    2,wjr,mam,-0.19,-0.45,-0.75
-    2,wjr,ond,-0.29,-0.76,-0.9
-    """
-    # Use StringIO to convert the string data to a file-like object
-    data_io = StringIO(data)
-    # Read the data into a pandas DataFrame
-    df = pd.read_csv(data_io)
-    thresholds_dict = {
-        (row["region_id"], row["season"]): {
-            "mod": row["mod"],
-            "sev": row["sev"],
-            "ext": row["ext"],
-        }
-        for _, row in df.iterrows()
-    }
-    # Retrieve the dictionary for the given region_id and season
-    season_thresholds = thresholds_dict.get((region_id, season), {})
-    # Return the threshold for the given level (mod, sev, ext), or None if not found
-    return season_thresholds
-
 
 def get_threshold(region_id, season):
     """
@@ -410,6 +385,13 @@ def get_threshold(region_id, season):
     - This function uses a hardcoded CSV string as its data source. In a production environment, it's recommended to
       store and retrieve such data from a more robust data management system.
     - The function requires the pandas library for data manipulation and the StringIO module from io for string-based data input.
+    data_v1 = region_id,region,season,mod,sev,ext
+    0,kmj,mam,-0.03,-0.56,-0.99
+    0,kmj,jjas,-0.01,-0.41,-0.99
+    1,mbt,mam,-0.14,-0.38,-0.8
+    1,mbt,ond,-0.15,-0.53,-0.71
+    2,wjr,mam,-0.19,-0.45,-0.75
+    2,wjr,ond,-0.29,-0.76,-0.9
 
     Example usage:
     >>> threshold = get_threshold(1, 'mam', 'mod')
@@ -460,7 +442,7 @@ def emprical_probablity(ens_data, threshold_dict):
     fct_mod = (ens_data <= mod_thr).mean(dim="member")
     ####
     sev_thr = threshold_dict["sev"]
-    fct_sev = (ens_data <= sev_thr).mean(dim="member"get_mean_ens_triggers)
+    fct_sev = (ens_data <= sev_thr).mean(dim="member")
     ####
     ext_thr = threshold_dict["ext"]
     fct_ext = (ens_data <= ext_thr).mean(dim="member")
@@ -732,7 +714,123 @@ def get_mean_ens_triggers(data_path,region_id, season_str, lead_int):
     return obs_df, fct_df, metrix_df, decision_dict, decision_df, plot_df
 
 
-def obs_chart_with_triggers(
+def arrange_obs_fct_stampplot():
+    """
+    take forecast and observations dataset into single xarray dataset
+    The learning curve on extending a xarray is large and the lines in this funcitons
+    are added after lot of iterations
+
+    Where the observation dataset is added as an 51th memeber to have a stampl plot of forecast versus observations
+
+    """
+    ens_data1=ens_data.to_dataset()
+    obs_data1=obs_data.to_dataset()
+    obs_data1 = obs_data1.rename_dims({'time': 'init'})
+
+    # Step 2: Extend the 'init' dimension in obs_data1 to match the length of 'init' in ens_data1
+    # Create a new array with NaN values for the 43rd time step
+    extended_spi3 = np.full((43,13, 13), np.nan)
+    extended_spi3[:42,:,:] = obs_data1['spi3'].values
+
+    # Create a new 'init' coordinate with 43 time steps
+    new_init = ens_data1['init']
+
+    # Create a new DataArray for the extended obs_data1
+    obs_data1_extended = xr.DataArray(
+        extended_spi3,
+        dims=['init','lat', 'lon'],
+        coords={'init': new_init,'lat': obs_data1['lat'], 'lon': obs_data1['lon'] },
+        name='spi3'
+    )
+
+    obs_data_ex=obs_data1_extended.to_dataset()
+
+    member_coord = xr.DataArray([51], dims="member")
+
+    # Expand the Dataset with the new dimension
+    obs_data_ex = obs_data_ex.expand_dims(
+        {"member": member_coord}
+    )
+
+    obs_data_ex = obs_data_ex.assign_coords(member=[52])
+    ens_data2 = ens_data1.rename({'number':'member'})
+    ens_data3 = ens_data2.set_xindex('member')
+
+    ds = xr.concat([ens_data3, obs_data_ex], dim='member')
+    return ds 
+
+
+def plot_obs_fct stamp(dataset, region, lead_time, variable='spi3'):
+    members = dataset.member.values
+    inits = dataset.init.values
+    lats = dataset.lat.values
+    lons = dataset.lon.values
+
+    fig = plt.figure(figsize=(24, 20))  # Adjusted figure size for the new layout
+    
+    for i, init in enumerate(inits):
+        for j, member in enumerate(members):
+            ax = fig.add_subplot(len(inits), len(members), i*len(members) + j + 1,
+                                 projection=ccrs.PlateCarree())
+            
+            data = dataset[variable].sel(member=member, init=init).values
+            
+            # Plot the data
+            im = ax.pcolormesh(lons, lats, data, cmap='RdBu', 
+                               transform=ccrs.PlateCarree(), 
+                               vmin=-2, vmax=2)
+            
+            ax.set_title(f'M{member}-{init.strftime("%Y")}', fontsize=6)
+            
+            # Remove axis labels for cleaner look
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+    # Add a colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cax=cbar_ax, label='SPI3')
+    
+    plt.tight_layout()
+    plt.savefig(f'{region}_stamp_plots_{lead_time}.png', dpi=300, bbox_inches='tight')
+    plt.close()
+    
+
+
+def plot_create_obs_fct_stamps(dataset, variable='spi3'):
+    members = dataset.member.values
+    inits = dataset.init.values
+    lats = dataset.lat.values
+    lons = dataset.lon.values
+
+    fig = plt.figure(figsize=(24, 20))  # Adjusted figure size for the new layout
+    
+    for i, init in enumerate(inits):
+        for j, member in enumerate(members):
+            ax = fig.add_subplot(len(inits), len(members), i*len(members) + j + 1,
+                                 projection=ccrs.PlateCarree())
+            
+            data = dataset[variable].sel(member=member, init=init).values
+            
+            # Plot the data
+            im = ax.pcolormesh(lons, lats, data, cmap='RdBu', 
+                               transform=ccrs.PlateCarree(), 
+                               vmin=-2, vmax=2)
+            
+            ax.set_title(f'M{member}-{init.strftime("%Y")}', fontsize=6)
+            
+            # Remove axis labels for cleaner look
+            ax.set_xticks([])
+            ax.set_yticks([])
+            
+    # Add a colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cax=cbar_ax, label='SPI3')
+    
+    plt.tight_layout()
+    plt.savefig(f'init_rows_20240810.png', dpi=300, bbox_inches='tight')
+    plt.close()
+
+def plot_obs_chart_with_triggers(
     plot_type, df, year_column, spi_column, threshold_dict, row_annotations
 ):
     """
@@ -807,7 +905,7 @@ def obs_chart_with_triggers(
     return final_chart
 
 
-def make_barchart_annotations():
+def aux_plot_make_barchart_annotations():
     row_annotations = [
         alt.Chart(pd.DataFrame({"text": ["lt=1"]}))
         .mark_text(
@@ -868,7 +966,7 @@ def make_barchart_annotations():
     return row_annotations
 
 
-def decision_table(df):
+def plot_decision_table(df):
     return (
         alt.Chart(df.reset_index())
         .mark_text()
@@ -894,7 +992,7 @@ def decision_table(df):
     )
 
 
-def create_month_column(df):
+def aux_mt_plot_create_month_column(df):
     new_column = []
 
     for _, row in df.iterrows():
@@ -1006,11 +1104,12 @@ def create_month_column(df):
         else:
             new_column.append("")
 
-    df["new_column"] = new_column
+    #df["new_column"] = new_column
+    df.insert(loc=0, column='new_column', value=new_column)
     return df
 
 
-def replace_with_list(x):
+def aux_mt_plot_replace_with_list(x):
     """
     Replaces NaN float values with a predefined list of replacement values.
 
@@ -1032,7 +1131,7 @@ def replace_with_list(x):
     return x
 
 
-def round_list(lst, decimal_places):
+def aux_mt_plot_round_list(lst, decimal_places):
     """
     Rounds each element in a list to a specified number of decimal places.
 
@@ -1055,7 +1154,7 @@ def round_list(lst, decimal_places):
 
 
 ### functions for whole column, row editing
-def legend_maker(text1, color_list, legend_title):
+def aux_mt_plot_legend_maker(text1, color_list, legend_title):
     square6 = plt.Rectangle((0.4, 0.1), 0.15, 0.25, color=color_list[0], clip_on=False)
     text1.add_artist(square6)
     square5 = plt.Rectangle((0.55, 0.1), 0.15, 0.25, color=color_list[1], clip_on=False)
@@ -1134,25 +1233,25 @@ def legend_maker(text1, color_list, legend_title):
     )
 
 
-def set_align_for_column(table, col, align="left"):
+def aux_mt_plot_set_align_for_column(table, col, align="left"):
     cells = [key for key in table._cells if key[1] == col]
     for cell in cells:
         table._cells[cell]._loc = align
 
 
-def set_width_for_column(table, col, width):
+def aux_mt_plot_set_width_for_column(table, col, width):
     cells = [key for key in table._cells if key[1] == col]
     for cell in cells:
         table._cells[cell]._width = width
 
 
-def set_height_for_row(table, row, height):
+def aux_mt_plot_set_height_for_row(table, row, height):
     cells = [key for key in table._cells if key[0] == row]
     for cell in cells:
         table._cells[cell]._height = height
 
 
-def colorcell(tablerows, tablecols, cellDict, color_list):
+def aux_mt_plot_colorcell(tablerows, tablecols, cellDict, color_list):
     allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         cell_value0 = json.loads(cellDict[alcls]._text.get_text())[0]
@@ -1173,13 +1272,13 @@ def colorcell(tablerows, tablecols, cellDict, color_list):
                 cellDict[alcls].set_facecolor("#FFFFFF")
 
 
-def remove_value(tablerows, tablecols, mpl_table):
+def aux_mt_plot_remove_value(tablerows, tablecols, mpl_table):
     allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         mpl_table._cells[alcls]._text.set_text("")
 
 
-def add_certain_value(tablerows, tablecols, mpl_table, cellDict):
+def aux_mt_plot_add_certain_value(tablerows, tablecols, mpl_table, cellDict):
     allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         # print(cellDict[alcls]._text.get_text())
@@ -1195,7 +1294,7 @@ def add_certain_value(tablerows, tablecols, mpl_table, cellDict):
             mpl_table._cells[alcls]._text.set_text(ncl)
 
 
-def aset_height_for_row_except_head(table, rowlist, height):
+def aux_mt_plot_aset_height_for_row_except_head(table, rowlist, height):
     cells_list = []
     for row in rowlist:
         cells = [key for key in table._cells if key[0] == row]
@@ -1205,14 +1304,14 @@ def aset_height_for_row_except_head(table, rowlist, height):
             table._cells[cell]._height = height
 
 
-def bset_height_for_row_except_head(table, rowlist, height):
+def aux_mt_plot_bset_height_for_row_except_head(table, rowlist, height):
     for row in rowlist:
         for col in range(len(table[row])):
             cell = table[row, col]
             cell._height = height
 
 
-def cset_height_for_row_except_head(table, row_height):
+def aux_mt_plot_cset_height_for_row_except_head(table, row_height):
     """chatGPT function"""
     for i, cell in six.iteritems(table._cells):
         if i[0] == 0:  # Skip header row
@@ -1220,7 +1319,7 @@ def cset_height_for_row_except_head(table, row_height):
         cell.set_height(row_height)
 
 
-def set_height_for_row_except_head(cellDict, header_row_count, height):
+def aux_mt_plot_set_height_for_row_except_head(cellDict, header_row_count, height):
     for cell_key, cell in cellDict.items():
         row, col = cell_key
         if row < header_row_count:
@@ -1228,7 +1327,7 @@ def set_height_for_row_except_head(cellDict, header_row_count, height):
         cell.set_height(height)
 
 
-def table_header_colour(tablerows, tablecols, cellDict, mpl_table):
+def aux_mt_plot_table_header_colour(tablerows, tablecols, cellDict, mpl_table):
     allcells = [(x, y) for x in tablerows[0:1] for y in tablecols]
     header_list = [
         "Region",
@@ -1281,7 +1380,7 @@ def table_header_colour(tablerows, tablecols, cellDict, mpl_table):
 
 
 ### funciton for table creation
-def render_mpl_table(
+def aux_mt_plot_render_mpl_table(
     data,
     color_list,
     col_width=1.0,
@@ -1385,7 +1484,7 @@ def render_mpl_table(
     return ax
 
 
-def plot_data_table(data_table, stat_var, req_list,region_id):
+def aux_mt_plot_plot_data_table(latex_path,data_table, stat_var, req_list,region_id):
     # Width and height of A4 portrait with 1-inch margins
     width = 3.67 - 2  # one inch margin on each side
     height = 11.69 - 2  # one inch margin on the top and bottom
@@ -1424,7 +1523,7 @@ def plot_data_table(data_table, stat_var, req_list,region_id):
     plt.savefig(f"{latex_path}{var}_{region_id}_prob_v20240703.jpg", dpi=300)
 
 
-def pass_month_get_colnames(months):
+def aux_mt_plot_pass_month_get_colnames(months):
     original_list = [
         "region_x",
         "season",
@@ -1488,7 +1587,7 @@ def pass_month_get_colnames(months):
     return organized_list
 
 
-def table_df(tab_df, stat_var):
+def aux_mt_plot_table_df(tab_df, stat_var):
     tab_df_a = tab_df.rename(columns={"lead_time": "lt"})
     tab_df_m = create_month_column(tab_df_a)
     tab_df_m["pod_v"] = tab_df_m.apply(
