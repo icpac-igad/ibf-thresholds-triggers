@@ -254,7 +254,7 @@ def spi4_prod_name_creator(ds_ens, var_name):
     return spi_prod_list
 
 
-def v1make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
+def make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
     """
     Prepares observed and forecasted dataset subsets for a specific region, season, and lead time.
 
@@ -682,7 +682,44 @@ def get_mean_ens_triggers(data_path,region_id, season_str, lead_int):
     return obs_df, fct_df, metrix_df, decision_dict, decision_df, plot_df
 
 
-def arrange_obs_fct_stampplot(obs_data,ens_data):
+def prepare_data_for_concat(data, ens_data, dataset_type):
+    """
+    Prepares data (observations or forecasts) to be concatenated with ensemble data.
+
+    Parameters:
+    data (xarray.Dataset): The original dataset (observations or forecasts).
+    ens_data (xarray.Dataset): The ensemble dataset to match structure with.
+    dataset_type (str): A string identifier for the type of dataset ('obs', 'fmod', 'fsev', 'fext').
+
+    Returns:
+    xarray.Dataset: The prepared dataset ready for concatenation.
+    """
+    # Identify the variable name (assumes single variable dataset)
+    var_name = list(data.data_vars)[0]
+
+    # Extend the 'init' dimension to match ens_data
+    extended_data = np.full((len(ens_data.init), len(data.lat), len(data.lon)), np.nan)
+    extended_data[:len(data.time), :, :] = data[var_name].values
+
+    # Create a new DataArray with extended data and matching coordinates
+    data_extended = xr.DataArray(
+        extended_data,
+        dims=['init', 'lat', 'lon'],
+        coords={'init': ens_data['init'], 'lat': data['lat'], 'lon': data['lon']},
+        name=var_name
+    )
+
+    # Convert DataArray to Dataset
+    data_ex = data_extended.to_dataset()
+
+    # Add a new coordinate to identify the dataset type
+    data_ex = data_ex.expand_dims({"dataset": [dataset_type]})
+
+    return data_ex
+
+
+
+def DEPR_arrange_obs_fct_stampplot(obs_data,ens_data):
     """
     take forecast and observations dataset into single xarray dataset
     The learning curve on extending a xarray is large and the lines in this funcitons
