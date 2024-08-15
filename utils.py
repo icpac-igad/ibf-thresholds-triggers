@@ -374,42 +374,10 @@ def v1make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
     a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
     a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
     # valid_time_series = a_fc3.valid_time.to_series().reset_index(drop=True).drop_duplicates()
-    valid_time_flattened = (
-        a_fc2.valid_time.to_dataframe()
-        .reset_index()
-        .drop_duplicates(subset="valid_time")["valid_time"]
-    )
-    valid_time_flattened.columns = ["valid_time", "cc"]
-    # valid_time_flattened['valid_time'] = pd.to_datetime(valid_time_flattened['valid_time'])
-    # Apply lambda function to create 'dt1' column
-    # valid_time_flattened['dt1'] = valid_time_flattened['valid_time'].apply(
-    #    lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
-    # )
-    #
-    valid_time_flattened["dt1"] = valid_time_flattened["valid_time"].apply(
-        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
-    )
-    # Ensure the valid_time is in 'YYYY-MM-DD' string format
-    # valid_time_flattened['dt2'] = valid_time_flattened['dt1'].dt.strftime('%Y-%m-%d')
-    valid_time_flattened["dt1"] = valid_time_flattened["dt1"].dt.strftime(
-        "%Y-%m-%dT%H:%M:%S.%f"
-    )
-    valid_time_flattened["dt1"] = pd.to_datetime(valid_time_flattened["dt1"])
-    # Convert to xarray DataArray with time as the dimension name
-    # valid_time_da = xr.DataArray(valid_time_flattened['dt1'], dims=['time'])
-    valid_time_da = xr.DataArray(
-        valid_time_flattened["dt1"], dims=["time"], coords=valid_time_flattened["dt1"]
-    )
-    a_obs3 = a_obs2.reindex(time=valid_time_da)
-    # a_obs4 = a_obs3.reindex(time=a_obs2.time)
-    # a_obs4 = a_obs3.sel(time=a_obs2.time, drop=True)
-    a_obs3 = a_obs3.dropna(dim="time")
-    if len(season_str) == 3:
-        obs_data = a_obs3["spi3"]
-        ens_data = a_fc3["spi3"]
-    else:
-        obs_data = a_obs3["spi4"]
-        ens_data = a_fc3["spi4"]
+    flat_valid_times = np.unique(a_fc3.valid_time.values.ravel())
+    a_obs3 = a_obs2.sel(time=flat_valid_times)
+    ens_data=a_fc3
+    obs_data=a_obs3
     return obs_data, ens_data
 
 
