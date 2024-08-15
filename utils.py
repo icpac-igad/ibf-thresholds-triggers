@@ -254,59 +254,6 @@ def spi4_prod_name_creator(ds_ens, var_name):
     return spi_prod_list
 
 
-def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
-    # Load datasets based on season_str length (SPI3 or SPI4)
-    if len(season_str) == 3:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
-    else:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
-    
-    # Region selection and masking
-    the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
-    bounds = mds1.bounds
-    llon = bounds.iloc[region_id].minx
-    llat = bounds.iloc[region_id].miny
-    ulon = bounds.iloc[region_id].maxx
-    ulat = bounds.iloc[region_id].maxy
-    a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    
-    # Hindcast and Observations
-    hindcast = HindcastEnsemble(a_fc)
-    hindcast = hindcast.add_observations(a_obs)
-    a_fc1 = hindcast.get_initialized()
-    a_fc2 = a_fc1.isel(lead=lead_int)
-    
-    # SPI production name creation based on season length
-    if len(season_str) == 3:
-        spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
-    else:
-        spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
-    
-    a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
-    a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
-    
-    # Assign SPI production to observed data and filter by season
-    a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
-    a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
-    a_fc2['valid_time'] = a_fc2['valid_time'].astype('datetime64[ns]') 
-    # Flatten valid_time and reindex observed data
-    valid_time_flattened = (
-        a_fc2.valid_time.to_dataframe().reset_index().drop_duplicates(subset="valid_time")["valid_time"]
-    )
-    valid_time_flattened = pd.to_datetime(valid_time_flattened)  # Ensure it's datetime64
-    valid_time_da = xr.DataArray(valid_time_flattened, dims=["time"], coords={"time": valid_time_flattened})
-    
-    # Reindex observed data based on valid_time, using nearest method to avoid NaN
-    a_obs3 = a_obs2.reindex(time=valid_time_da, method='nearest')  # Use method to avoid NaN introduction
-
-    return a_obs3, ens_data
-
-
 def v1make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
     """
     Prepares observed and forecasted dataset subsets for a specific region, season, and lead time.
