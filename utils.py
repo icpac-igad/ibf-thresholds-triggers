@@ -1,6 +1,7 @@
 from io import StringIO
 import os
 from dotenv import load_dotenv
+import logging
 
 import climpred
 import xarray as xr
@@ -43,6 +44,11 @@ from functools import reduce
 import json
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
+
+
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 #load_dotenv()
 
@@ -153,27 +159,59 @@ def apply_spii_mem(cont_db,lead_val,spi_name_int):
 
 def ken_mask_creator(data_path):
     """
-    Utiliity for generating region/district masks using regionmask library
+    Utility for generating region/district masks using regionmask library
 
     Returns
     -------
-    the_mask : TYPE
-        DESCRIPTION.
-    rl_dict : TYPE
-        DESCRIPTION.
-
+    the_mask : regionmask.Regions
+        The created mask for the regions.
+    rl_dict : dict
+        Dictionary mapping region numbers to region names.
+    mds2 : geopandas.GeoDataFrame
+        GeoDataFrame containing geometry, region, and region_name information.
     """
-    dis = gp.read_file(f"{data_path}Karamoja_boundary_dissolved.shp")
-    reg = gp.read_file(f"{data_path}wajir_mbt_extent.shp")
-    mds = pd.concat([dis, reg])
-    mds1 = mds.reset_index()
-    mds1["region"] = [0, 1, 2]
-    mds1["region_name"] = ["Karamoja", "Marsabit", "Wajir"]
-    mds2 = mds1[["geometry", "region", "region_name"]]
-    rl_dict = dict(zip(mds2.region, mds2.region_name))
-    the_mask = regionmask.from_geopandas(mds2, numbers="region", overlap=True)
-    return the_mask, rl_dict, mds2
+    logger.info("Starting ken_mask_creator function")
 
+    try:
+        logger.info(f"Reading Karamoja boundary file from {data_path}Karamoja_boundary_dissolved.shp")
+        dis = gp.read_file(f"{data_path}Karamoja_boundary_dissolved.shp")
+        logger.info(f"Reading Wajir and Marsabit extent file from {data_path}wajir_mbt_extent.shp")
+        reg = gp.read_file(f"{data_path}wajir_mbt_extent.shp")
+
+        # Check if the geometries are valid
+        #if not dis.geometry.is_valid.all() or not reg.geometry.is_valid.all():
+        #    raise ValueError("Invalid geometries found in shapefiles")
+
+        logger.info("Concatenating district and region data")
+        mds = pd.concat([dis, reg])
+        mds1 = mds.reset_index()
+
+        logger.info("Assigning region numbers and names")
+        mds1["region"] = [0, 1, 2]
+        mds1["region_name"] = ["Karamoja", "Marsabit", "Wajir"]
+        mds2 = mds1[["geometry", "region", "region_name"]]
+        #valid_types = ('Polygon', 'MultiPolygon')
+        #if not all(geom.geom_type in valid_types for geom in mds2.geometry):
+        #    raise ValueError("All geometries must be Polygon or MultiPolygon")
+        if mds2.empty:
+            raise ValueError("GeoDataFrame is empty")
+        logger.info("Creating region-name dictionary")
+        rl_dict = dict(zip(mds2.region, mds2.region_name))
+
+        logger.info("Creating regionmask from GeoDataFrame")
+        #mds2['geometry'] = mds2['geometry'].apply(lambda x: [x])
+        #the_mask = regionmask.from_geopandas(mds2, numbers="region", overlap=False)
+        the_mask=[]
+
+        logger.info("ken_mask_creator function completed successfully")
+        return the_mask, rl_dict, mds2
+
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"An error occurred in ken_mask_creator: {e}")
+        raise
 
 def spi3_prod_name_creator(ds_ens, var_name):
     """
@@ -288,44 +326,63 @@ def make_obs_fct_dataset(data_path,region_id, season_str, lead_int):
     This would load the observed and forecasted SPI3 datasets for region 1 during the 'mam' season and subset them
     for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
     """
-    if len(season_str) == 3:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
-    else:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
-    the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
-    bounds = mds1.bounds
-    # bounds.iloc[0].minx
-    llon = bounds.iloc[region_id].minx
-    llat = bounds.iloc[region_id].miny
-    ulon = bounds.iloc[region_id].maxx
-    ulat = bounds.iloc[region_id].maxy
-    a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    hindcast = HindcastEnsemble(a_fc)
-    hindcast = hindcast.add_observations(a_obs)
-    # hindcast
-    # spi_cdb1spi3_prod_name_creator(ds_ens)
-    a_fc1 = hindcast.get_initialized()
-    a_fc2 = a_fc1.isel(lead=lead_int)
-    if len(season_str) == 3:
-        spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
-    else:
-        spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
-    a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
-    a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
-    # obsertations
-    a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
-    a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
-    # valid_time_series = a_fc3.valid_time.to_series().reset_index(drop=True).drop_duplicates()
-    flat_valid_times = np.unique(a_fc3.valid_time.values.ravel())
-    a_obs3 = a_obs2.sel(time=flat_valid_times)
-    ens_data=a_fc3
-    obs_data=a_obs3
-    return obs_data, ens_data
+    try:
+        the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
+        bounds = mds1.bounds
+        llon, llat = bounds.iloc[region_id][['minx', 'miny']]
+        ulon, ulat = bounds.iloc[region_id][['maxx', 'maxy']]
+        
+        logger.debug(f"Region bounds: llon={llon}, llat={llat}, ulon={ulon}, ulat={ulat}")
+
+        if len(season_str) == 3:
+            kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
+            kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
+            logger.info("Loaded SPI3 datasets")
+        else:
+            kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
+            kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
+            logger.info("Loaded SPI4 datasets")
+
+        a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        logger.info("subsetted obs and fcst to given region")
+        logger.debug("Created HindcastEnsemble")
+        hindcast = HindcastEnsemble(a_fc)
+        hindcast = hindcast.add_observations(a_obs)
+       
+        a_fc1 = hindcast.get_initialized()
+        logger.debug("Added climpred HindcastEnsemble to add valid_time in fcst")
+        a_fc2 = a_fc1.isel(lead=lead_int)
+
+        if len(season_str) == 3:
+            spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
+            obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
+        else:
+            spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
+            obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
+        logger.info(f"added SPI prodcut in obs and fcst dataset, filtered to {season_str}")
+        a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
+        a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
+
+        a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
+        a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
+
+        common_dates = np.unique(a_fc3.valid_time.values.ravel())
+        a_obs3 = a_obs2.sel(time=common_dates)
+
+        logger.info("Successfully prepared observed and forecasted datasets")
+        return a_obs3, a_fc3
+
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {e}")
+        raise
+    except ValueError as e:
+        logger.error(f"Value error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in make_obs_fct_dataset: {e}")
+        raise
+    return a_obs3, a_fc3
 
 
 
@@ -405,16 +462,88 @@ def mean_obs_spi(obs_data, spi_string_name):
     return wdf1
 
 
-def emprical_probablity(ens_data, threshold_dict):
-    mod_thr = threshold_dict["mod"]
-    fct_mod = (ens_data <= mod_thr).mean(dim="member")
-    ####
-    sev_thr = threshold_dict["sev"]
-    fct_sev = (ens_data <= sev_thr).mean(dim="member")
-    ####
-    ext_thr = threshold_dict["ext"]
-    fct_ext = (ens_data <= ext_thr).mean(dim="member")
-    return fct_mod, fct_sev, fct_ext
+
+def empirical_probability(ens_data, threshold_dict):
+    """
+    Calculate empirical probabilities for moderate, severe, and extreme drought conditions.
+
+    Args:
+        ens_data (xarray.DataArray): Ensemble data containing drought index values.
+        threshold_dict (dict): Dictionary containing threshold values for moderate, severe, and extreme drought.
+
+    Returns:
+        tuple: Three xarray.DataArrays containing empirical probabilities for moderate, severe, and extreme drought.
+
+    Raises:
+        KeyError: If required keys are missing from threshold_dict.
+        ValueError: If ens_data is not an xarray.DataArray or doesn't have a 'member' dimension.
+    """
+    try:
+        if not isinstance(ens_data, xr.Dataset):
+            raise ValueError("ens_data must be an xarray.DataArray")
+        
+        if 'member' not in ens_data.dims:
+            raise ValueError("ens_data must have a 'member' dimension")
+
+        for key in ['mod', 'sev', 'ext']:
+            if key not in threshold_dict:
+                raise KeyError(f"threshold_dict is missing required key: {key}")
+
+        mod_thr = threshold_dict["mod"]
+        fct_mod = (ens_data <= mod_thr).mean(dim="member")
+        
+        sev_thr = threshold_dict["sev"]
+        fct_sev = (ens_data <= sev_thr).mean(dim="member")
+        
+        ext_thr = threshold_dict["ext"]
+        fct_ext = (ens_data <= ext_thr).mean(dim="member")
+
+        logger.info("Empirical probabilities calculated successfully")
+        return fct_mod, fct_sev, fct_ext
+
+    except Exception as e:
+        logger.error(f"Error in empirical_probability: {str(e)}")
+        raise
+
+def seas51_patch_empirical_probability(ens_data, threshold_dict):
+    """
+    Calculate empirical probabilities for SEAS5.1 forecast system, handling the transition from 25(1981-2017) to 51(2017-current) members.
+
+    Args:
+        ens_data (xarray.DataArray): Ensemble data containing drought index values.
+        threshold_dict (dict): Dictionary containing threshold values for moderate, severe, and extreme drought.
+
+    Returns:
+        tuple: Three xarray.DataArrays containing empirical probabilities for moderate, severe, and extreme drought.
+
+    Raises:
+        ValueError: If ens_data is not an xarray.DataArray or doesn't have required dimensions.
+    """
+    try:
+        if not isinstance(ens_data, xr.Dataset):
+            raise ValueError("ens_data must be an xarray.DataArray")
+        
+        if 'init' not in ens_data.dims or 'member' not in ens_data.dims:
+            raise ValueError("ens_data must have 'init' and 'member' dimensions")
+
+        m26_ens_data = ens_data.isel(init=slice(0, 36))
+        m26_ens_data1 = m26_ens_data.isel(member=slice(0, 25))
+        m26_fct_mod, m26_fct_sev, m26_fct_ext = empirical_probability(m26_ens_data1, threshold_dict)
+
+        m51_ens_data = ens_data.isel(init=slice(36, len(ens_data)))
+        m51_fct_mod, m51_fct_sev, m51_fct_ext = empirical_probability(m51_ens_data, threshold_dict)
+
+        fct_mod = xr.concat([m26_fct_mod, m51_fct_mod], dim='init')
+        fct_sev = xr.concat([m26_fct_sev, m51_fct_sev], dim='init')
+        fct_ext = xr.concat([m26_fct_ext, m51_fct_ext], dim='init')
+
+        logger.info("SEAS5.1 patch empirical probabilities calculated successfully")
+        return fct_mod, fct_sev, fct_ext
+
+    except Exception as e:
+        logger.error(f"Error in seas51_patch_empirical_probability: {str(e)}")
+        raise
+
 
 
 def mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
@@ -682,9 +811,10 @@ def get_mean_ens_triggers(data_path,region_id, season_str, lead_int):
     return obs_df, fct_df, metrix_df, decision_dict, decision_df, plot_df
 
 
+
 def prepare_data_for_concat(data, ens_data, dataset_type):
     """
-    Prepares data (observations or forecasts) to be concatenated with ensemble data.
+    Prepares data (observations or calcualted emprical probablity dataset-triggers ) to be concatenated with ensemble data.
 
     Parameters:
     data (xarray.Dataset): The original dataset (observations or forecasts).
@@ -694,28 +824,95 @@ def prepare_data_for_concat(data, ens_data, dataset_type):
     Returns:
     xarray.Dataset: The prepared dataset ready for concatenation.
     """
-    # Identify the variable name (assumes single variable dataset)
-    var_name = list(data.data_vars)[0]
+    try:
+        logger.info(f"Preparing {dataset_type} data for concatenation")
+        
+        # Identify the variable name (assumes single variable dataset)
+        var_name = list(data.data_vars)[0]
+        logger.debug(f"Variable name identified: {var_name}")
 
-    # Extend the 'init' dimension to match ens_data
-    extended_data = np.full((len(ens_data.init), len(data.lat), len(data.lon)), np.nan)
-    extended_data[:len(data.time), :, :] = data[var_name].values
+        if 'init' not in data.coords:
+            data = data.rename({'time': 'init'})
+            logger.debug("Renamed 'time' coordinate to 'init'")
 
-    # Create a new DataArray with extended data and matching coordinates
-    data_extended = xr.DataArray(
-        extended_data,
-        dims=['init', 'lat', 'lon'],
-        coords={'init': ens_data['init'], 'lat': data['lat'], 'lon': data['lon']},
-        name=var_name
-    )
+        # Extend the 'init' dimension to match ens_data
+        extended_data = np.full((len(ens_data.init), len(data.lat), len(data.lon)), np.nan)
+        extended_data[:len(data.init), :, :] = data[var_name].values
+        logger.debug(f"Extended data shape: {extended_data.shape}")
 
-    # Convert DataArray to Dataset
-    data_ex = data_extended.to_dataset()
+        # Create a new DataArray with extended data and matching coordinates
+        data_extended = xr.DataArray(
+            extended_data,
+            dims=['init', 'lat', 'lon'],
+            coords={'init': ens_data['init'], 'lat': data['lat'], 'lon': data['lon']},
+            name=var_name
+        )
 
-    # Add a new coordinate to identify the dataset type
-    data_ex = data_ex.expand_dims({"dataset": [dataset_type]})
+        # Convert DataArray to Dataset
+        data_ex = data_extended.to_dataset()
 
-    return data_ex
+        # Add a new coordinate to identify the dataset type
+        data_ex = data_ex.expand_dims({"dataset": [dataset_type]})
+        
+        logger.info(f"Successfully prepared {dataset_type} data for concatenation")
+        return data_ex
+
+    except KeyError as e:
+        logger.error(f"KeyError in prepare_data_for_concat: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in prepare_data_for_concat: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in prepare_data_for_concat: {str(e)}")
+        raise
+
+def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
+    """
+    Helper function to prepare and combine data for stamp plot.
+
+    Parameters:
+    ens_data (xarray.Dataset): Ensemble data.
+    obs_data (xarray.Dataset): Observation data.
+    fct_mod (xarray.Dataset): Moderate forecast data.
+    fct_sev (xarray.Dataset): Severe forecast data.
+    fct_ext (xarray.Dataset): Extreme forecast data.
+
+    Returns:
+    xarray.Dataset: Combined dataset for stamp plot.
+    """
+    try:
+        logger.info("Starting helper_stamp_plot function")
+
+        obs_cast = prepare_data_for_concat(obs_data, ens_data, 'obs')
+        fmod_cast = prepare_data_for_concat(fct_mod, ens_data, 'fmod')
+        fsev_cast = prepare_data_for_concat(fct_sev, ens_data, 'fsev')
+        fext_cast = prepare_data_for_concat(fct_ext, ens_data, 'fext')
+
+        ens_data_prepared = ens_data.expand_dims({"dataset": ["ens"]})
+        logger.debug("All datasets prepared for concatenation")
+
+        # Concatenate all datasets along the new 'dataset' dimension
+        combined_data = xr.concat([ens_data_prepared, obs_cast, fmod_cast, fsev_cast, fext_cast], dim="dataset")
+        logger.debug("Datasets concatenated successfully")
+
+        # Create a mapping between dataset types and numeric values
+        dataset_mapping = {'ens': 0, 'obs': 51, 'fmod': 52, 'fsev': 53, 'fext': 54}
+        combined_data = combined_data.assign_coords(dataset_num=("dataset", [dataset_mapping[d] for d in combined_data.dataset.values]))
+        logger.info(f'made the combined_data as {combined_data}')        
+        logger.info("helper_stamp_plot function completed successfully")
+        return combined_data
+
+    except KeyError as e:
+        logger.error(f"KeyError in helper_stamp_plot: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in helper_stamp_plot: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in helper_stamp_plot: {str(e)}")
+        raise
+
 
 
 
