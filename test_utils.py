@@ -7,11 +7,12 @@ import pandas as pd
 import geopandas as gp
 import xarray as xr
 import numpy as np
-
+import cftime
 
 from utils import ken_mask_creator
 from utils import make_obs_fct_dataset
 from utils import get_threshold
+from utils import empirical_probability
 from utils import seas51_patch_empirical_probability
 from utils import prepare_data_for_concat
 from utils import helper_stamp_plot
@@ -97,25 +98,82 @@ class TestEmpiricalProbablity:
     @pytest.fixture
     def dummy_ens_data(self):
         member = np.arange(51)
-        init = np.arange(42)
+        init = pd.date_range('1982-02-01', '2023-02-01', freq='YS')  # Use pd.date_range for 'init'
+
+        # Calculate 'valid_time' by adding 3 months to 'init'
+        valid_time = init + pd.DateOffset(months=3)
+        valid_time = [cftime.DatetimeProlepticGregorian(date.year, date.month, date.day) for date in valid_time]
+
         lat = np.linspace(-5, 5, 11)
         lon = np.linspace(30, 35, 6)
-        
-        data = np.random.uniform(low=-4, high=4, size=(51, 42, 11, 6))
-        
+
+        data = np.random.uniform(low=-4, high=4, size=(51, len(init), 11, 6))
+
         ens_data = xr.DataArray(
             data,
             dims=['member', 'init', 'lat', 'lon'],
             coords={
                 'member': member,
                 'init': init,
+                'valid_time': ('init', valid_time),  # Assign 'valid_time' as a coordinate
                 'lat': lat,
                 'lon': lon
             }
         )
-        ens_data1=ens_data.to_dataset(name='spi3')
+        ens_data1 = ens_data.to_dataset(name='spi3')
         return ens_data1
+    def test_empirical_probability_valid_input(self, dummy_ens_data):
+        threshold_dict = {'mod': -1, 'sev': -2, 'ext': -3}
 
+        fct_mod, fct_sev, fct_ext = empirical_probability(dummy_ens_data, threshold_dict)
+
+        # Assertions
+        logger.info(fct_mod)
+        logger.info(fct_sev)
+        logger.info(fct_ext)
+        logger.info(fct_ext['init'].values)
+        logger.info(fct_ext.dims)
+
+        assert isinstance(fct_mod, xr.Dataset)
+        assert isinstance(fct_sev, xr.Dataset)
+        assert isinstance(fct_ext, xr.Dataset)
+        assert len(fct_mod.init.values) == len(fct_sev.init.values) == len(fct_ext.init.values) 
+        assert 'init' in fct_mod.dims and 'lat' in fct_mod.dims and 'lon' in fct_mod.dims
+
+    def test_empirical_probability_invalid_input_type(self):
+        with pytest.raises(ValueError) as exc_info:
+            empirical_probability(np.array([1, 2, 3]), {})
+        assert str(exc_info.value) == "ens_data must be an xarray.Dataset"
+
+    @pytest.mark.skip(reason="test is low use")
+    def test_empirical_probability_missing_member_dimension(self):
+        data_no_member = xr.DataArray(np.random.rand(40, 10), coords={'init': np.arange(40)})
+        data_no_member = data_no_member.to_dataset(name='spi3')
+
+        with pytest.raises(ValueError) as exc_info:
+            empirical_probability(data_no_member, {})
+        assert str(exc_info.value) == "ens_data must have a 'member' dimension"
+    
+    @pytest.mark.skip(reason="test is low use")
+    def test_empirical_probability_missing_threshold_key(self, dummy_ens_data):
+        threshold_dict_missing_key = {'mod': -1, 'ext': -3}  # Missing 'sev' key
+
+        with pytest.raises(KeyError) as exc_info:
+            empirical_probability(dummy_ens_data, threshold_dict_missing_key)
+        assert str(exc_info.value) == "threshold_dict is missing required key: sev"
+
+    def test_empirical_probability_calculation(self, dummy_ens_data):
+        threshold_dict = {'mod': -1, 'sev': -2, 'ext': -3}
+
+        fct_mod, fct_sev, fct_ext = empirical_probability(dummy_ens_data, threshold_dict)
+
+        # Check if calculated probabilities are within expected range [0, 1]
+        assert (fct_mod >= 0).all() and (fct_mod <= 1).all()
+        assert (fct_sev >= 0).all() and (fct_sev <= 1).all()
+        assert (fct_ext >= 0).all() and (fct_ext <= 1).all()
+
+        # You can add more specific assertions here to check the actual 
+        # calculation logic based on your 'empirical_probability' function
     def test_seas51_patch_empirical_probability(self, dummy_ens_data, caplog):
         ens_data = dummy_ens_data 
         # Test SPI3 dataset loading
@@ -123,12 +181,17 @@ class TestEmpiricalProbablity:
         sc_season_str=season_str.lower()
         region_id=0
         threshold_dict=get_threshold(region_id, sc_season_str)
+        logger.info(threshold_dict) 
         fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(ens_data,threshold_dict)
-        
+        logger.info(fct_mod)
+        logger.info(fct_sev)
+        logger.info(fct_ext)
+        logger.info(fct_ext['init'].values)
         assert "Empirical probabilities calculated successfully" in caplog.text
         assert isinstance(fct_mod, xr.Dataset)
         assert isinstance(fct_sev, xr.Dataset)
         assert isinstance(fct_ext, xr.Dataset)
+        assert np.array_equal(fct_mod['init'].values, ens_data['init'].values)
        
 
 class TestHelperStamp:

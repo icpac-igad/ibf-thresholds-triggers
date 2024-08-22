@@ -480,7 +480,7 @@ def empirical_probability(ens_data, threshold_dict):
     """
     try:
         if not isinstance(ens_data, xr.Dataset):
-            raise ValueError("ens_data must be an xarray.DataArray")
+            raise ValueError("ens_data must be an xarray.Dataset")
         
         if 'member' not in ens_data.dims:
             raise ValueError("ens_data must have a 'member' dimension")
@@ -526,16 +526,17 @@ def seas51_patch_empirical_probability(ens_data, threshold_dict):
         if 'init' not in ens_data.dims or 'member' not in ens_data.dims:
             raise ValueError("ens_data must have 'init' and 'member' dimensions")
 
-        m26_ens_data = ens_data.isel(init=slice(0, 36))
+        m26_ens_data = ens_data.sel(init=slice('1981', '2016'))
         m26_ens_data1 = m26_ens_data.isel(member=slice(0, 25))
         m26_fct_mod, m26_fct_sev, m26_fct_ext = empirical_probability(m26_ens_data1, threshold_dict)
 
-        m51_ens_data = ens_data.isel(init=slice(36, len(ens_data)))
+        m51_ens_data = ens_data.sel(init=slice('2017', None))
         m51_fct_mod, m51_fct_sev, m51_fct_ext = empirical_probability(m51_ens_data, threshold_dict)
 
-        fct_mod = xr.concat([m26_fct_mod, m51_fct_mod], dim='init')
-        fct_sev = xr.concat([m26_fct_sev, m51_fct_sev], dim='init')
-        fct_ext = xr.concat([m26_fct_ext, m51_fct_ext], dim='init')
+        fct_mod = xr.concat([m26_fct_mod, m51_fct_mod], dim='init', coords='minimal', compat='override')
+        fct_sev = xr.concat([m26_fct_sev, m51_fct_sev], dim='init', coords='minimal', compat='override')
+        fct_ext = xr.concat([m26_fct_ext, m51_fct_ext], dim='init', coords='minimal', compat='override')
+
 
         logger.info("SEAS5.1 patch empirical probabilities calculated successfully")
         return fct_mod, fct_sev, fct_ext
@@ -607,7 +608,7 @@ def calculate_auroc(hits, misses, false_alarms, correct_negatives):
     return auroc
 
 
-def xhist_metrices(pdb, trigger_value, threshold_dict, cat_str):
+def xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str):
     ds = xr.Dataset.from_dataframe(pdb)
     obs_ext = ds[f"spi3_{cat_str}"]
     fct_ext = ds[f"ep_{cat_str}"]
