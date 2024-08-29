@@ -2,6 +2,7 @@ from io import StringIO
 import os
 from dotenv import load_dotenv
 import logging
+from pathlib import Path
 
 import climpred
 import xarray as xr
@@ -12,40 +13,25 @@ import regionmask
 import geopandas as gp
 from climpred import HindcastEnsemble
 from datetime import datetime
+from datatree import DataTree
 
 import xhistogram.xarray as xhist
 from sklearn.metrics import roc_auc_score
-import pandas as pd
-
 
 import xskillscore as xs
 from xbootstrap import block_bootstrap
 from dask.distributed import Client
 
-import altair as alt
-
-
-import numpy as np
-import pandas as pd
-
-import pandas as pd
-import numpy as np
-import matplotlib
-
-import os
-from dotenv import load_dotenv
-
 # matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
 import six
-from datetime import datetime
 import textwrap as tw
 from functools import reduce
 import json
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
-
-
+from PIL import Image
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -813,8 +799,9 @@ def get_mean_ens_triggers(data_path,region_id, season_str, lead_int):
 
 
 
-def prepare_data_for_concat(data, ens_data, dataset_type):
+def DEPRICATE_prepare_data_for_concat(data, ens_data, dataset_type):
     """
+    DEPRETCATED to replace it with xarray datatree
     Prepares data (observations or calcualted emprical probablity dataset-triggers ) to be concatenated with ensemble data.
 
     Parameters:
@@ -868,8 +855,10 @@ def prepare_data_for_concat(data, ens_data, dataset_type):
         logger.error(f"Unexpected error in prepare_data_for_concat: {str(e)}")
         raise
 
-def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
+def DEPRECATED_helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
     """
+
+    DEPRECATED to replaced it with xarray datatree
     Helper function to prepare and combine data for stamp plot.
 
     Parameters:
@@ -914,135 +903,200 @@ def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
         logger.error(f"Unexpected error in helper_stamp_plot: {str(e)}")
         raise
 
+def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
+    """
+
+    DEPRECATED to replaced it with xarray datatree
+    Helper function to prepare and combine data for stamp plot.
+
+    Parameters:
+    ens_data (xarray.Dataset): Ensemble data.
+    obs_data (xarray.Dataset): Observation data.
+    fct_mod (xarray.Dataset): Moderate forecast data.
+    fct_sev (xarray.Dataset): Severe forecast data.
+    fct_ext (xarray.Dataset): Extreme forecast data.
+
+    Returns:
+    xarray.Dataset: Combined dataset for stamp plot.
+    """
+    try:
+        logger.info("Starting datatree with helper_stamp_plot function")
+        seas51tree = DataTree()
+        for member in ens_data.member:
+            member_data = ens_data.sel(member=member)
+            seas51tree[f'ensemble/member_{int(member)}'] = DataTree(name=f'member_{int(member)}', data=member_data)
+           
+        seas51tree['observation'] = DataTree(name='observation', data=obs_data)
+        seas51tree['fct_mod'] = DataTree(name='fct_mod', data=fct_mod)
+        seas51tree['fct_sev'] = DataTree(name='fct_sev', data=fct_sev)
+        seas51tree['fct_ext'] = DataTree(name='fct_ext', data=fct_ext)
+        logger.info(f'made the combined_data as xarray datatree {seas51tree}')        
+        logger.info("helper_stamp_plot function completed successfully")
+        return seas51tree
+
+    except KeyError as e:
+        logger.error(f"KeyError in helper_stamp_plot: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in helper_stamp_plot: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in helper_stamp_plot: {str(e)}")
+        raise
+
 
 def create_single_row_plot(tree, init, variable='spi3', output_dir='single_row_plots', is_last_plot=False):
-    members = list(tree['ensemble'].children.keys())
-    valid_times = tree['ensemble/member_0'].ds.valid_time.values
-    lats = tree['ensemble/member_0'].ds.lat.values
-    lons = tree['ensemble/member_0'].ds.lon.values
-    num_members = len(members)
-    num_additional_plots = 4  # Obs, mod, sev, ext
-    total_plots = num_members + num_additional_plots
-    
-    # Create output directory if it doesn't exist
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    
-    # Create a wide figure for a single row
-    fig, axs = plt.subplots(1, total_plots, figsize=(2 * total_plots, 2), 
-                            subplot_kw={'projection': ccrs.PlateCarree()})
-    
-    # Define the color scale ranges
-    ensemble_cmap_range = (-4, 4)
-    fct_cmap_range = (0.0, 1.0)
-    
-    valid_time = valid_times[np.where(tree['ensemble/member_0'].ds.init.values == init)[0][0]]
-    
-    # Plot ensemble members
-    for j, member_key in enumerate(members):
-        member_data = tree[f'ensemble/{member_key}'].ds[variable]
-        data = member_data.sel(init=init).values
-        im = axs[j].pcolormesh(lons, lats, data, cmap='RdBu', 
-                               transform=ccrs.PlateCarree(), 
-                               vmin=ensemble_cmap_range[0], vmax=ensemble_cmap_range[1])
-        axs[j].set_title(f'm{j}', fontsize=6)
-        axs[j].set_xticks([])
-        axs[j].set_yticks([])
-    
-    # Add the observation and additional models as the last plots
-    plot_titles = ['Obs', 'mod', 'sev', 'ext']
-    plot_keys = ['observation', 'fct_mod', 'fct_sev', 'fct_ext']
-    for k, (title, key) in enumerate(zip(plot_titles, plot_keys)):
-        dataset = tree[key].ds[variable]
-        if 'time' in dataset.coords:
-            coord_key = 'time'
-            obs_init = np.datetime64(valid_time.strftime('%Y-%m-%d %H:%M:%S'))
-        elif 'init' in dataset.coords:
-            coord_key = 'init'
-            obs_init = init
+    logging.info(f"Creating single row plot for {init} with variable {variable}")
+    try:
+        members = list(tree['ensemble'].children.keys())
+        valid_times = tree['ensemble/member_0'].ds.valid_time.values
+        lats = tree['ensemble/member_0'].ds.lat.values
+        lons = tree['ensemble/member_0'].ds.lon.values
+        num_members = len(members)
+        num_additional_plots = 4  # Obs, mod, sev, ext
+        total_plots = num_members + num_additional_plots
+
+        # Create output directory if it doesn't exist
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Create a wide figure for a single row
+        fig, axs = plt.subplots(1, total_plots, figsize=(2 * total_plots, 2), 
+                                subplot_kw={'projection': ccrs.PlateCarree()})
+
+        # Define the color scale ranges
+        ensemble_cmap_range = (-4, 4)
+        fct_cmap_range = (0.0, 1.0)
+
+        valid_time = valid_times[np.where(tree['ensemble/member_0'].ds.init.values == init)[0][0]]
+
+        # Plot ensemble members
+        for j, member_key in enumerate(members):
+            _plot_ensemble_member(tree, member_key, variable, init, axs[j], ensemble_cmap_range)
+
+        # Add the observation and additional models as the last plots
+        plot_titles = ['Obs', 'mod', 'sev', 'ext']
+        plot_keys = ['observation', 'fct_mod', 'fct_sev', 'fct_ext']
+        for k, (title, key) in enumerate(zip(plot_titles, plot_keys)):
+            _plot_additional_data(tree, key, variable, init, valid_time, axs[num_members + k], 
+                                  title, ensemble_cmap_range if key == 'observation' else fct_cmap_range)
+
+        if is_last_plot:
+            _add_colorbars(fig, axs)
         else:
-            raise ValueError(f"Neither 'time' nor 'init' found in dataset coordinates for {key}")
-        
-        obs_data = dataset.sel({coord_key: obs_init}).values
-        
-        # Use different color scales for different plot keys
-        if key == 'observation':
-            vmin, vmax = ensemble_cmap_range
-            cmap = 'RdBu'
-        else:
-            vmin, vmax = fct_cmap_range
-            cmap = 'Blues'
-        
-        im = axs[num_members + k].pcolormesh(lons, lats, obs_data, cmap=cmap, 
-                                             transform=ccrs.PlateCarree(), 
-                                             vmin=vmin, vmax=vmax)
-        axs[num_members + k].set_title(f'{title}', fontsize=6)
-        axs[num_members + k].set_xticks([])
-        axs[num_members + k].set_yticks([])
-    # if is_last_plot:
-    #     # Add colorbar for ensemble and observation
-    #     cbar_ax = fig.add_axes([0.92, 0.2, 0.01, 0.6])
-    #     cbar = plt.colorbar(im, cax=cbar_ax)
-    #     cbar.set_label('SPI3 (Ensemble & Obs)')
+            plt.tight_layout()
 
-    #     # Add colorbar for forecasts
-    #     cbar_ax2 = fig.add_axes([0.94, 0.2, 0.01, 0.6])
-    #     cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2)
-    #     cbar2.set_label('Forecasts (mod/sev/ext)')
-
-    #     # Adjust layout to accommodate colorbars
-    #     plt.subplots_adjust(right=0.91)
-    # else:
-    #     plt.tight_layout()
-
-    if is_last_plot:
-        # ... (rest of the plotting code is the same until the colorbar section)
-
-        # Create a horizontal colorbar axis below the plots
-        cbar_ax = fig.add_axes([0.95, 0.5, 0.05, 0.1])  # Adjust position and size as needed
-
-        # Colorbar for ensemble and observation (wider)
-        cbar = fig.colorbar(im, cax=cbar_ax, orientation='horizontal')
-        cbar.set_label('SPI3 (Ensemble & Obs)')
-
-        # Colorbar for forecasts (narrower, to the right)
-        cbar_ax2 = fig.add_axes([0.95, 0.2, 0.05, 0.1]) 
-        cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2, orientation='horizontal')
-        cbar2.set_label('Forecasts (mod/sev/ext)')
-
-    else:
         plt.tight_layout()
-    
-    plt.tight_layout()
-    plt.savefig(f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png', dpi=100, bbox_inches='tight')
-    plt.close()
+        output_file = f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png'
+        plt.savefig(output_file, dpi=100, bbox_inches='tight')
+        logging.info(f"Plot saved to {output_file}")
+        plt.close()
 
-# Example usage:
-inits = tree['ensemble/member_0'].ds.init.values
-for i, init in enumerate(inits[35:None]):
-    is_last_plot = (i == len(inits[35:None]) - 1)
-    create_single_row_plot(tree, init, is_last_plot=is_last_plot)
+    except Exception as e:
+        logging.error(f"Error creating plot: {str(e)}")
+        raise
+
+def _plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range):
+    member_data = tree[f'ensemble/{member_key}'].ds[variable]
+    data = member_data.sel(init=init).values
+    ax.pcolormesh(tree['ensemble/member_0'].ds.lon.values, 
+                  tree['ensemble/member_0'].ds.lat.values, 
+                  data, cmap='RdBu', 
+                  transform=ccrs.PlateCarree(), 
+                  vmin=cmap_range[0], vmax=cmap_range[1])
+    ax.set_title(f'm{member_key.split("_")[1]}', fontsize=6)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+def _plot_additional_data(tree, key, variable, init, valid_time, ax, title, cmap_range):
+    dataset = tree[key].ds[variable]
+    coord_key = 'time' if 'time' in dataset.coords else 'init'
+    obs_init = (np.datetime64(valid_time.strftime('%Y-%m-%d %H:%M:%S')) 
+                if coord_key == 'time' else init)
+    
+    obs_data = dataset.sel({coord_key: obs_init}).values
+    
+    cmap = 'RdBu' if key == 'observation' else 'Blues'
+    
+    ax.pcolormesh(tree['ensemble/member_0'].ds.lon.values, 
+                  tree['ensemble/member_0'].ds.lat.values, 
+                  obs_data, cmap=cmap, 
+                  transform=ccrs.PlateCarree(), 
+                  vmin=cmap_range[0], vmax=cmap_range[1])
+    ax.set_title(title, fontsize=6)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+def _add_colorbars(fig, axs):
+    cbar_ax = fig.add_axes([0.95, 0.5, 0.05, 0.1])
+    cbar = fig.colorbar(axs[0].collections[0], cax=cbar_ax, orientation='horizontal')
+    cbar.set_label('SPI3 (Ensemble & Obs)')
+    
+    cbar_ax2 = fig.add_axes([0.95, 0.2, 0.05, 0.1])
+    cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2, orientation='horizontal')
+    cbar2.set_label('Forecasts (mod/sev/ext)')
 
 
-def merge_png_files(input_dir='single_row_plots', output_file='merged_stamp_plots.png'):
-    # Get all PNG files in the input directory
-    png_files = sorted(Path(input_dir).glob('*.png'))
-    
-    # Open the first image to get dimensions
-    with Image.open(png_files[0]) as img:
-        row_width, row_height = img.size
-    
-    # Create a new image with the calculated dimensions
-    merged_height = row_height * len(png_files)
-    merged_image = Image.new('RGB', (row_width, merged_height))
-    
-    # Paste each row image into the merged image
-    for i, png_file in enumerate(png_files):
-        with Image.open(png_file) as img:
-            merged_image.paste(img, (0, i * row_height))
-    
-    # Save the merged image
-    merged_image.save(output_file, dpi=(300, 300))
-    print(f"Merged image saved as {output_file}")
+def plot_allrows(seas51tree):
+    # Example usage:
+    inits = seas51tree['ensemble/member_0'].ds.init.values
+    for i, init in enumerate(inits):
+        is_last_plot = (i == len(inits) - 1)
+        create_single_row_plot(seas51tree, init, is_last_plot=is_last_plot)
+
+
+def merge_png_files(input_dir='single_row_plots', output_file='merged_stamp_plots.png',delete_originals=False):
+    """
+    Merges PNG files in the input directory into a single image and
+    deletes the original files. Saves the merged image in the same directory.
+
+    Args:
+        input_dir (str): Path to the directory containing PNG files.
+        output_file (str): Name of the merged image file.
+    """
+    logging.info(f"Starting image merging process in {input_dir}")
+
+    try:
+        # Get all PNG files in the input directory
+        png_files = sorted(Path(input_dir).glob('*.png'))
+
+        if not png_files:
+            logging.warning(f"No PNG files found in {input_dir}")
+            return
+
+        # Open the first image to get dimensions
+        with Image.open(png_files[0]) as img:
+            row_width, row_height = img.size
+
+        # Create a new image with the calculated dimensions
+        merged_height = row_height * len(png_files)
+        merged_image = Image.new('RGB', (row_width, merged_height))
+
+        # Paste each row image into the merged image
+        for i, png_file in enumerate(png_files):
+            try:
+                with Image.open(png_file) as img:
+                    merged_image.paste(img, (0, i * row_height))
+            except Exception as e:
+                logging.error(f"Error processing {png_file}: {e}")
+                continue  # Skip this file and continue with the rest
+
+        # Save the merged image in the input directory
+        output_path = os.path.join(input_dir, output_file)
+        merged_image.save(output_path, dpi=(300, 300))
+        logging.info(f"Merged image saved as {output_path}")
+
+        # Delete the individual PNG files
+        if delete_originals:
+            for png_file in png_files:
+                try:
+                    os.remove(png_file)
+                except Exception as e:
+                    logging.error(f"Error deleting {png_file}: {e}")
+            logging.info(f"Individual PNG files in {input_dir} have been deleted.")
+
+    except Exception as e:
+        logging.error(f"An error occurred during the merging process: {e}")
+
 
 def DEPR_arrange_obs_fct_stampplot(obs_data,ens_data):
     """
