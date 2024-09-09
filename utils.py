@@ -47,6 +47,16 @@ logger = logging.getLogger(__name__)
 # latex_path = os.getenv("latex_path")
 
 
+class BinCreateParams:
+    def __init__(self, region_id, season_str, lead_int, level, spi_prod_name):
+        self.region_id = region_id
+        self.season_str = season_str
+        self.lead_int = lead_int
+        self.sc_season_str = season_str.lower()
+        self.level = level
+        self.spi_prod_name = spi_prod_name
+
+
 def transform_data(data_at_time):
     """
     Transforms the input data to calculate total precipitation and adjust for the number of days in each month.
@@ -687,7 +697,9 @@ def xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str):
     return df
 
 
-def xhist_metrices_2d(obs_data, ens_data, lead_int, region_id, season_str, level):
+def ERROR1_xhist_metrices_2d(
+    obs_data, ens_data, lead_int, region_id, season_str, level
+):
     """
     Generates scores for evaluating the performance of drought forecasts based on observed data and ensemble forecast data.
 
@@ -840,8 +852,14 @@ def xhist_metrices_2d(obs_data, ens_data, lead_int, region_id, season_str, level
     return df
 
 
-def xhist_metrices_2d(
-    obs_data, ens_data, lead_int, region_id, season_str, level, calculate_auroc=True
+def ERROR_xhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    lead_int,
+    region_id,
+    season_str,
+    level,
+    calculate_auroc=True,
 ):
     """
     Generates scores for evaluating the performance of drought forecasts based on observed data and ensemble forecast data.
@@ -857,6 +875,12 @@ def xhist_metrices_2d(
 
     ... (rest of the docstring remains the same)
     """
+    print(
+        f"Observed data stats: min={obs_data['spi3'].min().item():.4f}, max={obs_data['spi3'].max().item():.4f}, mean={obs_data['spi3'].mean().item():.4f}, std={obs_data['spi3'].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data['spi3'].min().item():.4f}, max={ens_prob_data['spi3'].max().item():.4f}, mean={ens_prob_data['spi3'].mean().item():.4f}, std={ens_prob_data['spi3'].std().item():.4f}"
+    )
     sc_season_str = season_str.lower()
     threshold_dict = get_threshold(region_id, sc_season_str)
     threshold = threshold_dict[level]
@@ -882,10 +906,10 @@ def xhist_metrices_2d(
         obs_event2 = obs_event1["spi3"]
         obs_event2.name = "observed_event"
 
-        drought_forecast_probablity = (ens_data <= threshold).mean(dim="member")
+        # drought_forecast_probablity = (ens_data <= threshold).mean(dim="member")
 
         # forecast_event1 = ens_data.mean(dim='member') >= trigger_value
-        forecast_event1 = drought_forecast_probablity >= trigger_value
+        forecast_event1 = ens_prob_data >= trigger_value
 
         # forecast_event1['name'] = 'forecasted_event'
         forecast_event2 = forecast_event1["spi3"]
@@ -995,6 +1019,528 @@ def xhist_metrices_2d(
 
     df["trigger_values"] = trigger_values
     df.to_csv(f"{region_id}_{season_str}_{level}_lt{lead_int}.csv")
+    return df
+
+
+def xhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    params,
+    calculate_auroc=True,
+):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    if calculate_auroc:
+        auroc_scores = np.zeros_like(trigger_values)
+        auroc_lb = np.zeros_like(trigger_values)
+        auroc_ub = np.zeros_like(trigger_values)
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    # Calculate the dichotomous event for observation
+    obs_event = obs_data <= threshold
+    obs_event1 = obs_event[params.spi_prod_name]
+    obs_event1.name = "observed_event"
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Calculate the dichotomous event for forecast
+        forecast_event = ens_prob_data >= trigger_value
+        forecast_event1 = forecast_event[params.spi_prod_name]
+        forecast_event1.name = "forecasted_event"
+
+        # Create contingency table using xhist
+        contingency_table = xhist.histogram(
+            obs_event1, forecast_event1, bins=[2, 2], density=False, dim=["lat", "lon"]
+        )
+
+        # Extract contingency table counts
+        contingency_table = contingency_table.values
+        correct_negatives = contingency_table[0, 0]
+        false_alarms = contingency_table[0, 1]
+        misses = contingency_table[1, 0]
+        hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - (
+            false_alarms / (false_alarms + correct_negatives)
+            if (false_alarms + correct_negatives) > 0
+            else np.nan
+        )
+        heidke_skill_scores[i] = (
+            (hits * correct_negatives - misses * false_alarms)
+            / (
+                (hits + misses) * (misses + correct_negatives)
+                + (hits + false_alarms) * (false_alarms + correct_negatives)
+            )
+            if total > 0
+            else np.nan
+        )
+
+        if calculate_auroc:
+            auroc_bootstrap_scores = []
+            n_bootstrap = 1000
+            for _ in range(n_bootstrap):
+                bootstrap_counts = np.random.multinomial(
+                    total,
+                    [
+                        hits / total,
+                        misses / total,
+                        false_alarms / total,
+                        correct_negatives / total,
+                    ],
+                    size=1,
+                )
+                (
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                ) = bootstrap_counts[0]
+                auroc_bootstrap_scores.append(
+                    calculate_auroc(
+                        bootstrap_hits,
+                        bootstrap_misses,
+                        bootstrap_false_alarms,
+                        bootstrap_correct_negatives,
+                    )
+                )
+
+            auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+            auroc_lb[i], auroc_ub[i] = np.percentile(
+                auroc_bootstrap_scores, [2.5, 97.5]
+            )
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+        print(i)
+
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if calculate_auroc:
+        df.update(
+            {
+                "auroc_scores": auroc_scores,
+                "auroc_lb": auroc_lb,
+                "auroc_ub": auroc_ub,
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def RETRACT_xhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    params,
+    calculate_auroc=True,
+):
+
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    if calculate_auroc:
+        auroc_scores = np.zeros_like(trigger_values)
+        auroc_lb = np.zeros_like(trigger_values)
+        auroc_ub = np.zeros_like(trigger_values)
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Initialize contingency table counts
+        hits = misses = false_alarms = correct_negatives = 0
+
+        # Iterate over each year
+        for year in range(len(obs_data.time)):
+            # Extract single year data
+            obs_year = obs_data.isel(time=year)
+            forecast_year = ens_prob_data.isel(init=year)
+
+            # Calculate the dichotomous event for observation and forecast
+            obs_event = obs_year <= threshold
+            obs_event1 = obs_event[params.spi_prod_name]
+            obs_event1.name = "observed_event"
+
+            forecast_event = forecast_year >= trigger_value
+            forecast_event1 = forecast_event[params.spi_prod_name]
+            forecast_event1.name = "forecasted_event"
+
+            contingency_table = xhist.histogram(
+                obs_event1,
+                forecast_event1,
+                bins=[2, 2],
+                density=False,
+                dim=["lat", "lon"],
+            )
+
+            # Update contingency table
+            contingency_table = contingency_table.values
+            correct_negatives = contingency_table[0, 0]
+            false_alarms = contingency_table[0, 1]
+            misses = contingency_table[1, 0]
+            hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - (
+            false_alarms / (false_alarms + correct_negatives)
+            if (false_alarms + correct_negatives) > 0
+            else np.nan
+        )
+        heidke_skill_scores[i] = (
+            (hits * correct_negatives - misses * false_alarms)
+            / (
+                (hits + misses) * (misses + correct_negatives)
+                + (hits + false_alarms) * (false_alarms + correct_negatives)
+            )
+            if total > 0
+            else np.nan
+        )
+
+        if calculate_auroc:
+            auroc_bootstrap_scores = []
+            n_bootstrap = 1000
+            for _ in range(n_bootstrap):
+                bootstrap_counts = np.random.multinomial(
+                    total,
+                    [
+                        hits / total,
+                        misses / total,
+                        false_alarms / total,
+                        correct_negatives / total,
+                    ],
+                    size=1,
+                )
+                (
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                ) = bootstrap_counts[0]
+                auroc_bootstrap_scores.append(
+                    calculate_auroc(
+                        bootstrap_hits,
+                        bootstrap_misses,
+                        bootstrap_false_alarms,
+                        bootstrap_correct_negatives,
+                    )
+                )
+
+            auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+            auroc_lb[i], auroc_ub[i] = np.percentile(
+                auroc_bootstrap_scores, [2.5, 97.5]
+            )
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+        print(i)
+
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if calculate_auroc:
+        df.update(
+            {
+                "auroc_scores": auroc_scores,
+                "auroc_lb": auroc_lb,
+                "auroc_ub": auroc_ub,
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def calculate_scores_from_contingency(hits, misses, false_alarms, correct_negatives):
+    """Calculate performance metrics from a contingency table."""
+    total = hits + false_alarms + misses + correct_negatives
+    hit_rate = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+    false_alarm_ratio = (
+        false_alarms / (false_alarms + hits) if (false_alarms + hits) > 0 else np.nan
+    )
+    bias_score = (
+        (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+    )
+    hanssen_kuipers_score = hit_rate - (
+        false_alarms / (false_alarms + correct_negatives)
+        if (false_alarms + correct_negatives) > 0
+        else np.nan
+    )
+    heidke_skill_score = (
+        (hits * correct_negatives - misses * false_alarms)
+        / (
+            (hits + misses) * (misses + correct_negatives)
+            + (hits + false_alarms) * (false_alarms + correct_negatives)
+        )
+        if total > 0
+        else np.nan
+    )
+    return (
+        hit_rate,
+        false_alarm_ratio,
+        bias_score,
+        hanssen_kuipers_score,
+        heidke_skill_score,
+    )
+
+
+def calculate_contingency_for_year(
+    obs_data, ens_prob_data, params, threshold, trigger_value
+):
+    """Calculate the contingency table for a single year."""
+    hits = misses = false_alarms = correct_negatives = 0
+    for year in range(len(obs_data.time)):
+        # Extract single year data
+        obs_year = obs_data.isel(time=year)
+        forecast_year = ens_prob_data.isel(init=year)
+
+        # Calculate the dichotomous event for observation and forecast
+        obs_event = obs_year <= threshold
+        obs_event1 = obs_event[params.spi_prod_name]
+        obs_event1.name = "observed_event"
+
+        forecast_event = forecast_year >= trigger_value
+        forecast_event1 = forecast_event[params.spi_prod_name]
+        forecast_event1.name = "forecasted_event"
+
+        contingency_table = xhist.histogram(
+            obs_event1,
+            forecast_event1,
+            bins=[2, 2],
+            density=False,
+        )
+
+        # Update contingency table
+        contingency_table = contingency_table.values
+        correct_negatives += contingency_table[0, 0]
+        false_alarms += contingency_table[0, 1]
+        misses += contingency_table[1, 0]
+        hits += contingency_table[1, 1]
+
+    return hits, misses, false_alarms, correct_negatives
+
+
+def create_dataframe(
+    hit_rates,
+    false_alarm_ratios,
+    bias_scores,
+    hanssen_kuipers_scores,
+    heidke_skill_scores,
+    trigger_values,
+    params,
+    auroc_data=None,
+):
+    """Create a DataFrame to store scores and export to CSV."""
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if auroc_data:
+        df.update(
+            {
+                "auroc_scores": auroc_data["scores"],
+                "auroc_lb": auroc_data["lb"],
+                "auroc_ub": auroc_data["ub"],
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def year_scores_gen(obs_data, ens_prob_data, params):
+
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    auroc_data = None
+    if calculate_auroc:
+        auroc_data = {
+            "scores": np.zeros_like(trigger_values),
+            "lb": np.zeros_like(trigger_values),
+            "ub": np.zeros_like(trigger_values),
+        }
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Calculate contingency table for the current trigger value
+        hits, misses, false_alarms, correct_negatives = calculate_contingency_for_year(
+            obs_data, ens_prob_data, params, threshold, trigger_value
+        )
+
+        # Calculate scores based on the contingency table
+        (
+            hit_rates[i],
+            false_alarm_ratios[i],
+            bias_scores[i],
+            hanssen_kuipers_scores[i],
+            heidke_skill_scores[i],
+        ) = calculate_scores_from_contingency(
+            hits, misses, false_alarms, correct_negatives
+        )
+
+        if calculate_auroc:
+            # AUROC score calculation logic would go here
+            pass
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+    # Create DataFrame and save to CSV
+    df = create_dataframe(
+        hit_rates,
+        false_alarm_ratios,
+        bias_scores,
+        hanssen_kuipers_scores,
+        heidke_skill_scores,
+        trigger_values,
+        params,
+        auroc_data,
+    )
+
     return df
 
 
