@@ -48,13 +48,26 @@ logger = logging.getLogger(__name__)
 
 
 class BinCreateParams:
-    def __init__(self, region_id, season_str, lead_int, level, spi_prod_name):
+    def __init__(
+        self,
+        region_id,
+        season_str,
+        lead_int,
+        level,
+        spi_prod_name,
+        data_path,
+        spi4_data_path,
+        output_path,
+    ):
         self.region_id = region_id
         self.season_str = season_str
         self.lead_int = lead_int
         self.sc_season_str = season_str.lower()
         self.level = level
         self.spi_prod_name = spi_prod_name
+        self.data_path = data_path
+        self.spi4_data_path = spi4_data_path
+        self.output_path = output_path
 
 
 def transform_data(data_at_time):
@@ -375,11 +388,34 @@ def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
         a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
         a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
 
-        common_dates = np.unique(a_fc3.valid_time.values.ravel())
-        a_obs3 = a_obs2.sel(time=common_dates)
+        # Convert valid_time to numpy datetime64 for comparison from cftime of a_fc3
+        fct_valid_times = np.array(
+            [np.datetime64(vt.isoformat()) for vt in a_fc3.valid_time.values]
+        )
+        obs_times = a_obs2.time.values
 
+        # Find common dates
+        common_dates = np.intersect1d(fct_valid_times, obs_times)
+
+        # common_dates = np.unique(a_fc3.valid_time.values.ravel())
+        # Filter both datasets to include only common dates
+        # a_fc4 = a_fc3.sel(valid_time=common_dates)
+        a_obs3 = a_obs2.sel(time=common_dates)
+        # a_obs3 = a_obs2.sel(time=common_dates)
+        a_fc3_init_dates = common_dates.astype("datetime64[M]") - np.timedelta64(
+            int(a_fc3.lead.values), "M"
+        )
+        a_fc4 = a_fc3.sel(init=a_fc3_init_dates)
+        # Ensure the time dimension in a_fc4 matches the valid_time coordinate
+        # a_fc4 = a_fc4.assign_coords(time=('valid_time', common_dates))
+        # a_fc4 = a_fc4.swap_dims({'valid_time': 'time'})
+
+        logger.info(
+            f"Found {len(common_dates)} common dates between observed and forecast data"
+        )
         logger.info("Successfully prepared observed and forecasted datasets")
-        return a_obs3, a_fc3
+
+        return a_obs3, a_fc4
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")
@@ -390,7 +426,7 @@ def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
     except Exception as e:
         logger.error(f"Unexpected error in make_obs_fct_dataset: {e}")
         raise
-    return a_obs3, a_fc3
+    # return a_obs3, a_fc3
 
 
 def get_threshold(region_id, season):
@@ -854,6 +890,52 @@ def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
         raise
 
 
+def run_xhist2d(params):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    obs_data, ens_data = make_obs_fct_dataset(
+        params.data_path, params.region_id, params.season_str, params.lead_int
+    )
+    fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+        ens_data, threshold_dict
+    )
+    #################
+    df = xhist_metrics_2d(obs_data, fct_mod, params, calculate_auroc=True)
+    subset_df = df[
+        (df["hit_rate"] > 0.65)
+        & (df["hit_rate"] < 1.0)
+        & (df["false_alarm_ratio"] < 0.35)
+        & (df["auroc_score"] > 0.5)
+    ]
+    df1 = subset_df.reset_index()
+    df1.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_mod_subset.csv"
+    )
+    #################
+    df = xhist_metrics_2d(obs_data, fct_sev, params, calculate_auroc=True)
+    subset_df = df[
+        (df["hit_rate"] > 0.65)
+        & (df["hit_rate"] < 1.0)
+        & (df["false_alarm_ratio"] < 0.35)
+        & (df["auroc_score"] > 0.5)
+    ]
+    df1 = subset_df.reset_index()
+    df1.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_sev_subset.csv"
+    )
+    #################
+    df = xhist_metrics_2d(obs_data, fct_ext, params, calculate_auroc=True)
+    subset_df = df[
+        (df["hit_rate"] > 0.65)
+        & (df["hit_rate"] < 1.0)
+        & (df["false_alarm_ratio"] < 0.35)
+        & (df["auroc_score"] > 0.5)
+    ]
+    df1 = subset_df.reset_index()
+    df1.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_ext_subset.csv"
+    )
+
+
 def xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str):
     ds = xr.Dataset.from_dataframe(pdb)
     obs_ext = ds[f"spi3_{cat_str}"]
@@ -954,4 +1036,291 @@ def mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
     return wdf1
 
 
+def get_subset(dfa, cat_str):
+    # Filter out rows with null values in 'hit_rate' and 'false_alarm_ratio'
+    # df = df.dropna(subset=['hit_rate', 'false_alarm_ratio'])
+    df = dfa[dfa["cat"] == cat_str]
+    # Sort the DataFrame by 'peirce_score' in descending order
+    df = df.sort_values(by="hanssen_kuipers_scores", ascending=False)
 
+    # Get the row with the maximum 'peirce_score'
+    max_peirce_row = df.iloc[0]
+
+    # Sort the DataFrame by 'bias_score' in descending order, and filter for 'bias_score' < 1.0
+    df = df.loc[df["bias_scores"] < 1.0].sort_values(by="bias_scores", ascending=False)
+
+    # Get the row with the maximum 'bias_score' < 1.0
+    max_bias_row = df.iloc[0]
+
+    # Sort the DataFrame by 'heidke_score' in descending order
+    df = df.sort_values(by="heidke_skill_scores", ascending=False)
+
+    # Get the row with the maximum 'heidke_score'
+    max_heidke_row = df.iloc[0]
+
+    # Combine the three rows into a subset
+    subset = pd.concat(
+        [
+            pd.DataFrame([max_peirce_row]),
+            pd.DataFrame([max_bias_row]),
+            pd.DataFrame([max_heidke_row]),
+        ],
+        ignore_index=True,
+    )
+
+    return subset
+
+
+def trigger_decision_dict(df0):
+    df = df0[df0["auroc_scores"] >= 0.5]
+    df_mod = get_subset(df, "mod")
+    mod_max_cn = df_mod["CN"].max()
+    mod_df_max_cn = df_mod[df_mod["CN"] == mod_max_cn]
+    mod_max_hits = mod_df_max_cn["hits"].max()
+    mod_df_max_hits = mod_df_max_cn[mod_df_max_cn["hits"] == mod_max_hits]
+
+    df_sev = get_subset(df, "sev")
+    sev_max_cn = df_sev["CN"].max()
+    sev_df_max_cn = df_sev[df_sev["CN"] == sev_max_cn]
+    sev_max_hits = sev_df_max_cn["hits"].max()
+    sev_df_max_hits = sev_df_max_cn[sev_df_max_cn["hits"] == sev_max_hits]
+
+    df_ext = get_subset(df, "ext")
+    ext_max_cn = df_ext["CN"].max()
+    ext_df_max_cn = df_ext[df_ext["CN"] == ext_max_cn]
+    ext_max_hits = ext_df_max_cn["hits"].max()
+    ext_df_max_hits = ext_df_max_cn[ext_df_max_cn["hits"] == ext_max_hits]
+    tri_dict = {
+        "mod": mod_df_max_hits["trigger_values"].values[0],
+        "sev": sev_df_max_hits["trigger_values"].values[0],
+        "ext": ext_df_max_hits["trigger_values"].values[0],
+    }
+    df0 = pd.concat([mod_df_max_hits, sev_df_max_hits, ext_df_max_hits])
+    return tri_dict, df0
+
+
+def get_mean_ens_triggers(obs_df, fct_df, threshold_dict, params):
+    db = pd.merge(fct_df, obs_df, on="year")
+    pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
+    pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
+    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb2 = pdb.reset_index()
+    cnt_df = []
+    for idx, row in pdb2.iterrows():
+        mod_trigger_value = row["ep_mod"]
+        mod_df = xhist_metrices_1d(pdb2, mod_trigger_value, threshold_dict, "mod")
+        mod_df.insert(0, "region", params.region_id)
+        mod_df.insert(1, "season", params.season_str)
+        mod_df.insert(2, "cat", "mod")
+        mod_df.insert(3, "year", row["year"])
+        cnt_df.append(mod_df)
+
+        sev_trigger_value = row["ep_sev"]
+        sev_df = xhist_metrices_1d(pdb2, sev_trigger_value, threshold_dict, "sev")
+        sev_df.insert(0, "region", params.region_id)
+        sev_df.insert(1, "season", params.season_str)
+        sev_df.insert(2, "cat", "sev")
+        sev_df.insert(3, "year", row["year"])
+        cnt_df.append(sev_df)
+
+        ext_trigger_value = row["ep_ext"]
+        ext_df = xhist_metrices_1d(pdb2, ext_trigger_value, threshold_dict, "ext")
+        ext_df.insert(0, "region", params.region_id)
+        ext_df.insert(1, "season", params.season_str)
+        ext_df.insert(2, "cat", "ext")
+        ext_df.insert(3, "year", row["year"])
+        cnt_df.append(ext_df)
+
+    metrix_df = pd.concat(cnt_df)
+    decision_dict, decision_df = trigger_decision_dict(metrix_df)
+    decision_df["lead_time"] = params.lead_int
+    pdb_melt = pdb.rename(columns={"ep_ext": "ext", "ep_sev": "sev", "ep_mod": "mod"})
+    plot_df = pd.melt(
+        pdb_melt.reset_index(),
+        id_vars=["year"],
+        value_vars=["mod", "sev", "ext"],
+        var_name="cat",
+        value_name="ep_pb",
+    )
+    return metrix_df, decision_dict, decision_df, plot_df
+
+
+def allcat_chosen_triggers_metrix(
+    obs_df, fct_df, threshold_dict, ctrigger_values, params
+):
+    db = pd.merge(fct_df, obs_df, on="year")
+    pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
+    pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
+    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb2 = pdb.reset_index()
+
+    # Calculate the count of observed values below each threshold
+    result = {}
+    for key, value in threshold_dict.items():
+        result[key] = (obs_df["spi3"] <= value).sum()
+
+    cnt_df = []
+    for cat in ["mod", "sev", "ext"]:
+        trigger_value = ctrigger_values[cat]
+        df = xhist_metrices_1d(pdb2, trigger_value, threshold_dict, cat)
+        df.insert(0, "region", params.region_id)
+        df.insert(1, "season", params.season_str)
+        df.insert(2, "cat", cat)
+        df.insert(3, "year", pdb2["year"])
+        df["obs_count"] = result[cat]  # Add observed count directly to each category
+
+        # Calculate hit percentage
+        df["hit_percentage"] = (df["hits"] / df["obs_count"]) * 100
+
+        cnt_df.append(df)
+
+    metrix_df = pd.concat(cnt_df)
+    metrix_df["lead_time"] = params.lead_int
+
+    # Select and reorder columns
+    metrix_df1 = metrix_df[
+        [
+            "lead_time",
+            "trigger_values",
+            "cat",
+            "obs_count",
+            "threshold",
+            "hits",
+            "misses",
+            "FA",
+            "CN",
+            "hit_percentage",
+        ]
+    ]
+
+    return metrix_df1
+
+
+def chosen_triggers_metrix(
+    obs_df, fct_df, threshold_dict, ctrigger_value, cat_name, params
+):
+    db = pd.merge(fct_df, obs_df, on="year")
+    pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
+    pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
+    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb2 = pdb.reset_index()
+
+    # Calculate the count of observed values below each threshold
+    result = {}
+    for key, value in threshold_dict.items():
+        result[key] = (obs_df["spi3"] <= value).sum()
+
+    trigger_value = ctrigger_value * 100
+    df = xhist_metrices_1d(pdb2, trigger_value, threshold_dict, cat_name)
+    df.insert(0, "region", params.region_id)
+    df.insert(1, "season", params.season_str)
+    df.insert(2, "1dcat", cat_name)
+    df.insert(3, "year", pdb2["year"])
+    df["obs_count"] = result[cat_name]  # Add observed count directly to each category
+
+    # Calculate hit percentage
+    df["hit_percentage"] = (df["hits"] / df["obs_count"]) * 100
+
+    metrix_df = df
+    metrix_df["lead_time"] = params.lead_int
+
+    # Select and reorder columns
+    metrix_df1 = metrix_df[
+        [
+            "lead_time",
+            "trigger_values",
+            "1dcat",
+            "obs_count",
+            "threshold",
+            "hits",
+            "misses",
+            "FA",
+            "CN",
+            "hit_percentage",
+        ]
+    ]
+
+    return metrix_df1
+
+
+def apply_chosen_triggers_metrix(row, obs_df, fct_df, threshold_dict, params):
+    result = chosen_triggers_metrix(
+        obs_df, fct_df, threshold_dict, row["trigger_value"], row["cat"], params
+    )
+
+    # Ensure we're getting the correct row for the specific category
+    result_row = result[result["1dcat"] == row["cat"]]
+
+    if result_row.empty:
+        print(
+            f"Warning: No result found for category {row['cat']} and trigger value {row['trigger_value']}"
+        )
+        return pd.Series(
+            {
+                "obs_count": None,
+                "threshold": None,
+                "hits": None,
+                "misses": None,
+                "FA": None,
+                "CN": None,
+                "hit_percentage": None,
+            }
+        )
+
+    # Extract the relevant values from the result
+    new_values = {
+        "obs_count": result_row["obs_count"].iloc[0],
+        "threshold": result_row["threshold"].iloc[0],
+        "hits": result_row["hits"].iloc[0],
+        "misses": result_row["misses"].iloc[0],
+        "FA": result_row["FA"].iloc[0],
+        "CN": result_row["CN"].iloc[0],
+        "hit_percentage": result_row["hit_percentage"].iloc[0],
+    }
+
+    return pd.Series(new_values)
+
+
+# The update_ctdb function remains the same
+def update_ctdb(ctdb, obs_df, fct_df, threshold_dict, params):
+    # Apply the function to each row of ctdb
+    new_columns = ctdb.apply(
+        lambda row: apply_chosen_triggers_metrix(
+            row, obs_df, fct_df, threshold_dict, params
+        ),
+        axis=1,
+    )
+
+    # Update ctdb with the new columns
+    ctdb = pd.concat([ctdb, new_columns], axis=1)
+
+    return ctdb
+
+
+def run_xhist1d(params):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    obs_data, ens_data = make_obs_fct_dataset(
+        params.data_path, params.region_id, params.season_str, params.lead_int
+    )
+    fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+        ens_data, threshold_dict
+    )
+    obs_df = mean_obs_spi(obs_data, params.spi_prod_name)
+    fct_df = mean_emp_prob(fct_mod, fct_sev, fct_ext, params.spi_prod_name)
+    db1 = pd.read_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_mod_subset.csv"
+    )
+    db1["cat"] = "ext"
+    db2 = pd.read_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_sev_subset.csv"
+    )
+    db2["cat"] = "sev"
+    db3 = pd.read_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_mod_subset.csv"
+    )
+    db3["cat"] = "mod"
+    ctdb = pd.concat([db1, db2, db3])
+    updated_ctdb = update_ctdb(ctdb, obs_df, fct_df, threshold_dict, params)
+    updated_ctdb.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}.csv"
+    )
