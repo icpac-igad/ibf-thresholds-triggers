@@ -845,7 +845,7 @@ def process_trigger_values(
                 obs_event, forecast_event, params
             )
 
-            scores = calculate_scores(contingency_table, trigger_value.item())
+            scores = calculate_scores(contingency_table, trigger_value.item(), params)
             results.extend(scores)
 
             if calculate_auroc:
@@ -885,9 +885,9 @@ def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
             obs_data, ens_prob_data, params, threshold, calculate_auroc
         )
 
-        # output_file = f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
-        # df.to_csv(output_file)
-        logger.info(f"Results saved to {output_file}")
+        logger.info(
+            f"xhist_metrics_2d df for region:{params.region_id},seas:{params.sc_season_str},lt:{params.lead_int},lvl:{params.level}"
+        )
         return df
     except Exception as e:
         logger.error(f"Error in xhist_metrics_2d: {str(e)}")
@@ -1334,15 +1334,15 @@ def run_xhist1d(params):
     db1 = pd.read_csv(
         f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_mod_subset.csv"
     )
-    db1["cat"] = "ext"
+    db1["cat"] = "mod"
     db2 = pd.read_csv(
         f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_sev_subset.csv"
     )
     db2["cat"] = "sev"
     db3 = pd.read_csv(
-        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_mod_subset.csv"
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_ext_subset.csv"
     )
-    db3["cat"] = "mod"
+    db3["cat"] = "ext"
     ctdb = pd.concat([db1, db2, db3])
     updated_ctdb = update_ctdb(ctdb, obs_df, fct_df, threshold_dict, params)
     updated_ctdb.to_csv(
