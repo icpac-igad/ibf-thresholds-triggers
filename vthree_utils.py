@@ -466,8 +466,8 @@ def get_threshold(region_id, season):
     -0.14
     """
     data = """region_id,region,season,mod,sev,ext
-    0,kmj,mam,-0.03,-0.56,-0.99
-    0,kmj,jjas,-0.01,-0.41,-0.99
+    0,kmj,mam,-0.55,-0.98,-0.99
+    0,kmj,jjas,-0.40,-0.98,-0.99
     1,mbt,mam,-0.14,-0.38,-1.0
     1,mbt,ond,-0.44,-0.71,-1.0
     2,wjr,mam,-0.19,-0.45,-1.0
@@ -662,7 +662,7 @@ def calculate_contingency_table(obs_event, forecast_event, params):
         raise
 
 
-def calculate_scores(contingency_table, trigger_value):
+def calculate_scores(contingency_table, trigger_value, params):
     try:
         logger.info(f"Calculating scores for trigger value {trigger_value:.4f}")
         # Ensure the contingency table has the expected dimensions
@@ -708,6 +708,10 @@ def calculate_scores(contingency_table, trigger_value):
 
             scores.append(
                 {
+                    "x2d_region": params.region_id,
+                    "x2d_leadtime": params.lead_int,
+                    "x2d_season": params.sc_season_str,
+                    "x2d_level": params.level,
                     "trigger_value": trigger_value,
                     "time_step": t,
                     "hit_rate": hit_rate,
@@ -881,8 +885,8 @@ def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
             obs_data, ens_prob_data, params, threshold, calculate_auroc
         )
 
-        output_file = f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
-        df.to_csv(output_file)
+        # output_file = f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+        # df.to_csv(output_file)
         logger.info(f"Results saved to {output_file}")
         return df
     except Exception as e:
@@ -899,6 +903,7 @@ def run_xhist2d(params):
         ens_data, threshold_dict
     )
     #################
+    params.level = "mod"
     df = xhist_metrics_2d(obs_data, fct_mod, params, calculate_auroc=True)
     subset_df = df[
         (df["hit_rate"] > 0.65)
@@ -907,10 +912,14 @@ def run_xhist2d(params):
         & (df["auroc_score"] > 0.5)
     ]
     df1 = subset_df.reset_index()
+    df.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_{params.level}.csv"
+    )
     df1.to_csv(
-        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_mod_subset.csv"
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_{params.level}_subset.csv"
     )
     #################
+    params.level = "sev"
     df = xhist_metrics_2d(obs_data, fct_sev, params, calculate_auroc=True)
     subset_df = df[
         (df["hit_rate"] > 0.65)
@@ -919,10 +928,14 @@ def run_xhist2d(params):
         & (df["auroc_score"] > 0.5)
     ]
     df1 = subset_df.reset_index()
+    df.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_{params.level}.csv"
+    )
     df1.to_csv(
-        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_sev_subset.csv"
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_{params.level}_subset.csv"
     )
     #################
+    params.level = "ext"
     df = xhist_metrics_2d(obs_data, fct_ext, params, calculate_auroc=True)
     subset_df = df[
         (df["hit_rate"] > 0.65)
@@ -931,14 +944,17 @@ def run_xhist2d(params):
         & (df["auroc_score"] > 0.5)
     ]
     df1 = subset_df.reset_index()
+    df.to_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_{params.level}.csv"
+    )
     df1.to_csv(
-        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_ext_subset.csv"
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_{params.level}_subset.csv"
     )
 
 
-def xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str):
+def xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str, params):
     ds = xr.Dataset.from_dataframe(pdb)
-    obs_ext = ds[f"spi3_{cat_str}"]
+    obs_ext = ds[f"{params.spi_prod_name}_{cat_str}"]
     fct_ext = ds[f"ep_{cat_str}"]
     obs_event = obs_ext <= threshold_dict[cat_str]
     fct_event = fct_ext >= trigger_value
@@ -1101,14 +1117,18 @@ def trigger_decision_dict(df0):
 
 def get_mean_ens_triggers(obs_df, fct_df, threshold_dict, params):
     db = pd.merge(fct_df, obs_df, on="year")
-    pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
+    pdb = db.pivot(
+        index="year", columns="cat", values=[f"{params.spi_prod_name}", "ep"]
+    )
     pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
-    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb1 = pdb[pdb[f"{params.spi_prod_name}_ext"] <= 0]
     pdb2 = pdb.reset_index()
     cnt_df = []
     for idx, row in pdb2.iterrows():
         mod_trigger_value = row["ep_mod"]
-        mod_df = xhist_metrices_1d(pdb2, mod_trigger_value, threshold_dict, "mod")
+        mod_df = xhist_metrices_1d(
+            pdb2, mod_trigger_value, threshold_dict, "mod", params
+        )
         mod_df.insert(0, "region", params.region_id)
         mod_df.insert(1, "season", params.season_str)
         mod_df.insert(2, "cat", "mod")
@@ -1116,7 +1136,9 @@ def get_mean_ens_triggers(obs_df, fct_df, threshold_dict, params):
         cnt_df.append(mod_df)
 
         sev_trigger_value = row["ep_sev"]
-        sev_df = xhist_metrices_1d(pdb2, sev_trigger_value, threshold_dict, "sev")
+        sev_df = xhist_metrices_1d(
+            pdb2, sev_trigger_value, threshold_dict, "sev", params
+        )
         sev_df.insert(0, "region", params.region_id)
         sev_df.insert(1, "season", params.season_str)
         sev_df.insert(2, "cat", "sev")
@@ -1124,7 +1146,9 @@ def get_mean_ens_triggers(obs_df, fct_df, threshold_dict, params):
         cnt_df.append(sev_df)
 
         ext_trigger_value = row["ep_ext"]
-        ext_df = xhist_metrices_1d(pdb2, ext_trigger_value, threshold_dict, "ext")
+        ext_df = xhist_metrices_1d(
+            pdb2, ext_trigger_value, threshold_dict, "ext", params
+        )
         ext_df.insert(0, "region", params.region_id)
         ext_df.insert(1, "season", params.season_str)
         ext_df.insert(2, "cat", "ext")
@@ -1151,13 +1175,13 @@ def allcat_chosen_triggers_metrix(
     db = pd.merge(fct_df, obs_df, on="year")
     pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
     pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
-    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb1 = pdb[pdb[f"{params.spi_prod_name}_ext"] <= 0]
     pdb2 = pdb.reset_index()
 
     # Calculate the count of observed values below each threshold
     result = {}
     for key, value in threshold_dict.items():
-        result[key] = (obs_df["spi3"] <= value).sum()
+        result[key] = (obs_df[f"{params.spi_prod_name}"] <= value).sum()
 
     cnt_df = []
     for cat in ["mod", "sev", "ext"]:
@@ -1200,18 +1224,18 @@ def chosen_triggers_metrix(
     obs_df, fct_df, threshold_dict, ctrigger_value, cat_name, params
 ):
     db = pd.merge(fct_df, obs_df, on="year")
-    pdb = db.pivot(index="year", columns="cat", values=["spi3", "ep"])
+    pdb = db.pivot(index="year", columns="cat", values=[params.spi_prod_name, "ep"])
     pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
-    pdb1 = pdb[pdb["spi3_ext"] <= 0]
+    pdb1 = pdb[pdb[f"{params.spi_prod_name}_ext"] <= 0]
     pdb2 = pdb.reset_index()
 
     # Calculate the count of observed values below each threshold
     result = {}
     for key, value in threshold_dict.items():
-        result[key] = (obs_df["spi3"] <= value).sum()
+        result[key] = (obs_df[params.spi_prod_name] <= value).sum()
 
     trigger_value = ctrigger_value * 100
-    df = xhist_metrices_1d(pdb2, trigger_value, threshold_dict, cat_name)
+    df = xhist_metrices_1d(pdb2, trigger_value, threshold_dict, cat_name, params)
     df.insert(0, "region", params.region_id)
     df.insert(1, "season", params.season_str)
     df.insert(2, "1dcat", cat_name)

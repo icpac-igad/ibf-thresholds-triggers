@@ -22,14 +22,6 @@ from vthree_utils import BinCreateParams
 from vthree_utils import run_xhist2d
 from vthree_utils import run_xhist1d
 
-from vthree_utils import mean_emp_prob
-from vthree_utils import mean_obs_spi
-from vthree_utils import get_mean_ens_triggers
-from vthree_utils import xhist_metrices_1d
-from vthree_utils import trigger_decision_dict
-from vthree_utils import chosen_triggers_metrix
-from vthree_utils import update_ctdb
-
 
 load_dotenv()
 
@@ -44,13 +36,13 @@ params = BinCreateParams(
     output_path=os.getenv("output_path"),
 )
 
-"""run_xhist2d(params)
+run_xhist2d(params)
 run_xhist1d(params)
 
 
 params.lead_int = 3
 run_xhist2d(params)
-run_xhist1d(params)"""
+run_xhist1d(params)
 
 params.lead_int = 4
 run_xhist2d(params)
