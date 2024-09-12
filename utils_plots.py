@@ -417,7 +417,7 @@ def plot_obs_chart_with_triggers(
     return final_chart
 
 
-def aux_plot_make_barchart_annotations():
+def DEPRICATE_aux_plot_make_barchart_annotations():
     row_annotations = [
         alt.Chart(pd.DataFrame({"text": ["lt=1"]}))
         .mark_text(
@@ -478,6 +478,46 @@ def aux_plot_make_barchart_annotations():
     return row_annotations
 
 
+def get_month_abbr(date):
+    return date.strftime("%b")
+
+
+def aux_plot_make_barchart_annotation(params):
+    # Dictionary to map season strings to their last month
+    last_month_dict = {"MAM": "May", "JJAS": "September", "OND": "December"}
+
+    # Get the last month of the season
+    last_month_str = last_month_dict.get(params.season_str)
+    if not last_month_str:
+        raise ValueError(f"Unsupported season string: {params.season_str}")
+
+    # Parse the last month string to a datetime object
+    last_month = datetime.strptime(last_month_str, "%B")
+
+    # Calculate the month for this lead time
+    month = last_month - relativedelta(months=params.lead_int + 1)
+
+    # Determine the text for the annotation
+    text = f"lt={params.lead_int}, {get_month_abbr(month)}"
+
+    # Create the annotation chart
+    annotation = (
+        alt.Chart(pd.DataFrame({"text": [text]}))
+        .mark_text(
+            align="left",
+            baseline="middle",
+            fontSize=14,
+            fontWeight="bold",
+            dx=-190,
+            dy=-90,
+        )
+        .encode(text="text:N")
+        .properties(width=400, height=200)
+    )
+
+    return annotation
+
+
 def plot_decision_table(df):
     return (
         alt.Chart(df.reset_index())
@@ -502,6 +542,46 @@ def plot_decision_table(df):
             alt.Text("value", type="nominal"),
         )
     )
+
+
+def bar_stitch_plot(params, config):
+    obs_plot = config["obs_plot"]
+    lt2_plot = config["lt2_plot"]
+    lt3_plot = config["lt3_plot"]
+    lt4_plot = config["lt4_plot"]
+    dec_dflt2 = config["dec_dflt2"]
+    dec_dflt3 = config["dec_dflt3"]
+    dec_dflt4 = config["dec_dflt4"]
+    tab_df1 = pd.concat([dec_dflt2, dec_dflt3, dec_dflt4])
+    tab_df1["Trigger"] = tab_df1["Trigger"] * 100
+    tab_df1["Trigger"] = tab_df1["Trigger"].apply(
+        lambda x: aux_mt_plot_round_list(x, 2)
+    )
+    tab_df1["%hit"] = tab_df1["%hit"].apply(lambda x: aux_mt_plot_round_list([x], 2))
+
+    tab_plot = plot_decision_table(tab_df1).properties(height=200, width=400)
+    # tab_plot
+    emtpy_plot = (
+        alt.Chart(pd.DataFrame({"A": []}))
+        .mark_text()
+        .encode()
+        .properties(width=400, height=200)
+    )
+
+    panels = alt.vconcat(
+        alt.hconcat(obs_plot, lt2_plot),
+        alt.hconcat(tab_plot, lt3_plot),
+        alt.hconcat(emtpy_plot, lt4_plot),
+    )
+
+    panels.configure_view(stroke=None).configure_axisY(
+        labelFontSize=12, titleFontSize=14
+    ).configure_axisX(labelFontSize=10, titleFontSize=12).configure_legend(
+        labelFontSize=12, titleFontSize=14
+    )
+
+    # print(" Marsabit selected trigger for OND")
+    panels.save(f"{params.output_path}{params.region_id}_{params.sc_season_str}.png")
 
 
 def aux_mt_plot_create_month_column(df):
@@ -657,7 +737,11 @@ def aux_mt_plot_round_list(lst, decimal_places):
     Note:
     - This function is useful for rounding numerical values in a list to ensure consistency or to improve readability.
     """
-    return [round(x, decimal_places) for x in lst]
+    if isinstance(lst, list):
+        return [round(x, decimal_places) for x in lst]
+    else:
+        # If it's not a list, assume it's a single float and round it
+        return round(lst, decimal_places)
 
 
 # %% table plot matplotlib

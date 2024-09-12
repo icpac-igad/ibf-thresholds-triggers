@@ -36,16 +36,16 @@ params = BinCreateParams(
     output_path=os.getenv("output_path"),
 )
 
-run_xhist2d(params)
+# run_xhist2d(params)
 run_xhist1d(params)
 
 
 params.lead_int = 3
-run_xhist2d(params)
+# run_xhist2d(params)
 run_xhist1d(params)
 
 params.lead_int = 4
-run_xhist2d(params)
+# run_xhist2d(params)
 run_xhist1d(params)
 
 params.season_str = "JJAS"
@@ -53,14 +53,14 @@ params.sc_season_str = "jjas"
 params.spi_prod_name = "spi4"
 params.data_path = params.spi4_data_path
 params.lead_int = 2
-run_xhist2d(params)
+# run_xhist2d(params)
 run_xhist1d(params)
 
 
 params.lead_int = 3
-run_xhist2d(params)
+# run_xhist2d(params)
 run_xhist1d(params)
 
 params.lead_int = 4
-run_xhist2d(params)
+# run_xhist2d(params)
 run_xhist1d(params)

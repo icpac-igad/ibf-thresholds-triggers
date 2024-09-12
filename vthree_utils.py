@@ -23,15 +23,18 @@ from xbootstrap import block_bootstrap
 from dask.distributed import Client
 
 # matplotlib.use("Agg")
+import itertools
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import six
 import textwrap as tw
 from functools import reduce
 import json
+from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
 from PIL import Image
+
 
 # Set up logging
 logging.basicConfig(
@@ -1348,3 +1351,125 @@ def run_xhist1d(params):
     updated_ctdb.to_csv(
         f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}.csv"
     )
+
+
+def bar_plot_df(obs_df, fct_df, params):
+    db = pd.merge(fct_df, obs_df, on="year")
+    pdb = db.pivot(
+        index="year", columns="cat", values=[f"{params.spi_prod_name}", "ep"]
+    )
+    pdb.columns = ["{}_{}".format(val[0], val[1]) for val in pdb.columns]
+    pdb_melt = pdb.rename(columns={"ep_ext": "ext", "ep_sev": "sev", "ep_mod": "mod"})
+    plot_df = pd.melt(
+        pdb_melt.reset_index(),
+        id_vars=["year"],
+        value_vars=["mod", "sev", "ext"],
+        var_name="cat",
+        value_name="ep_pb",
+    )
+    return plot_df
+
+
+def add_missing_rows(df):
+    value_dict = {
+        "mod": 2,
+        "sev": 2,
+        "ext": 2,
+        "mod": 3,
+        "sev": 3,
+        "ext": 3,
+        "mod": 4,
+        "sev": 4,
+        "ext": 4,
+    }
+    # Create all possible combinations of 'cat' and 'lt'
+    all_combinations = list(
+        itertools.product(
+            set(value_dict.keys()),  # unique categories
+            set(value_dict.values()),  # unique lead times
+        )
+    )
+
+    # Create a DataFrame with all possible combinations
+    all_df = pd.DataFrame(all_combinations, columns=["cat", "lead_time"])
+
+    # Merge with the original DataFrame, keeping all rows from all_df
+    merged_df = pd.merge(all_df, df, on=["cat", "lead_time"], how="left")
+
+    # Sort the DataFrame by 'lt' and 'cat'
+    merged_df = merged_df.sort_values(["lead_time", "cat"]).reset_index(drop=True)
+
+    return merged_df
+
+
+def generate_trigger_dict(params):
+    """
+    Reads a CSV file and creates a dictionary mapping x2d_level to
+    100 times the trigger_value, considering x2d_leadtime and region_seas_lt.
+    Args:
+    file_path: The path to the CSV file.
+
+    Returns:
+        A dictionary where keys are x2d_level values and values are 100 times
+        the trigger_value for the specified x2d_leadtime and region_seas_lt.
+    """
+
+    df = pd.read_csv(f"{params.output_path}decisions_valv1.csv")
+
+    # Filter the DataFrame based on the desired x2d_leadtime and region_seas_lt
+    # Adjust the following line to filter based on your specific criteria
+    filtered_df = df[
+        (df["x2d_leadtime"] == params.lead_int)
+        & (
+            df["region_seas_lt"]
+            == f"{params.region_id}_{params.sc_season_str}_{params.lead_int}"
+        )
+    ]
+    filtered_df1 = filtered_df[
+        [
+            "x2d_leadtime",
+            "trigger_value",
+            "x2d_level",
+            "obs_count",
+            "hits",
+            "misses",
+            "FA",
+            "CN",
+            "hit_percentage",
+        ]
+    ]
+
+    new_names = {
+        "x2d_leadtime": "lead_time",
+        "trigger_value": "Trigger",
+        "obs_count": "#catDr",
+        "x2d_level": "cat",
+        "hit_percentage": "%hit",
+    }
+    dec_df = filtered_df1.rename(columns=new_names)
+    # dec_df1 = add_missing_rows(dec_df)
+    # Create the dictionary
+    trigger_dict = {
+        level: 100
+        * filtered_df[filtered_df["x2d_level"] == level]["trigger_value"].iloc[0]
+        for level in filtered_df["x2d_level"].unique()
+    }
+
+    return trigger_dict, dec_df
+
+
+def run_bar_plot_df(params, is_obs_df=True):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    obs_data, ens_data = make_obs_fct_dataset(
+        params.data_path, params.region_id, params.season_str, params.lead_int
+    )
+    fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+        ens_data, threshold_dict
+    )
+    obs_df = mean_obs_spi(obs_data, params.spi_prod_name)
+    fct_df = mean_emp_prob(fct_mod, fct_sev, fct_ext, params.spi_prod_name)
+    plot_df = bar_plot_df(obs_df, fct_df, params)
+    if is_obs_df:
+        return obs_df, plot_df  # Return obs_df if is_obs_df is True
+    else:
+        return plot_df  # Otherwise, return plot_df
