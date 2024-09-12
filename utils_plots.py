@@ -1185,15 +1185,15 @@ def aux_mt_plot_pass_month_get_colnames(months):
 
 def aux_mt_plot_table_df(tab_df, stat_var):
     tab_df_a = tab_df.rename(columns={"lead_time": "lt"})
-    tab_df_m = create_month_column(tab_df_a)
+    tab_df_m = aux_mt_plot_create_month_column(tab_df_a)
     tab_df_m["pod_v"] = tab_df_m.apply(
         lambda x: [x["hit_rates"], x["trigger_values"]], axis=1
     )
     tab_df_m["far_v"] = tab_df_m.apply(
         lambda x: [x["false_alarm_ratios"], x["trigger_values"]], axis=1
     )
-    tab_df_m["pod_v"] = tab_df_m["pod_v"].apply(lambda x: round_list(x, 2))
-    tab_df_m["far_v"] = tab_df_m["far_v"].apply(lambda x: round_list(x, 2))
+    tab_df_m["pod_v"] = tab_df_m["pod_v"].apply(lambda x: aux_mt_plot_round_list(x, 2))
+    tab_df_m["far_v"] = tab_df_m["far_v"].apply(lambda x: aux_mt_plot_round_list(x, 2))
     mapping_dict = {0: "Karamoja", 1: "Marsabit", 2: "Wajir"}
     tab_df_m["region_x"] = tab_df_m["region"].replace(mapping_dict)
     p = tab_df_m.pivot_table(
@@ -1204,7 +1204,7 @@ def aux_mt_plot_table_df(tab_df, stat_var):
     )
     pf = p.reset_index()
     # Apply the custom function to each cell in the DataFrame
-    pf1 = pf.applymap(replace_with_list)
+    pf1 = pf.applymap(aux_mt_plot_replace_with_list)
     pf1.columns.name = None
     pf1["empty1"] = [[-999.0, -999.0]] * len(pf1)
     pf1["empty2"] = [[-999.0, -999.0]] * len(pf1)
