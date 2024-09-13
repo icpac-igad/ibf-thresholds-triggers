@@ -1402,7 +1402,7 @@ def add_missing_rows(df):
     return merged_df
 
 
-def generate_trigger_dict(params):
+def generate_trigger_dict(params, full_trigger_df=False):
     """
     Reads a CSV file and creates a dictionary mapping x2d_level to
     100 times the trigger_value, considering x2d_leadtime and region_seas_lt.
@@ -1455,7 +1455,10 @@ def generate_trigger_dict(params):
         for level in filtered_df["x2d_level"].unique()
     }
 
-    return trigger_dict, dec_df
+    if full_trigger_df:
+        return trigger_dict, dec_df, filtered_df
+    else:
+        return trigger_dict, dec_df
 
 
 def run_bar_plot_df(params, is_obs_df=True):

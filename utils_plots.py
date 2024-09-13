@@ -584,633 +584,217 @@ def bar_stitch_plot(params, config):
     panels.save(f"{params.output_path}{params.region_id}_{params.sc_season_str}.png")
 
 
-def aux_mt_plot_create_month_column(df):
-    new_column = []
+def calculate_month(season, lt):
+    """
+    Calculate the month corresponding to a given season and lead time.
 
+    Parameters:
+    season (str): The season string, which can be 'mam' (March-April-May),
+                  'jjas' (June-July-August-September), or 'ond' (October-November-December).
+    lt (int): The lead time in months to subtract from the last month of the season.
+
+    Returns:
+    str: The name of the month corresponding to the given lead time and season.
+
+    Raises:
+    ValueError: If an unsupported season string is provided.
+    """
+    last_month_dict = {"mam": "May", "jjas": "September", "ond": "December"}
+
+    # Get the last month of the season
+    last_month_str = last_month_dict.get(season)
+    if not last_month_str:
+        raise ValueError(f"Unsupported season string: {season}")
+
+    # Parse the last month string to a datetime object
+    last_month = datetime.strptime(last_month_str, "%B")
+
+    # Calculate the month for this lead time
+    month = last_month - relativedelta(months=lt + 1)
+
+    # Return the month as a string
+    return month.strftime("%B")
+
+
+def bcreate_category_dataframes(df):
+    """
+    Create a set of dataframes in matrix form based on categories and metrics from the input dataframe.
+
+    The function generates and returns a dictionary where each category ('mod', 'sev', 'ext') has
+    dataframes that are structured as matrices, which can be queried by seaborn for heatmap generation.
+
+    The keys in the returned dictionary can be accessed like dt_df[cat]['annot_hr'] or dt_df[cat]['data'],
+    where each dataframe is indexed by months and seasons.
+
+    Example matrix-like structure (as a dictionary for explanation):
+    {
+        'April': {'jjas': nan},
+        'May': {'jjas': 1717.1717},
+        'June': {'jjas': 2323.2323}
+    }
+
+    Parameters:
+    df (pd.DataFrame): Input dataframe containing columns such as 'lt_month', 'cat',
+                       'x2d_season', 'trigger_value', 'hit_rate', and 'false_alarm_ratio'.
+
+    Returns:
+    dict: A dictionary where keys are categories ('mod', 'sev', 'ext'), and values are
+          dictionaries of pandas DataFrames for each metric (data, hit rate, false alarm ratio),
+          indexed by months and seasons.
+
+    The resulting DataFrames can be visualized using seaborn heatmaps by querying like:
+    dt_df[cat]['annot_hr'], dt_df[cat]['data'], etc.
+    """
+
+    # Function to get month number (for sorting)
+    def get_month_num(month_name):
+        return list(month_abbr).index(month_name[:3].title())
+
+    percentage_columns = ["trigger_value", "hit_rate", "false_alarm_ratio"]
+    df[percentage_columns] = df[percentage_columns].mul(100)
+
+    # Create empty dictionaries to store our results
+    categories = ["mod", "sev", "ext"]
+    metrics = ["data", "annot_hr", "annot_far"]
+    result = {cat: {metric: {} for metric in metrics} for cat in categories}
+
+    # Extract unique months from the input DataFrame
+    all_months = sorted(df["lt_month"].unique(), key=get_month_num)
+
+    # Iterate through the DataFrame
     for _, row in df.iterrows():
-        lt = row["lt"]
         cat = row["cat"]
-        season = row["season"]
+        if cat not in categories:
+            continue  # Skip if category is not mod, sev, or ext
 
-        if season == "MAM":
-            if lt == 1:
-                if cat == "mod":
-                    new_column.append("mar_x")
-                elif cat == "sev":
-                    new_column.append("mar_y")
-                elif cat == "ext":
-                    new_column.append("mar_z")
-            elif lt == 2:
-                if cat == "mod":
-                    new_column.append("feb_x")
-                elif cat == "sev":
-                    new_column.append("feb_y")
-                elif cat == "ext":
-                    new_column.append("feb_z")
-            elif lt == 3:
-                if cat == "mod":
-                    new_column.append("jan_x")
-                elif cat == "sev":
-                    new_column.append("jan_y")
-                elif cat == "ext":
-                    new_column.append("jan_z")
-            elif lt == 4:
-                if cat == "mod":
-                    new_column.append("dec_x")
-                elif cat == "sev":
-                    new_column.append("dec_y")
-                elif cat == "ext":
-                    new_column.append("dec_z")
-            elif lt == 5:
-                if cat == "mod":
-                    new_column.append("nov_x")
-                elif cat == "sev":
-                    new_column.append("nov_y")
-                elif cat == "ext":
-                    new_column.append("nov_z")
-        elif season == "OND":
-            if lt == 1:
-                if cat == "mod":
-                    new_column.append("oct_x")
-                elif cat == "sev":
-                    new_column.append("oct_y")
-                elif cat == "ext":
-                    new_column.append("oct_z")
-            elif lt == 2:
-                if cat == "mod":
-                    new_column.append("sep_x")
-                elif cat == "sev":
-                    new_column.append("sep_y")
-                elif cat == "ext":
-                    new_column.append("sep_z")
-            elif lt == 3:
-                if cat == "mod":
-                    new_column.append("aug_x")
-                elif cat == "sev":
-                    new_column.append("aug_y")
-                elif cat == "ext":
-                    new_column.append("aug_z")
-            elif lt == 4:
-                if cat == "mod":
-                    new_column.append("jul_x")
-                elif cat == "sev":
-                    new_column.append("jul_y")
-                elif cat == "ext":
-                    new_column.append("jul_z")
-            elif lt == 5:
-                if cat == "mod":
-                    new_column.append("jun_x")
-                elif cat == "sev":
-                    new_column.append("jun_y")
-                elif cat == "ext":
-                    new_column.append("jun_z")
-        elif season == "JJAS":
-            if lt == 2:
-                if cat == "mod":
-                    new_column.append("jun_x")
-                elif cat == "sev":
-                    new_column.append("jun_y")
-                elif cat == "ext":
-                    new_column.append("jun_z")
-            elif lt == 3:
-                if cat == "mod":
-                    new_column.append("may_x")
-                elif cat == "sev":
-                    new_column.append("may_y")
-                elif cat == "ext":
-                    new_column.append("may_z")
-            elif lt == 4:
-                if cat == "mod":
-                    new_column.append("apr_x")
-                elif cat == "sev":
-                    new_column.append("apr_y")
-                elif cat == "ext":
-                    new_column.append("apr_z")
-            elif lt == 5:
-                if cat == "mod":
-                    new_column.append("mar_x")
-                elif cat == "sev":
-                    new_column.append("mar_y")
-                elif cat == "ext":
-                    new_column.append("mar_z")
-        else:
-            new_column.append("")
+        month = row["lt_month"]
+        season = row["x2d_season"]
 
-    # df["new_column"] = new_column
-    df.insert(loc=0, column="new_column", value=new_column)
-    return df
+        # Initialize all months for this category if not already done
+        for m in all_months:
+            if m not in result[cat]["data"]:
+                for metric in metrics:
+                    result[cat][metric][m] = {}
+
+        # Update the dictionaries
+        result[cat]["data"][month][season] = row["trigger_value"]
+        result[cat]["annot_hr"][month][season] = row["hit_rate"]
+        result[cat]["annot_far"][month][season] = row["false_alarm_ratio"]
+
+    # Convert dictionaries to DataFrames and sort columns
+    for cat in categories:
+        for metric in metrics:
+            df = pd.DataFrame(result[cat][metric])
+            # Ensure all months are present, fill with NaN if missing
+            for month in all_months:
+                if month not in df.columns:
+                    df[month] = pd.np.nan
+            # Sort columns (months) based on calendar order
+            df = df.reindex(columns=all_months)
+            result[cat][metric] = df
+
+    return result
 
 
-def aux_mt_plot_replace_with_list(x):
+def generate_custom_colormap(reverse_colors=False):
     """
-    Replaces NaN float values with a predefined list of replacement values.
+    Generate a custom colormap and normalization based on provided color ranges.
 
     Parameters:
-    - x (float): The input value to be checked and potentially replaced.
+    color_ranges (list): List of dictionaries with 'min', 'max', and 'color' keys.
+    reverse_colors (bool): If True, reverse the order of colors.
 
     Returns:
-    - A list of replacement values if `x` is a float and is NaN. Otherwise, returns `x` unchanged.
-
-    Note:
-    - This function is designed to handle cases where cell values in a dataset need to be replaced with a list of values
-      for indicating missing or special cases.
+    tuple: (colormap, normalization)
     """
-    replacement_values = [-999.0, -999.0]
-    # If x is a float and it is nan (meaning the cell was originally empty), return the replacement list
-    if isinstance(x, float) and np.isnan(x):
-        return replacement_values
-    # Otherwise, return x as it is
-    return x
+    # Extract colors and boundaries from the color ranges
+    color_ranges = [
+        {"min": 0, "max": 20, "color": "#009600"},  # Green
+        {"min": 20, "max": 40, "color": "#64C800"},  # Light green
+        {"min": 40, "max": 60, "color": "#ffff00"},  # Yellow
+        {"min": 60, "max": 80, "color": "#ff7800"},  # Orange
+        {"min": 80, "max": 100, "color": "#ff0000"},  # Red
+    ]
+    colors = [r["color"] for r in color_ranges]
+    boundaries = [r["min"] for r in color_ranges] + [
+        color_ranges[-1]["max"]
+    ]  # Add the last max to close the range
+
+    # Reverse colors if specified
+    if reverse_colors:
+        colors = colors[::-1]
+
+    # Create the custom colormap and normalization
+    cmap = ListedColormap(colors)
+    norm = BoundaryNorm(boundaries, cmap.N)
+
+    return cmap, norm
 
 
-def aux_mt_plot_round_list(lst, decimal_places):
+def create_heatmap_subplot(dt_df):
     """
-    Rounds each element in a list to a specified number of decimal places.
+    Create a heatmap subplot visualizing hit rates and false alarm ratios for three categories.
 
     Parameters:
-    - lst (list of float): The list of numbers to be rounded.
-    - decimal_places (int): The number of decimal places to round each number to.
+    dt_df (dict): A dictionary containing dataframes for three categories ('mod', 'sev', 'ext'),
+                  with data for hit rates (annot_hr) and false alarm ratios (annot_far).
 
     Returns:
-    - A list containing the rounded values of the input list.
+    matplotlib.figure.Figure: The generated figure with subplots containing heatmaps.
 
-    Note:
-    - This function is useful for rounding numerical values in a list to ensure consistency or to improve readability.
+    The figure consists of six subplots, where the top row displays heatmaps for hit rates and
+    the bottom row displays heatmaps for false alarm ratios for 'Moderate', 'Severe', and
+    'Extreme' categories. Two colorbars are added to the figure: one for hit rate and one for
+    false alarm ratio.
     """
-    if isinstance(lst, list):
-        return [round(x, decimal_places) for x in lst]
-    else:
-        # If it's not a list, assume it's a single float and round it
-        return round(lst, decimal_places)
+    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
 
+    categories = ["mod", "sev", "ext"]
+    titles = ["Moderate", "Severe", "Extreme"]
 
-# %% table plot matplotlib
+    hr_cmap, hr_norm = generate_custom_colormap(reverse_colors=True)
+    far_cmap, far_norm = generate_custom_colormap(reverse_colors=False)
 
-### Define the picture size and remove the ticks
+    for i, (cat, title) in enumerate(zip(categories, titles)):
+        # Hit Rate heatmap (top row)
+        sns.heatmap(
+            dt_df[cat]["annot_hr"],
+            annot=dt_df[cat]["data"],
+            fmt=".1f",
+            cmap=hr_cmap,
+            norm=hr_norm,
+            cbar=False,
+            linewidths=0.5,
+            linecolor="black",
+            ax=axes[0, i],
+        )
+        axes[0, i].set_title(f"{title} - Hit Rate")
 
+        # False Alarm Ratio heatmap (bottom row)
+        sns.heatmap(
+            dt_df[cat]["annot_far"],
+            annot=dt_df[cat]["data"],
+            fmt=".1f",
+            cmap=far_cmap,
+            norm=far_norm,
+            cbar=False,
+            linewidths=0.5,
+            linecolor="black",
+            ax=axes[1, i],
+        )
+        axes[1, i].set_title(f"{title} - False Alarm Ratio")
 
-### functions for whole column, row editing
-def aux_mt_plot_legend_maker(text1, color_list, legend_title):
-    square6 = plt.Rectangle((0.4, 0.1), 0.15, 0.25, color=color_list[0], clip_on=False)
-    text1.add_artist(square6)
-    square5 = plt.Rectangle((0.55, 0.1), 0.15, 0.25, color=color_list[1], clip_on=False)
-    text1.add_artist(square5)
-    square5 = plt.Rectangle((0.7, 0.1), 0.15, 0.25, color=color_list[2], clip_on=False)
-    text1.add_artist(square5)
-    square5 = plt.Rectangle((0.85, 0.1), 0.15, 0.25, color=color_list[3], clip_on=False)
-    text1.add_artist(square5)
-    square5 = plt.Rectangle((1.0, 0.1), 0.15, 0.25, color=color_list[4], clip_on=False)
-    text1.add_artist(square5)
-    plt.text(
-        0.6,
-        0.4,
-        legend_title,
-        horizontalalignment="left",
-        fontsize=6,
-        fontweight="bold",
-        color="k",
-        verticalalignment="center",
-        transform=text1.transAxes,
-    )
-    plt.text(
-        0.42,
-        0.05,
-        "<20",
-        horizontalalignment="left",
-        fontsize=6,
-        fontweight="bold",
-        color="k",
-        verticalalignment="center",
-        transform=text1.transAxes,
-    )
-    plt.text(
-        0.57,
-        0.05,
-        "20-40",
-        horizontalalignment="left",
-        fontsize=6,
-        fontweight="bold",
-        color="k",
-        verticalalignment="center",
-        transform=text1.transAxes,
-    )
-    plt.text(
-        0.72,
-        0.05,
-        "40-60",
-        horizontalalignment="left",
-        fontsize=6,
-        fontweight="bold",
-        color="k",
-        verticalalignment="center",
-        transform=text1.transAxes,
-    )
-    plt.text(
-        0.87,
-        0.05,
-        "60-80",
-        horizontalalignment="left",
-        fontsize=6,
-        fontweight="bold",
-        color="k",
-        verticalalignment="center",
-        transform=text1.transAxes,
-    )
-    plt.text(
-        1.05,
-        0.05,
-        "80<",
-        horizontalalignment="left",
-        fontsize=6,
-        fontweight="bold",
-        color="k",
-        verticalalignment="center",
-        transform=text1.transAxes,
-    )
+    # Adjust layout and add a main title
+    plt.tight_layout()
+    fig.suptitle("Hit Rates and False Alarm Ratios by Category", fontsize=16, y=1.02)
 
+    # Add colorbars
+    cbar_ax = fig.add_axes([1.02, 0.53, 0.02, 0.35])  # [left, bottom, width, height]
+    plt.colorbar(plt.cm.ScalarMappable(cmap=hr_cmap, norm=hr_norm), cax=cbar_ax)
+    cbar_ax.set_title("Hit Rate")
 
-def aux_mt_plot_set_align_for_column(table, col, align="left"):
-    cells = [key for key in table._cells if key[1] == col]
-    for cell in cells:
-        table._cells[cell]._loc = align
+    cbar_ax = fig.add_axes([1.02, 0.1, 0.02, 0.35])  # [left, bottom, width, height]
+    plt.colorbar(plt.cm.ScalarMappable(cmap=far_cmap, norm=far_norm), cax=cbar_ax)
+    cbar_ax.set_title("False Alarm Ratio")
 
-
-def aux_mt_plot_set_width_for_column(table, col, width):
-    cells = [key for key in table._cells if key[1] == col]
-    for cell in cells:
-        table._cells[cell]._width = width
-
-
-def aux_mt_plot_set_height_for_row(table, row, height):
-    cells = [key for key in table._cells if key[0] == row]
-    for cell in cells:
-        table._cells[cell]._height = height
-
-
-def aux_mt_plot_colorcell(tablerows, tablecols, cellDict, color_list):
-    allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
-    for alcls in allcells:
-        cell_value0 = json.loads(cellDict[alcls]._text.get_text())[0]
-        if cell_value0 == -999.0:
-            cellDict[alcls].set_facecolor("#FFFFFF")
-        else:
-            if float(cell_value0) <= 0.2:
-                cellDict[alcls].set_facecolor(color_list[0])
-            elif 0.2 < float(cell_value0) <= 0.4:
-                cellDict[alcls].set_facecolor(color_list[1])
-            elif 0.4 < float(cell_value0) <= 0.6:
-                cellDict[alcls].set_facecolor(color_list[2])
-            elif 0.6 < float(cell_value0) <= 0.8:
-                cellDict[alcls].set_facecolor(color_list[3])
-            elif 0.8 < float(cell_value0) <= 1.0:
-                cellDict[alcls].set_facecolor(color_list[4])
-            else:
-                cellDict[alcls].set_facecolor("#FFFFFF")
-
-
-def aux_mt_plot_remove_value(tablerows, tablecols, mpl_table):
-    allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
-    for alcls in allcells:
-        mpl_table._cells[alcls]._text.set_text("")
-
-
-def aux_mt_plot_add_certain_value(tablerows, tablecols, mpl_table, cellDict):
-    allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
-    for alcls in allcells:
-        # print(cellDict[alcls]._text.get_text())
-        cell_value0 = json.loads(cellDict[alcls]._text.get_text())[1]
-        mpl_table._cells[alcls]._text.set_text("")
-        # cell_value0=(cellDict[alcls]._text.get_text())
-        if cell_value0 == -999.0:
-            mpl_table._cells[alcls]._text.set_text("")
-        elif cell_value0 == 999.0:
-            mpl_table._cells[alcls]._text.set_text("")
-        else:
-            ncl = "%.1f" % cell_value0
-            mpl_table._cells[alcls]._text.set_text(ncl)
-
-
-def aux_mt_plot_aset_height_for_row_except_head(table, rowlist, height):
-    cells_list = []
-    for row in rowlist:
-        cells = [key for key in table._cells if key[0] == row]
-        cells_list.append(cells)
-    for cells in cells_list:
-        for cell in cells:
-            table._cells[cell]._height = height
-
-
-def aux_mt_plot_bset_height_for_row_except_head(table, rowlist, height):
-    for row in rowlist:
-        for col in range(len(table[row])):
-            cell = table[row, col]
-            cell._height = height
-
-
-def aux_mt_plot_cset_height_for_row_except_head(table, row_height):
-    """chatGPT function"""
-    for i, cell in six.iteritems(table._cells):
-        if i[0] == 0:  # Skip header row
-            continue
-        cell.set_height(row_height)
-
-
-def aux_mt_plot_set_height_for_row_except_head(cellDict, header_row_count, height):
-    for cell_key, cell in cellDict.items():
-        row, col = cell_key
-        if row < header_row_count:
-            continue  # skip header rows
-        cell.set_height(height)
-
-
-def aux_mt_plot_table_header_colour(tablerows, tablecols, cellDict, mpl_table):
-    allcells = [(x, y) for x in tablerows[0:1] for y in tablecols]
-    header_list = [
-        "Region",
-        "SPI",
-        "Jul",
-        "Aug",
-        "Sep",
-        "",
-        "Jul",
-        "Aug",
-        "Sep",
-        "",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "",
-        "Nov",
-        "Dec",
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "",
-        "Nov",
-        "Dec",
-        "Jan",
-        "Feb",
-        "Mar",
-        "Apr",
-        "May",
-        "Jun",
-        "Jul",
-        "Aug",
-        "Sep",
-        "Oct",
-        "",
-    ]
-    for idx, alcls in enumerate(allcells):
-        cellDict[alcls].set_facecolor("#FFFFFF")
-        print(header_list[idx])
-        text = header_list[idx]
-        mpl_table._cells[alcls]._text.set_text(text)
-
-
-### funciton for table creation
-def aux_mt_plot_render_mpl_table(
-    data,
-    color_list,
-    col_width=1.0,
-    row_height=0.425,
-    font_size=5,
-    header_color="#40466e",
-    row_colors=["#f1f1f2", "w"],
-    edge_color="w",
-    bbox=[0, 0, 1, 1],
-    header_columns=0,
-    ax=None,
-    **kwargs,
-):
-    """
-    Renders a matplotlib table from a pandas DataFrame, allowing for customization of various aesthetic parameters.
-
-    Parameters:
-    - data (pandas.DataFrame): The data to display in the table.
-    - color_list (list): A list of colors to use for cell background coloring based on cell values.
-    - col_width (float): The width of the columns. Default is 1.0.
-    - row_height (float): The height of the rows. Default is 0.625.
-    - font_size (int): Font size for the cell texts. Default is 5.
-    - header_color (str): Color code or name for the table header's background. Default is '#40466e'.
-    - row_colors (list): A list containing color codes for alternating row colors. Default is ['#f1f1f2', 'w'].
-    - edge_color (str): Color code or name for the cell edge lines. Default is 'w' (white).
-    - bbox (list): A 4-element list defining the bounding box of the table within the plot. Default is [0, 0, 1, 1].
-    - header_columns (int): The number of initial columns considered as header columns. Default is 0.
-    - ax (matplotlib.axes.Axes): The matplotlib axes object where the table will be rendered. If None, a new one will be created.
-
-    Returns:
-    - ax (matplotlib.axes.Axes): The matplotlib axes object with the rendered table.
-
-    This function creates a visual representation of a DataFrame as a static table in a matplotlib figure. It allows for
-    significant customization, including cell coloring based on values, flexible sizing, font adjustments, and more. The
-    function is particularly useful for creating detailed reports or visual summaries of data within a matplotlib figure.
-
-    Additional keyword arguments (**kwargs) are passed directly to the `matplotlib.axes.Axes.table` method.
-    """
-    mpl_table = ax.table(
-        cellText=data.values, bbox=bbox, colLabels=[""] * 42, cellLoc="center", **kwargs
-    )
-    set_align_for_column(mpl_table, col=0, align="left")
-    set_width_for_column(mpl_table, 0, 0.6)
-    set_width_for_column(mpl_table, 1, 0.5)
-    for idx in range(2, 42):
-        set_width_for_column(mpl_table, idx, 0.2)
-    set_height_for_row(mpl_table, 0, 0.01)
-    # set_height_for_row_except_head(mpl_table, np.arange(1, len(data.index)), 0.06)
-    # set_height_for_row_except_head(mpl_table, row_height=0.03)
-    cellDict = mpl_table.get_celld()
-    set_height_for_row_except_head(cellDict, header_row_count=1, height=0.03)
-    mpl_table.auto_set_font_size(False)
-    mpl_table.set_fontsize(font_size)
-    cellDict = mpl_table.get_celld()
-    tablerows = np.arange(0, len(data.index) + 1)
-    tablecols = np.arange(0, len(data.columns))
-    for k, cell in six.iteritems(mpl_table._cells):
-        cell.set_edgecolor(edge_color)
-        if k[0] == 0 or k[1] < header_columns:
-            cell.set_text_props(weight="bold", color="black")
-            cell.set_facecolor(header_color)
-        else:
-            cell.set_facecolor(row_colors[k[0] % len(row_colors)])
-    colorcell(tablerows, tablecols, cellDict, color_list)
-    headings = data.columns
-    plt.text(
-        0.245,
-        1.08,
-        "Mild",
-        fontsize=10,
-        fontweight="bold",
-        color="black",
-        ha="left",
-        va="center",
-        transform=ax.transAxes,
-    )
-    plt.text(
-        0.545,
-        1.08,
-        "Moderate",
-        fontsize=10,
-        fontweight="bold",
-        color="black",
-        ha="left",
-        va="center",
-        transform=ax.transAxes,
-    )
-    plt.text(
-        0.845,
-        1.08,
-        "Severe",
-        fontsize=10,
-        fontweight="bold",
-        color="black",
-        ha="left",
-        va="center",
-        transform=ax.transAxes,
-    )
-    table_header_colour(tablerows, tablecols, cellDict, mpl_table)
-    add_certain_value(tablerows, tablecols, mpl_table, cellDict)
-    return ax
-
-
-def aux_mt_plot_plot_data_table(latex_path, data_table, stat_var, req_list, region_id):
-    # Width and height of A4 portrait with 1-inch margins
-    width = 3.67 - 2  # one inch margin on each side
-    height = 11.69 - 2  # one inch margin on the top and bottom
-    fig = plt.figure()
-    fig.set_size_inches(height, width)
-    # [left, bottom, width, height]
-    table = fig.add_axes([0.04, 0.15, 0.93, 0.75], frame_on=False)
-    table.xaxis.set_ticks_position("none")
-    table.yaxis.set_ticks_position("none")
-    table.set_xticklabels("")
-    table.set_yticklabels("")
-    #######
-    laxes = fig.add_axes([0.22, 0.01, 0.4, 0.3], frame_on=False, zorder=0)
-    laxes.xaxis.set_ticks_position("none")
-    laxes.yaxis.set_ticks_position("none")
-    laxes.set_xticklabels("")
-    laxes.set_yticklabels("")
-    if stat_var == "FAR":
-        legend_title = "False Alarm Ratio %"
-        color_list = ["#009600", "#64C800", "#ffff00", "#ff7800", "#ff0000"]
-    else:
-        legend_title = "Hit Rate %"
-        color_list = ["#ff0000", "#ff7800", "#ffff00", "#64C800", "#009600"]
-    legend_maker(laxes, color_list, legend_title)
-    #####
-    data1 = data_table[req_list]
-    print(data1.info())
-    mpl_table = render_mpl_table(
-        data1, color_list, header_columns=0, col_width=0.2, ax=table
-    )
-    # cellDict = mpl_table.get_celld()
-    # set_height_for_row_except_head(cellDict, header_row_count=1, height=0.06)
-    # set_height_for_row_except_head(mpl_table, row_height=0.125)
-    var = stat_var.lower()
-    plt.show
-    plt.savefig(f"{latex_path}{var}_{region_id}_prob_v20240703.jpg", dpi=300)
-
-
-def aux_mt_plot_pass_month_get_colnames(months):
-    original_list = [
-        "region_x",
-        "season",
-        "nov_x",
-        "dec_x",
-        "jan_x",
-        "feb_x",
-        "mar_x",
-        "apr_x",
-        "may_x",
-        "jun_x",
-        "jul_x",
-        "aug_x",
-        "sep_x",
-        "oct_x",
-        "empty1",
-        "nov_y",
-        "dec_y",
-        "jan_y",
-        "feb_y",
-        "mar_y",
-        "apr_y",
-        "may_y",
-        "jun_y",
-        "jul_y",
-        "aug_y",
-        "sep_y",
-        "oct_y",
-        "empty2",
-        "nov_z",
-        "dec_z",
-        "jan_z",
-        "feb_z",
-        "mar_z",
-        "apr_z",
-        "may_z",
-        "jun_z",
-        "jul_z",
-        "aug_z",
-        "sep_z",
-        "oct_z",
-    ]
-    # months = ['jul', 'aug', 'sep']
-    suffixes = ["_x", "_y", "_z"]
-
-    organized_list = [
-        "region_x",
-        "season",
-    ]
-
-    for suffix in suffixes:
-        for month in months:
-            item = month + suffix
-            if item in original_list:
-                organized_list.append(item)
-
-        if suffix == "_x":
-            organized_list.append("empty1")
-        elif suffix == "_y":
-            organized_list.append("empty2")
-    return organized_list
-
-
-def aux_mt_plot_table_df(tab_df, stat_var):
-    tab_df_a = tab_df.rename(columns={"lead_time": "lt"})
-    tab_df_m = aux_mt_plot_create_month_column(tab_df_a)
-    tab_df_m["pod_v"] = tab_df_m.apply(
-        lambda x: [x["hit_rates"], x["trigger_values"]], axis=1
-    )
-    tab_df_m["far_v"] = tab_df_m.apply(
-        lambda x: [x["false_alarm_ratios"], x["trigger_values"]], axis=1
-    )
-    tab_df_m["pod_v"] = tab_df_m["pod_v"].apply(lambda x: aux_mt_plot_round_list(x, 2))
-    tab_df_m["far_v"] = tab_df_m["far_v"].apply(lambda x: aux_mt_plot_round_list(x, 2))
-    mapping_dict = {0: "Karamoja", 1: "Marsabit", 2: "Wajir"}
-    tab_df_m["region_x"] = tab_df_m["region"].replace(mapping_dict)
-    p = tab_df_m.pivot_table(
-        index=["region_x", "season"],
-        columns="new_column",
-        values="pod_v",
-        aggfunc="first",
-    )
-    pf = p.reset_index()
-    # Apply the custom function to each cell in the DataFrame
-    pf1 = pf.applymap(aux_mt_plot_replace_with_list)
-    pf1.columns.name = None
-    pf1["empty1"] = [[-999.0, -999.0]] * len(pf1)
-    pf1["empty2"] = [[-999.0, -999.0]] * len(pf1)
-    months = ["jul", "aug", "sep"]
-    organized_list = pass_month_get_colnames(months)
-    pf2 = pf1[organized_list]
-    mask = (pf2["region_x"].isin(["Marsabit", "Wajir"])) & (pf2["season"] == "OND")
-    pf3 = pf2[mask]
-    plot_data_table(pf3, stat_var, organized_list)
+    return fig
