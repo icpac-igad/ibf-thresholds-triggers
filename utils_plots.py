@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 import climpred
+from sqlalchemy import False_
 import xarray as xr
 import xesmf as xe
 import numpy as np
@@ -169,7 +170,7 @@ def create_single_row_plot(tree, init, params, region_geom):
         num_members = len(members)
         num_additional_plots = 4  # Obs, mod, sev, ext
         total_plots = num_members + num_additional_plots
-
+        cbar_figsize = (2 * total_plots, 2)
         # Create the figure and axes for plotting
         fig, axs = plt.subplots(
             1,
@@ -217,7 +218,7 @@ def create_single_row_plot(tree, init, params, region_geom):
             )
 
         # Instead of saving the plot, return the figure and axes for further modifications
-        return fig, axs
+        return fig, axs, cbar_figsize
 
     except Exception as e:
         logging.error(f"Error creating plot: {str(e)}")
@@ -299,25 +300,6 @@ def ocreate_single_row_plot(tree, init, params, region_geom):
         raise
 
 
-def a_plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range):
-    member_data = tree[f"ensemble/{member_key}"].ds[variable]
-    data = member_data.sel(init=init).values
-    time_np64 = np.array(str(init), dtype="datetime64[ns]")
-    year = pd.to_datetime(time_np64).year
-    ax.pcolormesh(
-        tree["ensemble/member_0"].ds.lon.values,
-        tree["ensemble/member_0"].ds.lat.values,
-        data,
-        cmap="RdBu",
-        transform=ccrs.PlateCarree(),
-        vmin=cmap_range[0],
-        vmax=cmap_range[1],
-    )
-    ax.set_title(f'{year}m{member_key.split("_")[1]}', fontsize=6)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-
 def _plot_ensemble_member(
     tree, member_key, variable, init, ax, cmap_range, geom, shape_overlay=False
 ):
@@ -372,6 +354,189 @@ def _plot_additional_data(tree, key, variable, init, valid_time, ax, title, cmap
     ax.set_yticks([])
 
 
+def add_colorbar_and_title(figsize, params, output_dir="output"):
+    """
+    This function creates a new figure just for the colorbar and title, without using the previous figure.
+    """
+    try:
+        # Create a new figure for the colorbar and title
+        fig, ax = plt.subplots(figsize=figsize)  # Adjust size as needed
+
+        ensemble_cmap_range = (-4, 4)
+
+        # Adjust colorbar size and position for the first colorbar
+        cbar_ax = fig.add_axes([0.90, 0.5, 0.05, 0.1])  # Adjusted for better fit
+        norm = plt.Normalize(vmin=ensemble_cmap_range[0], vmax=ensemble_cmap_range[1])
+        fig.colorbar(
+            plt.cm.ScalarMappable(norm=norm, cmap="RdBu"),
+            cax=cbar_ax,
+            orientation="horizontal",
+            label="SPI3 (Ensemble & Obs)",
+        )
+
+        # Add second colorbar for forecast
+        cbar_ax2 = fig.add_axes([0.90, 0.2, 0.05, 0.1])  # Adjusted for better fit
+        fct_cmap_range = (0.0, 1.0)
+        norm = plt.Normalize(vmin=fct_cmap_range[0], vmax=fct_cmap_range[1])
+        fig.colorbar(
+            plt.cm.ScalarMappable(norm=norm, cmap="Blues"),
+            cax=cbar_ax2,
+            orientation="horizontal",
+            label="Forecasts (mod/sev/ext)",
+        )
+        title_ax = fig.add_axes(
+            [0.1, 0.6, 0.8, 0.3], frame_on=False
+        )  # Add frame_on=False
+        title_ax.text(
+            0.5,
+            0.5,
+            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022",
+            fontsize=92,
+            weight="bold",
+            ha="center",
+            va="center",
+        )
+        title_ax.set_axis_off()  # Hide the axis
+        title_ax.set_xticks([])  # Remove x-axis ticks
+        title_ax.set_yticks([])  # Remove y-axis ticks
+        title_ax.xaxis.set_visible(False)  # Hide x-axis
+        title_ax.yaxis.set_visible(False)  # Hide y-axis
+        for spine in title_ax.spines.values():  # Remove spines (box around the plot)
+            spine.set_visible(False)
+            # Create a new axis to cover the title area
+        # title_ax = fig.add_axes(
+        #    [0.1, 0.6, 0.8, 0.3], frame_on=False
+        # )  # Full width for title
+        # title_ax.text(
+        #    0.5,
+        #    0.5,
+        #    f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022",
+        #    fontsize=92,
+        #    weight="bold",
+        #    ha="center",
+        #    va="center",
+        # )
+        # title_ax.set_axis_off()  # Hide the axis
+        # title_ax.set_xticks([])  # Remove x-axis ticks
+        # title_ax.set_yticks([])  # Remove y-axis ticks
+        # title_ax.xaxis.set_visible(False)  # Hide x-axis
+        # title_ax.yaxis.set_visible(False)  # Hide y-axis
+        # for spine in title_ax.spines.values():  # Remove spines (box around the plot)
+        #    spine.set_visible(False)
+
+        # Save the final figure
+        final_output = f"{output_dir}/final_plot_with_colorbar_and_title_new.png"
+        fig.savefig(final_output, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+        logging.info(f"New final plot with colorbar and title saved to {final_output}")
+
+    except Exception as e:
+        logging.error(f"Error adding colorbar and title: {str(e)}")
+        raise
+
+
+def oadd_colorbar_and_title(figsize, params, output_dir="output"):
+    """
+    This function creates a new figure just for the colorbar and title, without using the previous figure.
+    """
+    try:
+        # Create a new figure for the colorbar and title
+        fig, ax = plt.subplots(figsize=figsize)  # Adjust size as needed
+
+        ensemble_cmap_range = (-4, 4)
+
+        # Adjust colorbar size and position
+        cbar_ax = fig.add_axes([0.1, 0.35, 0.8, 0.1])  # Adjusted for better fit
+        norm = plt.Normalize(vmin=ensemble_cmap_range[0], vmax=ensemble_cmap_range[1])
+        fig.colorbar(
+            plt.cm.ScalarMappable(norm=norm, cmap="RdBu"),
+            cax=cbar_ax,
+            orientation="horizontal",
+            label="SPI3 (Ensemble & Obs)",
+        )
+
+        # Add second colorbar
+        cbar_ax2 = fig.add_axes([0.1, 0.15, 0.8, 0.1])  # Adjusted for better fit
+        fct_cmap_range = (0.0, 1.0)
+        norm = plt.Normalize(vmin=fct_cmap_range[0], vmax=fct_cmap_range[1])
+        fig.colorbar(
+            plt.cm.ScalarMappable(norm=norm, cmap="Blues"),
+            cax=cbar_ax2,
+            orientation="horizontal",
+            label="Forecasts (mod/sev/ext)",
+        )
+
+        # Add a large title across the top
+        title_text = (
+            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022"
+        )
+        fig.suptitle(title_text, fontsize=16, weight="bold", ha="center", va="top")
+
+        # Save the final figure
+        final_output = f"{output_dir}/final_plot_with_colorbar_and_title_new.png"
+        fig.savefig(final_output, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+        logging.info(f"New final plot with colorbar and title saved to {final_output}")
+
+    except Exception as e:
+        logging.error(f"Error adding colorbar and title: {str(e)}")
+        raise
+
+
+def oadd_colorbar_and_title(figsize, params, output_dir="output"):
+    """
+    This function creates a new figure just for the colorbar and title, without using the previous figure.
+    """
+    try:
+        # Create a new figure just for the colorbar and title
+        fig, ax = plt.subplots(figsize=figsize)  # Adjust size as needed
+
+        ensemble_cmap_range = (-4, 4)
+
+        # Add colorbar to the new figure
+        cbar_ax = fig.add_axes(
+            [0.90, 0.8, 0.05, 0.1]
+        )  # Position: (x, y, width, height)
+        ensemble_cmap_range = (-4, 4)  # Assuming this is the range
+        norm = plt.Normalize(vmin=ensemble_cmap_range[0], vmax=ensemble_cmap_range[1])
+        fig.colorbar(
+            plt.cm.ScalarMappable(norm=norm, cmap="RdBu"),
+            cax=cbar_ax,
+            orientation="horizontal",
+            label="SPI3 (Ensemble & Obs)",
+        )
+
+        cbar_ax2 = fig.add_axes([0.90, 0.2, 0.05, 0.1])
+        fct_cmap_range = (0.0, 1.0)
+        norm = plt.Normalize(vmin=fct_cmap_range[0], vmax=fct_cmap_range[1])
+        fig.colorbar(
+            plt.cm.ScalarMappable(norm=norm, cmap="Blues"),
+            cax=cbar_ax2,
+            orientation="horizontal",
+            label="Forecasts (mod/sev/ext)",
+        )
+
+        title_text = (
+            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022"
+        )
+
+        # Add a large title across the top
+        fig.suptitle(title_text, fontsize=16, weight="bold", ha="center", va="top")
+
+        # Save the final figure
+        final_output = f"{output_dir}/final_plot_with_colorbar_and_title_new.png"
+        fig.savefig(final_output, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+        logging.info(f"New final plot with colorbar and title saved to {final_output}")
+
+    except Exception as e:
+        logging.error(f"Error adding colorbar and title: {str(e)}")
+        raise
+
+
 def _add_colorbars(fig, axs, color_mappable):
     cbar_ax = fig.add_axes([0.90, 0.5, 0.05, 0.1])
     # cbar = fig.colorbar(axs[0].collections[0], cax=cbar_ax, orientation="horizontal")
@@ -384,33 +549,7 @@ def _add_colorbars(fig, axs, color_mappable):
     cbar2.set_label("Forecasts (mod/sev/ext)")
 
 
-def oadd_colorbar_and_title(
-    fig, axs, variable="spi3", title_text="Ensemble Plot", output_dir="output"
-):
-    """
-    This function adds a colorbar and title to the figure after all plots are created.
-    It uses the provided figure and axes to ensure consistency in size and style.
-    """
-    try:
-        # Reuse the existing _add_colorbars function to add colorbars
-        _add_colorbars(fig, axs, color_mappable)
-
-        # Add the title below the colorbar
-        fig.text(0.5, 0.01, title_text, ha="center", fontsize=12)
-
-        # Save the final figure with colorbar and title
-        final_output = f"{output_dir}/final_plot_with_colorbar_and_title.png"
-        fig.savefig(final_output, dpi=100, bbox_inches="tight")
-        plt.close(fig)
-
-        logging.info(f"Final plot with colorbar and title saved to {final_output}")
-
-    except Exception as e:
-        logging.error(f"Error adding colorbar and title: {str(e)}")
-        raise
-
-
-def add_colorbar_and_title(fig, axs, color_mappable, params, output_dir="output"):
+def oadd_colorbar_and_title(fig, axs, color_mappable, params, output_dir="output"):
     """
     This function clears the previous plot content, adds a colorbar, and then places a large title
     spanning the figure. The layout (fig, axs) is reused from the previous plotting function.
@@ -444,14 +583,6 @@ def add_colorbar_and_title(fig, axs, color_mappable, params, output_dir="output"
         raise
 
 
-def oplot_allrows(seas51tree, output_dir):
-    # Example usage:
-    inits = seas51tree["ensemble/member_0"].ds.init.values
-    for i, init in enumerate(inits):
-        is_last_plot = i == len(inits) - 1
-        create_single_row_plot(seas51tree, init, output_dir, is_last_plot=is_last_plot)
-
-
 def plot_allrows(seas51tree, params):
     """
     This function loops through the initializations and creates row plots for each init.
@@ -474,7 +605,9 @@ def plot_allrows(seas51tree, params):
     color_mappable = None
 
     for i, init in enumerate(inits[39:]):
-        fig, axs = create_single_row_plot(seas51tree, init, params, region_geom)
+        fig, axs, figsize = create_single_row_plot(
+            seas51tree, init, params, region_geom
+        )
 
         # Store the mappable object for colorbar from the first axis (or any axis with valid data)
         if color_mappable is None and axs[0].collections:
@@ -488,13 +621,11 @@ def plot_allrows(seas51tree, params):
         plt.close(fig)
 
         # Keep track of the last figure and axes
-        last_fig, last_axs = fig, axs
+        last_fig, last_axs, cbar_figsize = fig, axs, figsize
 
     # Once all init plots are done, add the colorbar and title using the last figure's size and axes
     add_colorbar_and_title(
-        last_fig,
-        last_axs,
-        color_mappable,
+        cbar_figsize,
         params,
         output_dir=output_dir,
     )
@@ -633,72 +764,11 @@ def plot_obs_chart_with_triggers(
     return final_chart
 
 
-def DEPRICATE_aux_plot_make_barchart_annotations():
-    row_annotations = [
-        alt.Chart(pd.DataFrame({"text": ["lt=1"]}))
-        .mark_text(
-            align="left",
-            baseline="middle",
-            fontSize=14,
-            fontWeight="bold",
-            dx=-190,
-            dy=-90,
-        )
-        .encode(text="text:N")
-        .properties(width=400, height=200),
-        alt.Chart(pd.DataFrame({"text": ["lt=2, Sep"]}))
-        .mark_text(
-            align="left",
-            baseline="middle",
-            fontSize=14,
-            fontWeight="bold",
-            dx=-190,
-            dy=-90,
-        )
-        .encode(text="text:N")
-        .properties(width=400, height=200),
-        alt.Chart(pd.DataFrame({"text": ["lt=3, Aug"]}))
-        .mark_text(
-            align="left",
-            baseline="middle",
-            fontSize=14,
-            fontWeight="bold",
-            dx=-190,
-            dy=-90,
-        )
-        .encode(text="text:N")
-        .properties(width=400, height=200),
-        alt.Chart(pd.DataFrame({"text": ["lt=4, Jul"]}))
-        .mark_text(
-            align="left",
-            baseline="middle",
-            fontSize=14,
-            fontWeight="bold",
-            dx=-190,
-            dy=-90,
-        )
-        .encode(text="text:N")
-        .properties(width=400, height=200),
-        alt.Chart(pd.DataFrame({"text": ["lt=5"]}))
-        .mark_text(
-            align="left",
-            baseline="middle",
-            fontSize=14,
-            fontWeight="bold",
-            dx=-190,
-            dy=-90,
-        )
-        .encode(text="text:N")
-        .properties(width=400, height=200),
-    ]
-    return row_annotations
-
-
-def get_month_abbr(date):
-    return date.strftime("%b")
-
-
 def aux_plot_make_barchart_annotation(params):
+
+    def get_month_abbr(date):
+        return date.strftime("%b")
+
     # Dictionary to map season strings to their last month
     last_month_dict = {"MAM": "May", "JJAS": "September", "OND": "December"}
 
