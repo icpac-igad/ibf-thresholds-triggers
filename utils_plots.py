@@ -40,6 +40,8 @@ from calendar import monthrange
 from PIL import Image
 
 
+from vthree_utils import ken_mask_creator
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -154,9 +156,78 @@ def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
         raise
 
 
-def create_single_row_plot(tree, init, output_dir, variable="spi3", is_last_plot=False):
+def create_single_row_plot(tree, init, params, region_geom):
+    logging.info(
+        f"Creating single row plot for {init} with variable {params.spi_prod_name}"
+    )
+    try:
+
+        members = list(tree["ensemble"].children.keys())
+        valid_times = tree["ensemble/member_0"].ds.valid_time.values
+        lats = tree["ensemble/member_0"].ds.lat.values
+        lons = tree["ensemble/member_0"].ds.lon.values
+        num_members = len(members)
+        num_additional_plots = 4  # Obs, mod, sev, ext
+        total_plots = num_members + num_additional_plots
+
+        # Create the figure and axes for plotting
+        fig, axs = plt.subplots(
+            1,
+            total_plots,
+            figsize=(2 * total_plots, 2),
+            subplot_kw={"projection": ccrs.PlateCarree()},
+        )
+
+        ensemble_cmap_range = (-4, 4)
+        fct_cmap_range = (0.0, 1.0)
+
+        valid_time = valid_times[
+            np.where(tree["ensemble/member_0"].ds.init.values == init)[0][0]
+        ]
+
+        # Plot ensemble members
+        for j, member_key in enumerate(members):
+            overlay_shapefile = (
+                j == 0
+            )  # Only overlay shapefile for the first member (member_0)
+            _plot_ensemble_member(
+                tree,
+                member_key,
+                params.spi_prod_name,
+                init,
+                axs[j],
+                ensemble_cmap_range,
+                region_geom,
+                shape_overlay=True if overlay_shapefile else False,
+            )
+
+        # Add the observation and additional models as the last plots
+        plot_titles = ["Obs", "mod", "sev", "ext"]
+        plot_keys = ["observation", "fct_mod", "fct_sev", "fct_ext"]
+        for k, (title, key) in enumerate(zip(plot_titles, plot_keys)):
+            _plot_additional_data(
+                tree,
+                key,
+                params.spi_prod_name,
+                init,
+                valid_time,
+                axs[num_members + k],
+                title,
+                ensemble_cmap_range if key == "observation" else fct_cmap_range,
+            )
+
+        # Instead of saving the plot, return the figure and axes for further modifications
+        return fig, axs
+
+    except Exception as e:
+        logging.error(f"Error creating plot: {str(e)}")
+        raise
+
+
+def ocreate_single_row_plot(tree, init, params, region_geom):
     logging.info(f"Creating single row plot for {init} with variable {variable}")
     try:
+        output_dir = f"{params.output_path}map_region{params.region_id}"
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
             print(f"Folder created: {output_dir}")
@@ -190,8 +261,16 @@ def create_single_row_plot(tree, init, output_dir, variable="spi3", is_last_plot
 
         # Plot ensemble members
         for j, member_key in enumerate(members):
+            overlay_shapefile = j == 0
             _plot_ensemble_member(
-                tree, member_key, variable, init, axs[j], ensemble_cmap_range
+                tree,
+                member_key,
+                params.spi_prod_name,
+                init,
+                axs[0, j],
+                ensemble_cmap_range,
+                region_geom,
+                shape_overlay=True if overlay_shapefile else False,
             )
 
         # Add the observation and additional models as the last plots
@@ -201,18 +280,13 @@ def create_single_row_plot(tree, init, output_dir, variable="spi3", is_last_plot
             _plot_additional_data(
                 tree,
                 key,
-                variable,
+                params.spi_prod_name,
                 init,
                 valid_time,
                 axs[num_members + k],
                 title,
                 ensemble_cmap_range if key == "observation" else fct_cmap_range,
             )
-
-        if is_last_plot:
-            _add_colorbars(fig, axs)
-        else:
-            plt.tight_layout()
 
         plt.tight_layout()
         output_file = f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png'
@@ -225,7 +299,7 @@ def create_single_row_plot(tree, init, output_dir, variable="spi3", is_last_plot
         raise
 
 
-def _plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range):
+def a_plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range):
     member_data = tree[f"ensemble/{member_key}"].ds[variable]
     data = member_data.sel(init=init).values
     time_np64 = np.array(str(init), dtype="datetime64[ns]")
@@ -242,6 +316,33 @@ def _plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range):
     ax.set_title(f'{year}m{member_key.split("_")[1]}', fontsize=6)
     ax.set_xticks([])
     ax.set_yticks([])
+
+
+def _plot_ensemble_member(
+    tree, member_key, variable, init, ax, cmap_range, geom, shape_overlay=False
+):
+    member_data = tree[f"ensemble/{member_key}"].ds[variable]
+    data = member_data.sel(init=init).values
+    time_np64 = np.array(str(init), dtype="datetime64[ns]")
+    year = pd.to_datetime(time_np64).year
+    ax.pcolormesh(
+        tree["ensemble/member_0"].ds.lon.values,
+        tree["ensemble/member_0"].ds.lat.values,
+        data,
+        cmap="RdBu",
+        transform=ccrs.PlateCarree(),
+        vmin=cmap_range[0],
+        vmax=cmap_range[1],
+    )
+    ax.set_title(f'{year}m{member_key.split("_")[1]}', fontsize=6)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    # If shapefile is provided, overlay it
+    if shape_overlay:
+        ax.add_geometries(
+            [geom], crs=ccrs.PlateCarree(), edgecolor="black", facecolor="none"
+        )
 
 
 def _plot_additional_data(tree, key, variable, init, valid_time, ax, title, cmap_range):
@@ -271,22 +372,132 @@ def _plot_additional_data(tree, key, variable, init, valid_time, ax, title, cmap
     ax.set_yticks([])
 
 
-def _add_colorbars(fig, axs):
+def _add_colorbars(fig, axs, color_mappable):
     cbar_ax = fig.add_axes([0.90, 0.5, 0.05, 0.1])
-    cbar = fig.colorbar(axs[0].collections[0], cax=cbar_ax, orientation="horizontal")
+    # cbar = fig.colorbar(axs[0].collections[0], cax=cbar_ax, orientation="horizontal")
+    cbar = fig.colorbar(color_mappable, cax=cbar_ax, orientation="horizontal")
     cbar.set_label("SPI3 (Ensemble & Obs)")
 
     cbar_ax2 = fig.add_axes([0.90, 0.2, 0.05, 0.1])
-    cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2, orientation="horizontal")
+    # cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2, orientation="horizontal")
+    cbar2 = plt.colorbar(color_mappable, cax=cbar_ax2, orientation="horizontal")
     cbar2.set_label("Forecasts (mod/sev/ext)")
 
 
-def plot_allrows(seas51tree, output_dir):
+def oadd_colorbar_and_title(
+    fig, axs, variable="spi3", title_text="Ensemble Plot", output_dir="output"
+):
+    """
+    This function adds a colorbar and title to the figure after all plots are created.
+    It uses the provided figure and axes to ensure consistency in size and style.
+    """
+    try:
+        # Reuse the existing _add_colorbars function to add colorbars
+        _add_colorbars(fig, axs, color_mappable)
+
+        # Add the title below the colorbar
+        fig.text(0.5, 0.01, title_text, ha="center", fontsize=12)
+
+        # Save the final figure with colorbar and title
+        final_output = f"{output_dir}/final_plot_with_colorbar_and_title.png"
+        fig.savefig(final_output, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+        logging.info(f"Final plot with colorbar and title saved to {final_output}")
+
+    except Exception as e:
+        logging.error(f"Error adding colorbar and title: {str(e)}")
+        raise
+
+
+def add_colorbar_and_title(fig, axs, color_mappable, params, output_dir="output"):
+    """
+    This function clears the previous plot content, adds a colorbar, and then places a large title
+    spanning the figure. The layout (fig, axs) is reused from the previous plotting function.
+    """
+    try:
+        # Clear the existing axes without affecting the layout
+        for ax in axs.flat:
+            ax.clear()
+
+        # Reuse the existing _add_colorbars function to add colorbars
+        _add_colorbars(fig, axs, color_mappable)
+
+        # Add a large title across the top of the entire figure
+        fig.suptitle(
+            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022",
+            fontsize=16,
+            weight="bold",
+            ha="center",
+            va="top",
+        )
+
+        # Save the final figure with the colorbar and title
+        final_output = f"{output_dir}/final_plot_with_colorbar_and_title.png"
+        fig.savefig(final_output, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+        logging.info(f"Final plot with colorbar and title saved to {final_output}")
+
+    except Exception as e:
+        logging.error(f"Error adding colorbar and title: {str(e)}")
+        raise
+
+
+def oplot_allrows(seas51tree, output_dir):
     # Example usage:
     inits = seas51tree["ensemble/member_0"].ds.init.values
     for i, init in enumerate(inits):
         is_last_plot = i == len(inits) - 1
         create_single_row_plot(seas51tree, init, output_dir, is_last_plot=is_last_plot)
+
+
+def plot_allrows(seas51tree, params):
+    """
+    This function loops through the initializations and creates row plots for each init.
+    After all init plots are generated, it calls a separate function to add a colorbar and title.
+    """
+    # Example usage:
+    output_dir = f"{params.data_path}map_{params.region_id}"
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        print(f"Folder created: {output_dir}")
+    else:
+        print(f"Folder already exists: {output_dir}")
+
+    the_mask, rl_dict, mds1 = ken_mask_creator(params.data_path)
+    region_geom = mds1[mds1["region"] == params.region_id]["geometry"].values[0]
+
+    inits = seas51tree["ensemble/member_0"].ds.init.values
+    plot_files = []  # Keep track of all the generated plot files
+    last_fig, last_axs = None, None  # To store the figure from the last init
+    color_mappable = None
+
+    for i, init in enumerate(inits[39:]):
+        fig, axs = create_single_row_plot(seas51tree, init, params, region_geom)
+
+        # Store the mappable object for colorbar from the first axis (or any axis with valid data)
+        if color_mappable is None and axs[0].collections:
+            color_mappable = axs[0].collections[0]  # First mappable object for colorbar
+
+        output_file = f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png'
+        plot_files.append(output_file)  # Append the file path
+
+        # Save the figure for each init
+        fig.savefig(output_file, dpi=100, bbox_inches="tight")
+        plt.close(fig)
+
+        # Keep track of the last figure and axes
+        last_fig, last_axs = fig, axs
+
+    # Once all init plots are done, add the colorbar and title using the last figure's size and axes
+    add_colorbar_and_title(
+        last_fig,
+        last_axs,
+        color_mappable,
+        params,
+        output_dir=output_dir,
+    )
 
 
 def merge_png_files(
@@ -300,7 +511,7 @@ def merge_png_files(
 
     Args:
         input_dir (str): Path to the directory containing PNG files.
-        output_file (str): Name of the merged image file.
+        output_file (r): Name of the merged image file.
     """
     logging.info(f"Starting image merging process in {input_dir}")
 
@@ -621,7 +832,7 @@ def calculate_month(season, lt):
     return month.strftime("%B")
 
 
-def bcreate_category_dataframes(df):
+def create_category_dataframes(df):
     """
     Create a set of dataframes in matrix form based on categories and metrics from the input dataframe.
 
@@ -736,17 +947,14 @@ def generate_custom_colormap(reverse_colors=False):
     return cmap, norm
 
 
-def create_heatmap_subplot(dt_df):
+def create_heatmap_subplot(dt_df, params):
     """
     Create a heatmap subplot visualizing hit rates and false alarm ratios for three categories.
-
     Parameters:
     dt_df (dict): A dictionary containing dataframes for three categories ('mod', 'sev', 'ext'),
                   with data for hit rates (annot_hr) and false alarm ratios (annot_far).
-
     Returns:
     matplotlib.figure.Figure: The generated figure with subplots containing heatmaps.
-
     The figure consists of six subplots, where the top row displays heatmaps for hit rates and
     the bottom row displays heatmaps for false alarm ratios for 'Moderate', 'Severe', and
     'Extreme' categories. Two colorbars are added to the figure: one for hit rate and one for
@@ -800,6 +1008,11 @@ def create_heatmap_subplot(dt_df):
 
     cbar_ax = fig.add_axes([1.02, 0.1, 0.02, 0.35])  # [left, bottom, width, height]
     plt.colorbar(plt.cm.ScalarMappable(cmap=far_cmap, norm=far_norm), cax=cbar_ax)
-    cbar_ax.set_title("False Alarm Ratio")
-
-    return fig
+    cbar_ax.set_title("False Alarm Ratio", rotation=90, y=0.5)
+    plt.savefig(
+        f"{params.output_path}dt_{params.region_id}_{params.sc_season_str}.png",
+        dpi=300,
+        bbox_inches="tight",
+    )
+    plt.close(fig)
+    return "made plot"

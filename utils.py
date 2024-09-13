@@ -1,54 +1,61 @@
 from io import StringIO
 import os
 from dotenv import load_dotenv
+import logging
+from pathlib import Path
 
 import climpred
 import xarray as xr
 import xesmf as xe
 import numpy as np
-import pandas as pda
+import pandas as pd
 import regionmask
 import geopandas as gp
 from climpred import HindcastEnsemble
 from datetime import datetime
+from datatree import DataTree
 
 import xhistogram.xarray as xhist
 from sklearn.metrics import roc_auc_score
-import pandas as pd
-
 
 import xskillscore as xs
 from xbootstrap import block_bootstrap
 from dask.distributed import Client
 
-import altair as alt
-
-
-import numpy as np
-import pandas as pd
-
-import pandas as pd
-import numpy as np
-import matplotlib
-
-import os
-from dotenv import load_dotenv
-
 # matplotlib.use("Agg")
+import altair as alt
 import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
 import six
-from datetime import datetime
 import textwrap as tw
 from functools import reduce
 import json
 from dateutil.relativedelta import relativedelta
 from calendar import monthrange
+from PIL import Image
+
+# Set up logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 # load_dotenv()
 
 # data_path = os.getenv("data_path")
 
+
 # latex_path = os.getenv("latex_path")
+
+
+class BinCreateParams:
+    def __init__(self, region_id, season_str, lead_int, level, spi_prod_name):
+        self.region_id = region_id
+        self.season_str = season_str
+        self.lead_int = lead_int
+        self.sc_season_str = season_str.lower()
+        self.level = level
+        self.spi_prod_name = spi_prod_name
 
 
 def transform_data(data_at_time):
@@ -152,26 +159,63 @@ def apply_spii_mem(cont_db, lead_val, spi_name_int):
 
 def ken_mask_creator(data_path):
     """
-    Utiliity for generating region/district masks using regionmask library
+    Utility for generating region/district masks using regionmask library
 
     Returns
     -------
-    the_mask : TYPE
-        DESCRIPTION.
-    rl_dict : TYPE
-        DESCRIPTION.
-
+    the_mask : regionmask.Regions
+        The created mask for the regions.
+    rl_dict : dict
+        Dictionary mapping region numbers to region names.
+    mds2 : geopandas.GeoDataFrame
+        GeoDataFrame containing geometry, region, and region_name information.
     """
-    dis = gp.read_file(f"{data_path}Karamoja_boundary_dissolved.shp")
-    reg = gp.read_file(f"{data_path}wajir_mbt_extent.shp")
-    mds = pd.concat([dis, reg])
-    mds1 = mds.reset_index()
-    mds1["region"] = [0, 1, 2]
-    mds1["region_name"] = ["Karamoja", "Marsabit", "Wajir"]
-    mds2 = mds1[["geometry", "region", "region_name"]]
-    rl_dict = dict(zip(mds2.region, mds2.region_name))
-    the_mask = regionmask.from_geopandas(mds2, numbers="region", overlap=True)
-    return the_mask, rl_dict, mds2
+    logger.info("Starting ken_mask_creator function")
+
+    try:
+        logger.info(
+            f"Reading Karamoja boundary file from {data_path}Karamoja_boundary_dissolved.shp"
+        )
+        dis = gp.read_file(f"{data_path}Karamoja_boundary_dissolved.shp")
+        logger.info(
+            f"Reading Wajir and Marsabit extent file from {data_path}wajir_mbt_extent.shp"
+        )
+        reg = gp.read_file(f"{data_path}wajir_mbt_extent.shp")
+
+        # Check if the geometries are valid
+        # if not dis.geometry.is_valid.all() or not reg.geometry.is_valid.all():
+        #    raise ValueError("Invalid geometries found in shapefiles")
+
+        logger.info("Concatenating district and region data")
+        mds = pd.concat([dis, reg])
+        mds1 = mds.reset_index()
+
+        logger.info("Assigning region numbers and names")
+        mds1["region"] = [0, 1, 2]
+        mds1["region_name"] = ["Karamoja", "Marsabit", "Wajir"]
+        mds2 = mds1[["geometry", "region", "region_name"]]
+        # valid_types = ('Polygon', 'MultiPolygon')
+        # if not all(geom.geom_type in valid_types for geom in mds2.geometry):
+        #    raise ValueError("All geometries must be Polygon or MultiPolygon")
+        if mds2.empty:
+            raise ValueError("GeoDataFrame is empty")
+        logger.info("Creating region-name dictionary")
+        rl_dict = dict(zip(mds2.region, mds2.region_name))
+
+        logger.info("Creating regionmask from GeoDataFrame")
+        # mds2['geometry'] = mds2['geometry'].apply(lambda x: [x])
+        # the_mask = regionmask.from_geopandas(mds2, numbers="region", overlap=False)
+        the_mask = []
+
+        logger.info("ken_mask_creator function completed successfully")
+        return the_mask, rl_dict, mds2
+
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"An error occurred in ken_mask_creator: {e}")
+        raise
 
 
 def spi3_prod_name_creator(ds_ens, var_name):
@@ -287,103 +331,67 @@ def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
     This would load the observed and forecasted SPI3 datasets for region 1 during the 'mam' season and subset them
     for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
     """
-    if len(season_str) == 3:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
-    else:
-        kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
-        kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
-    the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
-    bounds = mds1.bounds
-    # bounds.iloc[0].minx
-    llon = bounds.iloc[region_id].minx
-    llat = bounds.iloc[region_id].miny
-    ulon = bounds.iloc[region_id].maxx
-    ulat = bounds.iloc[region_id].maxy
-    a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-    hindcast = HindcastEnsemble(a_fc)
-    hindcast = hindcast.add_observations(a_obs)
-    # hindcast
-    # spi_cdb1spi3_prod_name_creator(ds_ens)
-    a_fc1 = hindcast.get_initialized()
-    a_fc2 = a_fc1.isel(lead=lead_int)
-    if len(season_str) == 3:
-        spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
-    else:
-        spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
-        obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
-    a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
-    a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
-    # obsertations
-    a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
-    a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
-    # valid_time_series = a_fc3.valid_time.to_series().reset_index(drop=True).drop_duplicates()
-    valid_time_flattened = (
-        a_fc2.valid_time.to_dataframe()
-        .reset_index()
-        .drop_duplicates(subset="valid_time")["valid_time"]
-    )
-    valid_time_flattened.columns = ["valid_time", "cc"]
-    # valid_time_flattened['valid_time'] = pd.to_datetime(valid_time_flattened['valid_time'])
-    # Apply lambda function to create 'dt1' column
-    # valid_time_flattened['dt1'] = valid_time_flattened['valid_time'].apply(
-    #    lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
-    # )
-    #
-    valid_time_flattened["dt1"] = valid_time_flattened["valid_time"].apply(
-        lambda x: datetime(x.year, x.month, x.day, x.hour, x.minute, x.second)
-    )
-    # Ensure the valid_time is in 'YYYY-MM-DD' string format
-    # valid_time_flattened['dt2'] = valid_time_flattened['dt1'].dt.strftime('%Y-%m-%d')
-    valid_time_flattened["dt1"] = valid_time_flattened["dt1"].dt.strftime(
-        "%Y-%m-%dT%H:%M:%S.%f"
-    )
-    valid_time_flattened["dt1"] = pd.to_datetime(valid_time_flattened["dt1"])
-    # Convert to xarray DataArray with time as the dimension name
-    # valid_time_da = xr.DataArray(valid_time_flattened['dt1'], dims=['time'])
-    valid_time_da = xr.DataArray(
-        valid_time_flattened["dt1"], dims=["time"], coords=valid_time_flattened["dt1"]
-    )
-    a_obs3 = a_obs2.reindex(time=valid_time_da)
-    # a_obs4 = a_obs3.reindex(time=a_obs2.time)
-    # a_obs4 = a_obs3.sel(time=a_obs2.time, drop=True)
-    a_obs3 = a_obs3.dropna(dim="time")
-    if len(season_str) == 3:
-        obs_data = a_obs3["spi3"]
-        ens_data = a_fc3["spi3"]
-    else:
-        obs_data = a_obs3["spi4"]
-        ens_data = a_fc3["spi4"]
-    return obs_data, ens_data
+    try:
+        the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
+        bounds = mds1.bounds
+        llon, llat = bounds.iloc[region_id][["minx", "miny"]]
+        ulon, ulat = bounds.iloc[region_id][["maxx", "maxy"]]
 
+        logger.debug(
+            f"Region bounds: llon={llon}, llat={llat}, ulon={ulon}, ulat={ulat}"
+        )
 
-def DEPRICATED_get_threshold(region_id, season):
-    data = """region_id,region,season,mod,sev,ext
-    0,kmj,mam,-0.03,-0.56,-0.99
-    0,kmj,jjas,-0.01,-0.41,-0.99
-    1,mbt,mam,-0.14,-0.38,-0.8
-    1,mbt,ond,-0.15,-0.53,-0.71
-    2,wjr,mam,-0.19,-0.45,-0.75
-    2,wjr,ond,-0.29,-0.76,-0.9
-    """
-    # Use StringIO to convert the string data to a file-like object
-    data_io = StringIO(data)
-    # Read the data into a pandas DataFrame
-    df = pd.read_csv(data_io)
-    thresholds_dict = {
-        (row["region_id"], row["season"]): {
-            "mod": row["mod"],
-            "sev": row["sev"],
-            "ext": row["ext"],
-        }
-        for _, row in df.iterrows()
-    }
-    # Retrieve the dictionary for the given region_id and season
-    season_thresholds = thresholds_dict.get((region_id, season), {})
-    # Return the threshold for the given level (mod, sev, ext), or None if not found
-    return season_thresholds
+        if len(season_str) == 3:
+            kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
+            kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
+            logger.info("Loaded SPI3 datasets")
+        else:
+            kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
+            kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
+            logger.info("Loaded SPI4 datasets")
+
+        a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        logger.info("subsetted obs and fcst to given region")
+        logger.debug("Created HindcastEnsemble")
+        hindcast = HindcastEnsemble(a_fc)
+        hindcast = hindcast.add_observations(a_obs)
+
+        a_fc1 = hindcast.get_initialized()
+        logger.debug("Added climpred HindcastEnsemble to add valid_time in fcst")
+        a_fc2 = a_fc1.isel(lead=lead_int)
+
+        if len(season_str) == 3:
+            spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
+            obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
+        else:
+            spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
+            obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
+        logger.info(
+            f"added SPI prodcut in obs and fcst dataset, filtered to {season_str}"
+        )
+        a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
+        a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
+
+        a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
+        a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
+
+        common_dates = np.unique(a_fc3.valid_time.values.ravel())
+        a_obs3 = a_obs2.sel(time=common_dates)
+
+        logger.info("Successfully prepared observed and forecasted datasets")
+        return a_obs3, a_fc3
+
+    except FileNotFoundError as e:
+        logger.error(f"File not found: {e}")
+        raise
+    except ValueError as e:
+        logger.error(f"Value error: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in make_obs_fct_dataset: {e}")
+        raise
+    return a_obs3, a_fc3
 
 
 def get_threshold(region_id, season):
@@ -409,6 +417,13 @@ def get_threshold(region_id, season):
     - This function uses a hardcoded CSV string as its data source. In a production environment, it's recommended to
       store and retrieve such data from a more robust data management system.
     - The function requires the pandas library for data manipulation and the StringIO module from io for string-based data input.
+    data_v1 = region_id,region,season,mod,sev,ext
+    0,kmj,mam,-0.03,-0.56,-0.99
+    0,kmj,jjas,-0.01,-0.41,-0.99
+    1,mbt,mam,-0.14,-0.38,-0.8
+    1,mbt,ond,-0.15,-0.53,-0.71
+    2,wjr,mam,-0.19,-0.45,-0.75
+    2,wjr,ond,-0.29,-0.76,-0.9
 
     Example usage:
     >>> threshold = get_threshold(1, 'mam', 'mod')
@@ -454,16 +469,97 @@ def mean_obs_spi(obs_data, spi_string_name):
     return wdf1
 
 
-def emprical_probablity(ens_data, threshold_dict):
-    mod_thr = threshold_dict["mod"]
-    fct_mod = (ens_data <= mod_thr).mean(dim="member")
-    ####
-    sev_thr = threshold_dict["sev"]
-    fct_sev = (ens_data <= sev_thr).mean(dim="member")
-    ####
-    ext_thr = threshold_dict["ext"]
-    fct_ext = (ens_data <= ext_thr).mean(dim="member")
-    return fct_mod, fct_sev, fct_ext
+def empirical_probability(ens_data, threshold_dict):
+    """
+    Calculate empirical probabilities for moderate, severe, and extreme drought conditions.
+
+    Args:
+        ens_data (xarray.DataArray): Ensemble data containing drought index values.
+        threshold_dict (dict): Dictionary containing threshold values for moderate, severe, and extreme drought.
+
+    Returns:
+        tuple: Three xarray.DataArrays containing empirical probabilities for moderate, severe, and extreme drought.
+
+    Raises:
+        KeyError: If required keys are missing from threshold_dict.
+        ValueError: If ens_data is not an xarray.DataArray or doesn't have a 'member' dimension.
+    """
+    try:
+        if not isinstance(ens_data, xr.Dataset):
+            raise ValueError("ens_data must be an xarray.Dataset")
+
+        if "member" not in ens_data.dims:
+            raise ValueError("ens_data must have a 'member' dimension")
+
+        for key in ["mod", "sev", "ext"]:
+            if key not in threshold_dict:
+                raise KeyError(f"threshold_dict is missing required key: {key}")
+
+        mod_thr = threshold_dict["mod"]
+        fct_mod = (ens_data <= mod_thr).mean(dim="member")
+
+        sev_thr = threshold_dict["sev"]
+        fct_sev = (ens_data <= sev_thr).mean(dim="member")
+
+        ext_thr = threshold_dict["ext"]
+        fct_ext = (ens_data <= ext_thr).mean(dim="member")
+
+        logger.info("Empirical probabilities calculated successfully")
+        return fct_mod, fct_sev, fct_ext
+
+    except Exception as e:
+        logger.error(f"Error in empirical_probability: {str(e)}")
+        raise
+
+
+def seas51_patch_empirical_probability(ens_data, threshold_dict):
+    """
+    Calculate empirical probabilities for SEAS5.1 forecast system, handling the transition from 25(1981-2017) to 51(2017-current) members.
+
+    Args:
+        ens_data (xarray.DataArray): Ensemble data containing drought index values.
+        threshold_dict (dict): Dictionary containing threshold values for moderate, severe, and extreme drought.
+
+    Returns:
+        tuple: Three xarray.DataArrays containing empirical probabilities for moderate, severe, and extreme drought.
+
+    Raises:
+        ValueError: If ens_data is not an xarray.DataArray or doesn't have required dimensions.
+    """
+    try:
+        if not isinstance(ens_data, xr.Dataset):
+            raise ValueError("ens_data must be an xarray.DataArray")
+
+        if "init" not in ens_data.dims or "member" not in ens_data.dims:
+            raise ValueError("ens_data must have 'init' and 'member' dimensions")
+
+        m26_ens_data = ens_data.sel(init=slice("1981", "2016"))
+        m26_ens_data1 = m26_ens_data.isel(member=slice(0, 25))
+        m26_fct_mod, m26_fct_sev, m26_fct_ext = empirical_probability(
+            m26_ens_data1, threshold_dict
+        )
+
+        m51_ens_data = ens_data.sel(init=slice("2017", None))
+        m51_fct_mod, m51_fct_sev, m51_fct_ext = empirical_probability(
+            m51_ens_data, threshold_dict
+        )
+
+        fct_mod = xr.concat(
+            [m26_fct_mod, m51_fct_mod], dim="init", coords="minimal", compat="override"
+        )
+        fct_sev = xr.concat(
+            [m26_fct_sev, m51_fct_sev], dim="init", coords="minimal", compat="override"
+        )
+        fct_ext = xr.concat(
+            [m26_fct_ext, m51_fct_ext], dim="init", coords="minimal", compat="override"
+        )
+
+        logger.info("SEAS5.1 patch empirical probabilities calculated successfully")
+        return fct_mod, fct_sev, fct_ext
+
+    except Exception as e:
+        logger.error(f"Error in seas51_patch_empirical_probability: {str(e)}")
+        raise
 
 
 def mean_emp_prob(fct_mod, fct_sev, fct_ext, spi_string_name):
@@ -527,7 +623,7 @@ def calculate_auroc(hits, misses, false_alarms, correct_negatives):
     return auroc
 
 
-def xhist_metrices(pdb, trigger_value, threshold_dict, cat_str):
+def xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str):
     ds = xr.Dataset.from_dataframe(pdb)
     obs_ext = ds[f"spi3_{cat_str}"]
     fct_ext = ds[f"ep_{cat_str}"]
@@ -602,6 +698,1013 @@ def xhist_metrices(pdb, trigger_value, threshold_dict, cat_str):
     return df
 
 
+def ERROR1_xhist_metrices_2d(
+    obs_data, ens_data, lead_int, region_id, season_str, level
+):
+    """
+    Generates scores for evaluating the performance of drought forecasts based on observed data and ensemble forecast data.
+
+    Parameters:
+    - obs_data (xarray.DataArray): The observed data array.
+    - ens_data (xarray.DataArray): The ensemble forecast data array.
+    - lead_int (int): Lead time integer indicating the forecast lead time.
+    - region_id (str): A string identifier for the region of interest.
+    - season_str (str): A string representing the season (e.g., 'JJA' for June-July-August).
+    - level (int/float): The threshold level to define a drought event.
+
+    The function processes the observed and forecast data to compute various skill scores and area under the ROC curve (AUROC)
+    scores for different trigger values ranging from 0 to 1. These scores include hit rates, false alarm ratios, bias scores, Hanssen and
+    Kuipers scores, Heidke skill scores, and AUROC scores along with their confidence intervals.
+
+    The results are saved to a CSV file named with the pattern 'regionid_season_level_ltleadtime.csv' in a specified data path, and also returned as a pandas DataFrame.
+
+    Returns:
+    - df (pandas.DataFrame): A DataFrame containing the computed scores for each trigger value along with the threshold, hit rates, false alarm ratios,
+    bias scores, Hanssen and Kuipers scores, Heidke skill scores, AUROC scores, and AUROC confidence intervals.
+
+    Note:
+    - This function requires the xarray, numpy, pandas, and xhistogram libraries.
+    - Ensure that `data_path` variable is defined in your environment to specify the output directory for the CSV file.
+    """
+    sc_season_str = season_str.lower()
+    threshold_dict = get_threshold(region_id, sc_season_str)
+    threshold = threshold_dict[level]
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+    # Initialize arrays to store scores
+    # threshold_val=
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+    auroc_scores = np.zeros_like(trigger_values)
+    auroc_lb = np.zeros_like(trigger_values)
+    auroc_ub = np.zeros_like(trigger_values)
+    for i, trigger_value in enumerate(trigger_values):
+        # Calculate the dichotomous event for observation and forecast
+        obs_event1 = obs_data <= threshold
+        # obs_event1['name'] = 'observed_event'
+        obs_event2 = obs_event1["spi3"]
+        obs_event2.name = "observed_event"
+
+        drought_forecast_probablity = (ens_data <= threshold).mean(dim="member")
+
+        # forecast_event1 = ens_data.mean(dim='member') >= trigger_value
+        forecast_event1 = drought_forecast_probablity >= trigger_value
+
+        # forecast_event1['name'] = 'forecasted_event'
+        forecast_event2 = forecast_event1["spi3"]
+        forecast_event2.name = "forecasted_event"
+
+        # Create a 2D histogram using xhistogram
+        contingency_table = xhist.histogram(
+            # obs_event.stack(point=['time', 'lat', 'lon']),
+            # forecast_event.stack(point=['time', 'lat', 'lon']),
+            obs_event2,
+            forecast_event2,
+            bins=[2, 2],
+            density=False,
+        )
+
+        # Extract contingency table counts
+        contingency_table = contingency_table.data
+        correct_negatives = contingency_table[0, 0]
+        false_alarms = contingency_table[0, 1]
+        misses = contingency_table[1, 0]
+        hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        # false_alarm_ratios[i] = false_alarms / (false_alarms + correct_negatives) if (false_alarms + correct_negatives) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - false_alarm_ratios[i]
+        heidke_skill_scores[i] = (
+            hits * correct_negatives - misses * false_alarms
+        ) / total
+        # calculate auroc
+        # Add diagnostic prints
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(
+                f"Observed data stats: min={obs_data.min().item():.4f}, max={obs_data.max().item():.4f}, mean={obs_data.mean().item():.4f}, std={obs_data.std().item():.4f}"
+            )
+            print(
+                f"Ensemble data stats: min={ens_data.min().item():.4f}, max={ens_data.max().item():.4f}, mean={ens_data.mean().item():.4f}, std={ens_data.std().item():.4f}"
+            )
+            print(f"Threshold: {threshold:.4f}")
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+        auroc_bootstrap_scores = []
+        n_bootstrap = 1000
+        for _ in range(n_bootstrap):
+            bootstrap_counts = np.random.multinomial(
+                hits + misses + false_alarms + correct_negatives,
+                [hits, misses, false_alarms, correct_negatives]
+                / (hits + misses + false_alarms + correct_negatives),
+                size=1,
+            )
+            (
+                bootstrap_hits,
+                bootstrap_misses,
+                bootstrap_false_alarms,
+                bootstrap_correct_negatives,
+            ) = bootstrap_counts[0]
+            auroc_bootstrap_scores.append(
+                calculate_auroc(
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                )
+            )
+
+        auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+        auroc_lb[i], auroc_ub[i] = np.percentile(auroc_bootstrap_scores, [2.5, 97.5])
+        print(i)
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+            "auroc_scores": auroc_scores,
+            "auroc_lb": auroc_lb,
+            "auroc_ub": auroc_ub,
+        }
+    )
+    df["trigger_values"] = trigger_values
+    # df.insert(0, 'threshold', threshold)
+    # df.insert(0, 'trigger_values', trigger_values)
+    df.to_csv(f"{region_id}_{season_str}_{level}_lt{lead_int}.csv")
+    return df
+
+
+def ERROR_xhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    lead_int,
+    region_id,
+    season_str,
+    level,
+    calculate_auroc=True,
+):
+    """
+    Generates scores for evaluating the performance of drought forecasts based on observed data and ensemble forecast data.
+
+    Parameters:
+    - obs_data (xarray.DataArray): The observed data array.
+    - ens_data (xarray.DataArray): The ensemble forecast data array.
+    - lead_int (int): Lead time integer indicating the forecast lead time.
+    - region_id (str): A string identifier for the region of interest.
+    - season_str (str): A string representing the season (e.g., 'JJA' for June-July-August).
+    - level (int/float): The threshold level to define a drought event.
+    - calculate_auroc (bool): Whether to calculate AUROC scores. Default is True.
+
+    ... (rest of the docstring remains the same)
+    """
+    print(
+        f"Observed data stats: min={obs_data['spi3'].min().item():.4f}, max={obs_data['spi3'].max().item():.4f}, mean={obs_data['spi3'].mean().item():.4f}, std={obs_data['spi3'].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data['spi3'].min().item():.4f}, max={ens_prob_data['spi3'].max().item():.4f}, mean={ens_prob_data['spi3'].mean().item():.4f}, std={ens_prob_data['spi3'].std().item():.4f}"
+    )
+    sc_season_str = season_str.lower()
+    threshold_dict = get_threshold(region_id, sc_season_str)
+    threshold = threshold_dict[level]
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    if calculate_auroc:
+        auroc_scores = np.zeros_like(trigger_values)
+        auroc_lb = np.zeros_like(trigger_values)
+        auroc_ub = np.zeros_like(trigger_values)
+
+    for i, trigger_value in enumerate(trigger_values):
+        # ... (rest of the loop content remains the same until AUROC calculation)
+        # Calculate the dichotomous event for observation and forecast
+        obs_event1 = obs_data <= threshold
+        # obs_event1['name'] = 'observed_event'
+        obs_event2 = obs_event1["spi3"]
+        obs_event2.name = "observed_event"
+
+        # drought_forecast_probablity = (ens_data <= threshold).mean(dim="member")
+
+        # forecast_event1 = ens_data.mean(dim='member') >= trigger_value
+        forecast_event1 = ens_prob_data >= trigger_value
+
+        # forecast_event1['name'] = 'forecasted_event'
+        forecast_event2 = forecast_event1["spi3"]
+        forecast_event2.name = "forecasted_event"
+
+        # Create a 2D histogram using xhistogram
+        contingency_table = xhist.histogram(
+            # obs_event.stack(point=['time', 'lat', 'lon']),
+            # forecast_event.stack(point=['time', 'lat', 'lon']),
+            obs_event2,
+            forecast_event2,
+            bins=[2, 2],
+            density=False,
+        )
+
+        # Extract contingency table counts
+        contingency_table = contingency_table.data
+        correct_negatives = contingency_table[0, 0]
+        false_alarms = contingency_table[0, 1]
+        misses = contingency_table[1, 0]
+        hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        # false_alarm_ratios[i] = false_alarms / (false_alarms + correct_negatives) if (false_alarms + correct_negatives) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - false_alarm_ratios[i]
+        heidke_skill_scores[i] = (
+            hits * correct_negatives - misses * false_alarms
+        ) / total
+
+        # Add diagnostic prints
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            # print(
+            #    f"Observed data stats: min={obs_data.min().item():.4f}, max={obs_data.max().item():.4f}, mean={obs_data.mean().item():.4f}, std={obs_data.std().item():.4f}"
+            # )
+            # print(
+            #    f"Ensemble data stats: min={ens_data.min().item():.4f}, max={ens_data.max().item():.4f}, mean={ens_data.mean().item():.4f}, std={ens_data.std().item():.4f}"
+            # )
+            print(f"Threshold: {threshold:.4f}")
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+        if calculate_auroc:
+            auroc_bootstrap_scores = []
+            n_bootstrap = 1000
+            for _ in range(n_bootstrap):
+                bootstrap_counts = np.random.multinomial(
+                    hits + misses + false_alarms + correct_negatives,
+                    [hits, misses, false_alarms, correct_negatives]
+                    / (hits + misses + false_alarms + correct_negatives),
+                    size=1,
+                )
+                (
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                ) = bootstrap_counts[0]
+                auroc_bootstrap_scores.append(
+                    calculate_auroc(
+                        bootstrap_hits,
+                        bootstrap_misses,
+                        bootstrap_false_alarms,
+                        bootstrap_correct_negatives,
+                    )
+                )
+
+            auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+            auroc_lb[i], auroc_ub[i] = np.percentile(
+                auroc_bootstrap_scores, [2.5, 97.5]
+            )
+
+        print(i)
+
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if calculate_auroc:
+        df.update(
+            {
+                "auroc_scores": auroc_scores,
+                "auroc_lb": auroc_lb,
+                "auroc_ub": auroc_ub,
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(f"{region_id}_{season_str}_{level}_lt{lead_int}.csv")
+    return df
+
+
+def DIMxhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    params,
+    calculate_auroc=True,
+):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    if calculate_auroc:
+        auroc_scores = np.zeros_like(trigger_values)
+        auroc_lb = np.zeros_like(trigger_values)
+        auroc_ub = np.zeros_like(trigger_values)
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    # Calculate the dichotomous event for observation
+    obs_event = obs_data <= threshold
+    obs_event1 = obs_event[params.spi_prod_name]
+    obs_event1.name = "observed_event"
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Calculate the dichotomous event for forecast
+        forecast_event = ens_prob_data >= trigger_value
+        forecast_event1 = forecast_event[params.spi_prod_name]
+        forecast_event1.name = "forecasted_event"
+
+        # Create contingency table using xhist
+        contingency_table = xhist.histogram(
+            obs_event1, forecast_event1, bins=[2, 2], density=False, dim=["lat", "lon"]
+        )
+
+        # Extract contingency table counts
+        contingency_table = contingency_table.values
+        correct_negatives = contingency_table[0, 0]
+        false_alarms = contingency_table[0, 1]
+        misses = contingency_table[1, 0]
+        hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - (
+            false_alarms / (false_alarms + correct_negatives)
+            if (false_alarms + correct_negatives) > 0
+            else np.nan
+        )
+        heidke_skill_scores[i] = (
+            (hits * correct_negatives - misses * false_alarms)
+            / (
+                (hits + misses) * (misses + correct_negatives)
+                + (hits + false_alarms) * (false_alarms + correct_negatives)
+            )
+            if total > 0
+            else np.nan
+        )
+
+        if calculate_auroc:
+            auroc_bootstrap_scores = []
+            n_bootstrap = 1000
+            for _ in range(n_bootstrap):
+                bootstrap_counts = np.random.multinomial(
+                    total,
+                    [
+                        hits / total,
+                        misses / total,
+                        false_alarms / total,
+                        correct_negatives / total,
+                    ],
+                    size=1,
+                )
+                (
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                ) = bootstrap_counts[0]
+                auroc_bootstrap_scores.append(
+                    calculate_auroc(
+                        bootstrap_hits,
+                        bootstrap_misses,
+                        bootstrap_false_alarms,
+                        bootstrap_correct_negatives,
+                    )
+                )
+
+            auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+            auroc_lb[i], auroc_ub[i] = np.percentile(
+                auroc_bootstrap_scores, [2.5, 97.5]
+            )
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+        print(i)
+
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if calculate_auroc:
+        df.update(
+            {
+                "auroc_scores": auroc_scores,
+                "auroc_lb": auroc_lb,
+                "auroc_ub": auroc_ub,
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def ERROR4xhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    params,
+    calculate_auroc=True,
+):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    if calculate_auroc:
+        auroc_scores = np.zeros_like(trigger_values)
+        auroc_lb = np.zeros_like(trigger_values)
+        auroc_ub = np.zeros_like(trigger_values)
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    # Calculate the dichotomous event for observation
+    obs_event = obs_data <= threshold
+    obs_event1 = obs_event[params.spi_prod_name]
+    obs_event1.name = "observed_event"
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Calculate the dichotomous event for forecast
+        forecast_event = ens_prob_data >= trigger_value
+        forecast_event1 = forecast_event[params.spi_prod_name]
+        forecast_event1.name = "forecasted_event"
+
+        # Create contingency table using xhist
+        contingency_table = xhist.histogram(
+            obs_event1, forecast_event1, bins=[2, 2], density=False, dim=["lat", "lon"]
+        )
+
+        # Extract contingency table counts
+        contingency_table = contingency_table.values
+        correct_negatives = contingency_table[0, 0]
+        false_alarms = contingency_table[0, 1]
+        misses = contingency_table[1, 0]
+        hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - (
+            false_alarms / (false_alarms + correct_negatives)
+            if (false_alarms + correct_negatives) > 0
+            else np.nan
+        )
+        heidke_skill_scores[i] = (
+            (hits * correct_negatives - misses * false_alarms)
+            / (
+                (hits + misses) * (misses + correct_negatives)
+                + (hits + false_alarms) * (false_alarms + correct_negatives)
+            )
+            if total > 0
+            else np.nan
+        )
+
+        if calculate_auroc:
+            auroc_bootstrap_scores = []
+            n_bootstrap = 1000
+            for _ in range(n_bootstrap):
+                bootstrap_counts = np.random.multinomial(
+                    total,
+                    [
+                        hits / total,
+                        misses / total,
+                        false_alarms / total,
+                        correct_negatives / total,
+                    ],
+                    size=1,
+                )
+                (
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                ) = bootstrap_counts[0]
+                auroc_bootstrap_scores.append(
+                    calculate_auroc(
+                        bootstrap_hits,
+                        bootstrap_misses,
+                        bootstrap_false_alarms,
+                        bootstrap_correct_negatives,
+                    )
+                )
+
+            auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+            auroc_lb[i], auroc_ub[i] = np.percentile(
+                auroc_bootstrap_scores, [2.5, 97.5]
+            )
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+        print(i)
+
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if calculate_auroc:
+        df.update(
+            {
+                "auroc_scores": auroc_scores,
+                "auroc_lb": auroc_lb,
+                "auroc_ub": auroc_ub,
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def RETRACT_xhist_metrices_2d(
+    obs_data,
+    ens_prob_data,
+    params,
+    calculate_auroc=True,
+):
+
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    if calculate_auroc:
+        auroc_scores = np.zeros_like(trigger_values)
+        auroc_lb = np.zeros_like(trigger_values)
+        auroc_ub = np.zeros_like(trigger_values)
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Initialize contingency table counts
+        hits = misses = false_alarms = correct_negatives = 0
+
+        # Iterate over each year
+        for year in range(len(obs_data.time)):
+            # Extract single year data
+            obs_year = obs_data.isel(time=year)
+            forecast_year = ens_prob_data.isel(init=year)
+
+            # Calculate the dichotomous event for observation and forecast
+            obs_event = obs_year <= threshold
+            obs_event1 = obs_event[params.spi_prod_name]
+            obs_event1.name = "observed_event"
+
+            forecast_event = forecast_year >= trigger_value
+            forecast_event1 = forecast_event[params.spi_prod_name]
+            forecast_event1.name = "forecasted_event"
+
+            contingency_table = xhist.histogram(
+                obs_event1,
+                forecast_event1,
+                bins=[2, 2],
+                density=False,
+                dim=["lat", "lon"],
+            )
+
+            # Update contingency table
+            contingency_table = contingency_table.values
+            correct_negatives = contingency_table[0, 0]
+            false_alarms = contingency_table[0, 1]
+            misses = contingency_table[1, 0]
+            hits = contingency_table[1, 1]
+
+        # Calculate scores
+        total = hits + false_alarms + misses + correct_negatives
+        hit_rates[i] = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+        false_alarm_ratios[i] = (
+            false_alarms / (false_alarms + hits)
+            if (false_alarms + hits) > 0
+            else np.nan
+        )
+        bias_scores[i] = (
+            (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+        )
+        hanssen_kuipers_scores[i] = hit_rates[i] - (
+            false_alarms / (false_alarms + correct_negatives)
+            if (false_alarms + correct_negatives) > 0
+            else np.nan
+        )
+        heidke_skill_scores[i] = (
+            (hits * correct_negatives - misses * false_alarms)
+            / (
+                (hits + misses) * (misses + correct_negatives)
+                + (hits + false_alarms) * (false_alarms + correct_negatives)
+            )
+            if total > 0
+            else np.nan
+        )
+
+        if calculate_auroc:
+            auroc_bootstrap_scores = []
+            n_bootstrap = 1000
+            for _ in range(n_bootstrap):
+                bootstrap_counts = np.random.multinomial(
+                    total,
+                    [
+                        hits / total,
+                        misses / total,
+                        false_alarms / total,
+                        correct_negatives / total,
+                    ],
+                    size=1,
+                )
+                (
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                ) = bootstrap_counts[0]
+                auroc_bootstrap_scores.append(
+                    calculate_auroc(
+                        bootstrap_hits,
+                        bootstrap_misses,
+                        bootstrap_false_alarms,
+                        bootstrap_correct_negatives,
+                    )
+                )
+
+            auroc_scores[i] = np.mean(auroc_bootstrap_scores)
+            auroc_lb[i], auroc_ub[i] = np.percentile(
+                auroc_bootstrap_scores, [2.5, 97.5]
+            )
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+        print(i)
+
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if calculate_auroc:
+        df.update(
+            {
+                "auroc_scores": auroc_scores,
+                "auroc_lb": auroc_lb,
+                "auroc_ub": auroc_ub,
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def calculate_scores_from_contingency(hits, misses, false_alarms, correct_negatives):
+    """Calculate performance metrics from a contingency table."""
+    total = hits + false_alarms + misses + correct_negatives
+    hit_rate = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+    false_alarm_ratio = (
+        false_alarms / (false_alarms + hits) if (false_alarms + hits) > 0 else np.nan
+    )
+    bias_score = (
+        (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+    )
+    hanssen_kuipers_score = hit_rate - (
+        false_alarms / (false_alarms + correct_negatives)
+        if (false_alarms + correct_negatives) > 0
+        else np.nan
+    )
+    heidke_skill_score = (
+        (hits * correct_negatives - misses * false_alarms)
+        / (
+            (hits + misses) * (misses + correct_negatives)
+            + (hits + false_alarms) * (false_alarms + correct_negatives)
+        )
+        if total > 0
+        else np.nan
+    )
+    return (
+        hit_rate,
+        false_alarm_ratio,
+        bias_score,
+        hanssen_kuipers_score,
+        heidke_skill_score,
+    )
+
+
+def calculate_contingency_for_year(
+    obs_data, ens_prob_data, params, threshold, trigger_value
+):
+    """Calculate the contingency table for a single year."""
+    hits = misses = false_alarms = correct_negatives = 0
+    for year in range(len(obs_data.time)):
+        # Extract single year data
+        obs_year = obs_data.isel(time=year)
+        forecast_year = ens_prob_data.isel(init=year)
+
+        # Calculate the dichotomous event for observation and forecast
+        obs_event = obs_year <= threshold
+        obs_event1 = obs_event[params.spi_prod_name]
+        obs_event1.name = "observed_event"
+
+        forecast_event = forecast_year >= trigger_value
+        forecast_event1 = forecast_event[params.spi_prod_name]
+        forecast_event1.name = "forecasted_event"
+
+        contingency_table = xhist.histogram(
+            obs_event1,
+            forecast_event1,
+            bins=[2, 2],
+            density=False,
+        )
+
+        # Update contingency table
+        contingency_table = contingency_table.values
+        correct_negatives += contingency_table[0, 0]
+        false_alarms += contingency_table[0, 1]
+        misses += contingency_table[1, 0]
+        hits += contingency_table[1, 1]
+
+    return hits, misses, false_alarms, correct_negatives
+
+
+def create_dataframe(
+    hit_rates,
+    false_alarm_ratios,
+    bias_scores,
+    hanssen_kuipers_scores,
+    heidke_skill_scores,
+    trigger_values,
+    params,
+    auroc_data=None,
+):
+    """Create a DataFrame to store scores and export to CSV."""
+    df = pd.DataFrame(
+        {
+            "hit_rates": hit_rates,
+            "false_alarm_ratios": false_alarm_ratios,
+            "bias_scores": bias_scores,
+            "hanssen_kuipers_scores": hanssen_kuipers_scores,
+            "heidke_skill_scores": heidke_skill_scores,
+        }
+    )
+
+    if auroc_data:
+        df.update(
+            {
+                "auroc_scores": auroc_data["scores"],
+                "auroc_lb": auroc_data["lb"],
+                "auroc_ub": auroc_data["ub"],
+            }
+        )
+
+    df["trigger_values"] = trigger_values
+    df.to_csv(
+        f"{params.region_id}_{params.season_str}_{params.level}_lt{params.lead_int}.csv"
+    )
+    return df
+
+
+def year_scores_gen(obs_data, ens_prob_data, params):
+
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    threshold = threshold_dict[params.level]
+
+    # Define the trigger values
+    trigger_values = xr.DataArray(np.linspace(0, 1, num=100), dims=["trigger_value"])
+
+    # Initialize arrays to store scores
+    hit_rates = np.zeros_like(trigger_values)
+    false_alarm_ratios = np.zeros_like(trigger_values)
+    bias_scores = np.zeros_like(trigger_values)
+    hanssen_kuipers_scores = np.zeros_like(trigger_values)
+    heidke_skill_scores = np.zeros_like(trigger_values)
+
+    auroc_data = None
+    if calculate_auroc:
+        auroc_data = {
+            "scores": np.zeros_like(trigger_values),
+            "lb": np.zeros_like(trigger_values),
+            "ub": np.zeros_like(trigger_values),
+        }
+
+    print(
+        f"Observed data stats: min={obs_data[params.spi_prod_name].min().item():.4f}, max={obs_data[params.spi_prod_name].max().item():.4f}, mean={obs_data[params.spi_prod_name].mean().item():.4f}, std={obs_data[params.spi_prod_name].std().item():.4f}"
+    )
+    print(
+        f"Ensemble data stats: min={ens_prob_data[params.spi_prod_name].min().item():.4f}, max={ens_prob_data[params.spi_prod_name].max().item():.4f}, mean={ens_prob_data[params.spi_prod_name].mean().item():.4f}, std={ens_prob_data[params.spi_prod_name].std().item():.4f}"
+    )
+
+    print(f"Threshold: {threshold:.4f}")
+
+    # Create a histogram of drought forecast probabilities
+    ens_prob_data_np = ens_prob_data[params.spi_prod_name].values.flatten()
+    hist, bin_edges = np.histogram(ens_prob_data_np, bins=20, range=(0, 1))
+    print("Histogram of drought forecast probabilities:")
+    for i, count in enumerate(hist):
+        print(f"  {bin_edges[i]:.2f} - {bin_edges[i+1]:.2f}: {count}")
+
+    for i, trigger_value in enumerate(trigger_values):
+        # Calculate contingency table for the current trigger value
+        hits, misses, false_alarms, correct_negatives = calculate_contingency_for_year(
+            obs_data, ens_prob_data, params, threshold, trigger_value
+        )
+
+        # Calculate scores based on the contingency table
+        (
+            hit_rates[i],
+            false_alarm_ratios[i],
+            bias_scores[i],
+            hanssen_kuipers_scores[i],
+            heidke_skill_scores[i],
+        ) = calculate_scores_from_contingency(
+            hits, misses, false_alarms, correct_negatives
+        )
+
+        if calculate_auroc:
+            # AUROC score calculation logic would go here
+            pass
+
+        if i % 10 == 0:  # Print every 10th iteration to avoid too much output
+            print(f"Trigger value: {trigger_value:.2f}")
+            print(
+                f"Contingency table: [TN: {correct_negatives}, FP: {false_alarms}, FN: {misses}, TP: {hits}]"
+            )
+            print(f"False Alarm Ratio: {false_alarm_ratios[i]:.4f}")
+            print(f"Hit Rate: {hit_rates[i]:.4f}")
+            print("----")
+
+    # Create DataFrame and save to CSV
+    df = create_dataframe(
+        hit_rates,
+        false_alarm_ratios,
+        bias_scores,
+        hanssen_kuipers_scores,
+        heidke_skill_scores,
+        trigger_values,
+        params,
+        auroc_data,
+    )
+
+    return df
+
+
 def get_subset(dfa, cat_str):
     # Filter out rows with null values in 'hit_rate' and 'false_alarm_ratio'
     # df = df.dropna(subset=['hit_rate', 'false_alarm_ratio'])
@@ -665,7 +1768,7 @@ def trigger_decision_dict(df0):
     return tri_dict, df0
 
 
-def get_mean_ens_triggers(data_path, region_id, season_str, lead_int):
+def get_mean_ens_triggers(region_id, season_str, lead_int):
     if len(season_str) == 3:
         spi_string_name = "spi3"
     else:
@@ -737,7 +1840,490 @@ def get_mean_ens_triggers(data_path, region_id, season_str, lead_int):
     return obs_df, fct_df, metrix_df, decision_dict, decision_df, plot_df
 
 
-def obs_chart_with_triggers(
+def DEPRICATE_prepare_data_for_concat(data, ens_data, dataset_type):
+    """
+    DEPRETCATED to replace it with xarray datatree
+    Prepares data (observations or calcualted emprical probablity dataset-triggers ) to be concatenated with ensemble data.
+
+    Parameters:
+    data (xarray.Dataset): The original dataset (observations or forecasts).
+    ens_data (xarray.Dataset): The ensemble dataset to match structure with.
+    dataset_type (str): A string identifier for the type of dataset ('obs', 'fmod', 'fsev', 'fext').
+
+    Returns:
+    xarray.Dataset: The prepared dataset ready for concatenation.
+    """
+    try:
+        logger.info(f"Preparing {dataset_type} data for concatenation")
+
+        # Identify the variable name (assumes single variable dataset)
+        var_name = list(data.data_vars)[0]
+        logger.debug(f"Variable name identified: {var_name}")
+
+        if "init" not in data.coords:
+            data = data.rename({"time": "init"})
+            logger.debug("Renamed 'time' coordinate to 'init'")
+
+        # Extend the 'init' dimension to match ens_data
+        extended_data = np.full(
+            (len(ens_data.init), len(data.lat), len(data.lon)), np.nan
+        )
+        extended_data[: len(data.init), :, :] = data[var_name].values
+        logger.debug(f"Extended data shape: {extended_data.shape}")
+
+        # Create a new DataArray with extended data and matching coordinates
+        data_extended = xr.DataArray(
+            extended_data,
+            dims=["init", "lat", "lon"],
+            coords={"init": ens_data["init"], "lat": data["lat"], "lon": data["lon"]},
+            name=var_name,
+        )
+
+        # Convert DataArray to Dataset
+        data_ex = data_extended.to_dataset()
+
+        # Add a new coordinate to identify the dataset type
+        data_ex = data_ex.expand_dims({"dataset": [dataset_type]})
+
+        logger.info(f"Successfully prepared {dataset_type} data for concatenation")
+        return data_ex
+
+    except KeyError as e:
+        logger.error(f"KeyError in prepare_data_for_concat: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in prepare_data_for_concat: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in prepare_data_for_concat: {str(e)}")
+        raise
+
+
+def DEPRECATED_helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
+    """
+
+    DEPRECATED to replaced it with xarray datatree
+    Helper function to prepare and combine data for stamp plot.
+
+    Parameters:
+    ens_data (xarray.Dataset): Ensemble data.
+    obs_data (xarray.Dataset): Observation data.
+    fct_mod (xarray.Dataset): Moderate forecast data.
+    fct_sev (xarray.Dataset): Severe forecast data.
+    fct_ext (xarray.Dataset): Extreme forecast data.
+
+    Returns:
+    xarray.Dataset: Combined dataset for stamp plot.
+    """
+    try:
+        logger.info("Starting helper_stamp_plot function")
+
+        obs_cast = prepare_data_for_concat(obs_data, ens_data, "obs")
+        fmod_cast = prepare_data_for_concat(fct_mod, ens_data, "fmod")
+        fsev_cast = prepare_data_for_concat(fct_sev, ens_data, "fsev")
+        fext_cast = prepare_data_for_concat(fct_ext, ens_data, "fext")
+
+        ens_data_prepared = ens_data.expand_dims({"dataset": ["ens"]})
+        logger.debug("All datasets prepared for concatenation")
+
+        # Concatenate all datasets along the new 'dataset' dimension
+        combined_data = xr.concat(
+            [ens_data_prepared, obs_cast, fmod_cast, fsev_cast, fext_cast],
+            dim="dataset",
+        )
+        logger.debug("Datasets concatenated successfully")
+
+        # Create a mapping between dataset types and numeric values
+        dataset_mapping = {"ens": 0, "obs": 51, "fmod": 52, "fsev": 53, "fext": 54}
+        combined_data = combined_data.assign_coords(
+            dataset_num=(
+                "dataset",
+                [dataset_mapping[d] for d in combined_data.dataset.values],
+            )
+        )
+        logger.info(f"made the combined_data as {combined_data}")
+        logger.info("helper_stamp_plot function completed successfully")
+        return combined_data
+
+    except KeyError as e:
+        logger.error(f"KeyError in helper_stamp_plot: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in helper_stamp_plot: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in helper_stamp_plot: {str(e)}")
+        raise
+
+
+def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
+    """
+
+    DEPRECATED to replaced it with xarray datatree
+    Helper function to prepare and combine data for stamp plot.
+
+    Parameters:
+    ens_data (xarray.Dataset): Ensemble data.
+    obs_data (xarray.Dataset): Observation data.
+    fct_mod (xarray.Dataset): Moderate forecast data.
+    fct_sev (xarray.Dataset): Severe forecast data.
+    fct_ext (xarray.Dataset): Extreme forecast data.
+
+    Returns:
+    xarray.Dataset: Combined dataset for stamp plot.
+    """
+    try:
+        logger.info("Starting datatree with helper_stamp_plot function")
+        seas51tree = DataTree()
+        for member in ens_data.member:
+            member_data = ens_data.sel(member=member)
+            seas51tree[f"ensemble/member_{int(member)}"] = DataTree(
+                name=f"member_{int(member)}", data=member_data
+            )
+
+        seas51tree["observation"] = DataTree(name="observation", data=obs_data)
+        seas51tree["fct_mod"] = DataTree(name="fct_mod", data=fct_mod)
+        seas51tree["fct_sev"] = DataTree(name="fct_sev", data=fct_sev)
+        seas51tree["fct_ext"] = DataTree(name="fct_ext", data=fct_ext)
+        logger.info(f"made the combined_data as xarray datatree {seas51tree}")
+        logger.info("helper_stamp_plot function completed successfully")
+        return seas51tree
+
+    except KeyError as e:
+        logger.error(f"KeyError in helper_stamp_plot: {str(e)}")
+        raise
+    except ValueError as e:
+        logger.error(f"ValueError in helper_stamp_plot: {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in helper_stamp_plot: {str(e)}")
+        raise
+
+
+def create_single_row_plot(
+    tree, init, variable="spi3", output_dir="single_row_plots", is_last_plot=False
+):
+    logging.info(f"Creating single row plot for {init} with variable {variable}")
+    try:
+        members = list(tree["ensemble"].children.keys())
+        valid_times = tree["ensemble/member_0"].ds.valid_time.values
+        lats = tree["ensemble/member_0"].ds.lat.values
+        lons = tree["ensemble/member_0"].ds.lon.values
+        num_members = len(members)
+        num_additional_plots = 4  # Obs, mod, sev, ext
+        total_plots = num_members + num_additional_plots
+
+        # Create output directory if it doesn't exist
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        # Create a wide figure for a single row
+        fig, axs = plt.subplots(
+            1,
+            total_plots,
+            figsize=(2 * total_plots, 2),
+            subplot_kw={"projection": ccrs.PlateCarree()},
+        )
+
+        # Define the color scale ranges
+        ensemble_cmap_range = (-4, 4)
+        fct_cmap_range = (0.0, 1.0)
+
+        valid_time = valid_times[
+            np.where(tree["ensemble/member_0"].ds.init.values == init)[0][0]
+        ]
+
+        # Plot ensemble members
+        for j, member_key in enumerate(members):
+            _plot_ensemble_member(
+                tree, member_key, variable, init, axs[j], ensemble_cmap_range
+            )
+
+        # Add the observation and additional models as the last plots
+        plot_titles = ["Obs", "mod", "sev", "ext"]
+        plot_keys = ["observation", "fct_mod", "fct_sev", "fct_ext"]
+        for k, (title, key) in enumerate(zip(plot_titles, plot_keys)):
+            _plot_additional_data(
+                tree,
+                key,
+                variable,
+                init,
+                valid_time,
+                axs[num_members + k],
+                title,
+                ensemble_cmap_range if key == "observation" else fct_cmap_range,
+            )
+
+        if is_last_plot:
+            _add_colorbars(fig, axs)
+        else:
+            plt.tight_layout()
+
+        plt.tight_layout()
+        output_file = f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png'
+        plt.savefig(output_file, dpi=100, bbox_inches="tight")
+        logging.info(f"Plot saved to {output_file}")
+        plt.close()
+
+    except Exception as e:
+        logging.error(f"Error creating plot: {str(e)}")
+        raise
+
+
+def _plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range):
+    member_data = tree[f"ensemble/{member_key}"].ds[variable]
+    data = member_data.sel(init=init).values
+    ax.pcolormesh(
+        tree["ensemble/member_0"].ds.lon.values,
+        tree["ensemble/member_0"].ds.lat.values,
+        data,
+        cmap="RdBu",
+        transform=ccrs.PlateCarree(),
+        vmin=cmap_range[0],
+        vmax=cmap_range[1],
+    )
+    ax.set_title(f'm{member_key.split("_")[1]}', fontsize=6)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
+def _plot_additional_data(tree, key, variable, init, valid_time, ax, title, cmap_range):
+    dataset = tree[key].ds[variable]
+    coord_key = "time" if "time" in dataset.coords else "init"
+    obs_init = (
+        np.datetime64(valid_time.strftime("%Y-%m-%d %H:%M:%S"))
+        if coord_key == "time"
+        else init
+    )
+
+    obs_data = dataset.sel({coord_key: obs_init}).values
+
+    cmap = "RdBu" if key == "observation" else "Blues"
+
+    ax.pcolormesh(
+        tree["ensemble/member_0"].ds.lon.values,
+        tree["ensemble/member_0"].ds.lat.values,
+        obs_data,
+        cmap=cmap,
+        transform=ccrs.PlateCarree(),
+        vmin=cmap_range[0],
+        vmax=cmap_range[1],
+    )
+    ax.set_title(title, fontsize=6)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+
+def _add_colorbars(fig, axs):
+    cbar_ax = fig.add_axes([0.95, 0.5, 0.05, 0.1])
+    cbar = fig.colorbar(axs[0].collections[0], cax=cbar_ax, orientation="horizontal")
+    cbar.set_label("SPI3 (Ensemble & Obs)")
+
+    cbar_ax2 = fig.add_axes([0.95, 0.2, 0.05, 0.1])
+    cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2, orientation="horizontal")
+    cbar2.set_label("Forecasts (mod/sev/ext)")
+
+
+def plot_allrows(seas51tree):
+    # Example usage:
+    inits = seas51tree["ensemble/member_0"].ds.init.values
+    for i, init in enumerate(inits):
+        is_last_plot = i == len(inits) - 1
+        create_single_row_plot(seas51tree, init, is_last_plot=is_last_plot)
+
+
+def merge_png_files(
+    input_dir="single_row_plots",
+    output_file="merged_stamp_plots.png",
+    delete_originals=False,
+):
+    """
+    Merges PNG files in the input directory into a single image and
+    deletes the original files. Saves the merged image in the same directory.
+
+    Args:
+        input_dir (str): Path to the directory containing PNG files.
+        output_file (str): Name of the merged image file.
+    """
+    logging.info(f"Starting image merging process in {input_dir}")
+
+    try:
+        # Get all PNG files in the input directory
+        png_files = sorted(Path(input_dir).glob("*.png"))
+
+        if not png_files:
+            logging.warning(f"No PNG files found in {input_dir}")
+            return
+
+        # Open the first image to get dimensions
+        with Image.open(png_files[0]) as img:
+            row_width, row_height = img.size
+
+        # Create a new image with the calculated dimensions
+        merged_height = row_height * len(png_files)
+        merged_image = Image.new("RGB", (row_width, merged_height))
+
+        # Paste each row image into the merged image
+        for i, png_file in enumerate(png_files):
+            try:
+                with Image.open(png_file) as img:
+                    merged_image.paste(img, (0, i * row_height))
+            except Exception as e:
+                logging.error(f"Error processing {png_file}: {e}")
+                continue  # Skip this file and continue with the rest
+
+        # Save the merged image in the input directory
+        output_path = os.path.join(input_dir, output_file)
+        merged_image.save(output_path, dpi=(300, 300))
+        logging.info(f"Merged image saved as {output_path}")
+
+        # Delete the individual PNG files
+        if delete_originals:
+            for png_file in png_files:
+                try:
+                    os.remove(png_file)
+                except Exception as e:
+                    logging.error(f"Error deleting {png_file}: {e}")
+            logging.info(f"Individual PNG files in {input_dir} have been deleted.")
+
+    except Exception as e:
+        logging.error(f"An error occurred during the merging process: {e}")
+
+
+def DEPR_arrange_obs_fct_stampplot(obs_data, ens_data):
+    """
+    take forecast and observations dataset into single xarray dataset
+    The learning curve on extending a xarray is large and the lines in this funcitons
+    are added after lot of iterations
+
+    Where the observation dataset is added as an 51th memeber to have a stampl plot of forecast versus observations
+
+    """
+    obs_data1 = obs_data.to_dataset()
+    ens_data1 = ens_data.to_dataset()
+    obs_data1 = obs_data1.rename_dims({"time": "init"})
+
+    # Step 2: Extend the 'init' dimension in obs_data1 to match the length of 'init' in ens_data1
+    # Create a new array with NaN values for the 43rd time step
+    extended_spi3 = np.full((43, 13, 13), np.nan)
+    extended_spi3[:42, :, :] = obs_data1["spi3"].values
+
+    # Create a new 'init' coordinate with 43 time steps
+    new_init = ens_data1["init"]
+
+    # Create a new DataArray for the extended obs_data1
+    obs_data1_extended = xr.DataArray(
+        extended_spi3,
+        dims=["init", "lat", "lon"],
+        coords={"init": new_init, "lat": obs_data1["lat"], "lon": obs_data1["lon"]},
+        name="spi3",
+    )
+
+    obs_data_ex = obs_data1_extended.to_dataset()
+
+    member_coord = xr.DataArray([51], dims="member")
+
+    # Expand the Dataset with the new dimension
+    obs_data_ex = obs_data_ex.expand_dims({"member": member_coord})
+
+    obs_data_ex = obs_data_ex.assign_coords(member=[52])
+    ens_data2 = ens_data1.rename({"number": "member"})
+    ens_data3 = ens_data2.set_xindex("member")
+
+    ds = xr.concat([ens_data3, obs_data_ex], dim="member")
+    return ds
+
+
+def plot_obs_fct_stamp(dataset, region, lead_time, variable="spi3"):
+    members = dataset.member.values
+    inits = dataset.init.values
+    lats = dataset.lat.values
+    lons = dataset.lon.values
+
+    fig = plt.figure(figsize=(24, 20))  # Adjusted figure size for the new layout
+
+    for i, init in enumerate(inits):
+        for j, member in enumerate(members):
+            ax = fig.add_subplot(
+                len(inits),
+                len(members),
+                i * len(members) + j + 1,
+                projection=ccrs.PlateCarree(),
+            )
+
+            data = dataset[variable].sel(member=member, init=init).values
+
+            # Plot the data
+            im = ax.pcolormesh(
+                lons,
+                lats,
+                data,
+                cmap="RdBu",
+                transform=ccrs.PlateCarree(),
+                vmin=-2,
+                vmax=2,
+            )
+
+            ax.set_title(f'M{member}-{init.strftime("%Y")}', fontsize=6)
+
+            # Remove axis labels for cleaner look
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    # Add a colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cax=cbar_ax, label="SPI3")
+
+    plt.tight_layout()
+    plt.savefig(f"{region}_stamp_plots_{lead_time}.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def plot_create_obs_fct_stamps(dataset, variable="spi3"):
+    members = dataset.member.values
+    inits = dataset.init.values
+    lats = dataset.lat.values
+    lons = dataset.lon.values
+
+    fig = plt.figure(figsize=(24, 20))  # Adjusted figure size for the new layout
+
+    for i, init in enumerate(inits):
+        for j, member in enumerate(members):
+            ax = fig.add_subplot(
+                len(inits),
+                len(members),
+                i * len(members) + j + 1,
+                projection=ccrs.PlateCarree(),
+            )
+
+            data = dataset[variable].sel(member=member, init=init).values
+
+            # Plot the data
+            im = ax.pcolormesh(
+                lons,
+                lats,
+                data,
+                cmap="RdBu",
+                transform=ccrs.PlateCarree(),
+                vmin=-2,
+                vmax=2,
+            )
+
+            ax.set_title(f'M{member}-{init.strftime("%Y")}', fontsize=6)
+
+            # Remove axis labels for cleaner look
+            ax.set_xticks([])
+            ax.set_yticks([])
+
+    # Add a colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im, cax=cbar_ax, label="SPI3")
+
+    plt.tight_layout()
+    plt.savefig(f"init_rows_20240810.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+def plot_obs_chart_with_triggers(
     plot_type, df, year_column, spi_column, threshold_dict, row_annotations
 ):
     """
@@ -812,7 +2398,7 @@ def obs_chart_with_triggers(
     return final_chart
 
 
-def make_barchart_annotations():
+def aux_plot_make_barchart_annotations():
     row_annotations = [
         alt.Chart(pd.DataFrame({"text": ["lt=1"]}))
         .mark_text(
@@ -873,7 +2459,7 @@ def make_barchart_annotations():
     return row_annotations
 
 
-def decision_table(df):
+def plot_decision_table(df):
     return (
         alt.Chart(df.reset_index())
         .mark_text()
@@ -899,7 +2485,7 @@ def decision_table(df):
     )
 
 
-def create_month_column(df):
+def aux_mt_plot_create_month_column(df):
     new_column = []
 
     for _, row in df.iterrows():
@@ -1011,11 +2597,12 @@ def create_month_column(df):
         else:
             new_column.append("")
 
-    df["new_column"] = new_column
+    # df["new_column"] = new_column
+    df.insert(loc=0, column="new_column", value=new_column)
     return df
 
 
-def replace_with_list(x):
+def aux_mt_plot_replace_with_list(x):
     """
     Replaces NaN float values with a predefined list of replacement values.
 
@@ -1037,7 +2624,7 @@ def replace_with_list(x):
     return x
 
 
-def round_list(lst, decimal_places):
+def aux_mt_plot_round_list(lst, decimal_places):
     """
     Rounds each element in a list to a specified number of decimal places.
 
@@ -1060,7 +2647,7 @@ def round_list(lst, decimal_places):
 
 
 ### functions for whole column, row editing
-def legend_maker(text1, color_list, legend_title):
+def aux_mt_plot_legend_maker(text1, color_list, legend_title):
     square6 = plt.Rectangle((0.4, 0.1), 0.15, 0.25, color=color_list[0], clip_on=False)
     text1.add_artist(square6)
     square5 = plt.Rectangle((0.55, 0.1), 0.15, 0.25, color=color_list[1], clip_on=False)
@@ -1139,25 +2726,25 @@ def legend_maker(text1, color_list, legend_title):
     )
 
 
-def set_align_for_column(table, col, align="left"):
+def aux_mt_plot_set_align_for_column(table, col, align="left"):
     cells = [key for key in table._cells if key[1] == col]
     for cell in cells:
         table._cells[cell]._loc = align
 
 
-def set_width_for_column(table, col, width):
+def aux_mt_plot_set_width_for_column(table, col, width):
     cells = [key for key in table._cells if key[1] == col]
     for cell in cells:
         table._cells[cell]._width = width
 
 
-def set_height_for_row(table, row, height):
+def aux_mt_plot_set_height_for_row(table, row, height):
     cells = [key for key in table._cells if key[0] == row]
     for cell in cells:
         table._cells[cell]._height = height
 
 
-def colorcell(tablerows, tablecols, cellDict, color_list):
+def aux_mt_plot_colorcell(tablerows, tablecols, cellDict, color_list):
     allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         cell_value0 = json.loads(cellDict[alcls]._text.get_text())[0]
@@ -1178,13 +2765,13 @@ def colorcell(tablerows, tablecols, cellDict, color_list):
                 cellDict[alcls].set_facecolor("#FFFFFF")
 
 
-def remove_value(tablerows, tablecols, mpl_table):
+def aux_mt_plot_remove_value(tablerows, tablecols, mpl_table):
     allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         mpl_table._cells[alcls]._text.set_text("")
 
 
-def add_certain_value(tablerows, tablecols, mpl_table, cellDict):
+def aux_mt_plot_add_certain_value(tablerows, tablecols, mpl_table, cellDict):
     allcells = [(x, y) for x in tablerows[1:] for y in tablecols[2:]]
     for alcls in allcells:
         # print(cellDict[alcls]._text.get_text())
@@ -1200,7 +2787,7 @@ def add_certain_value(tablerows, tablecols, mpl_table, cellDict):
             mpl_table._cells[alcls]._text.set_text(ncl)
 
 
-def aset_height_for_row_except_head(table, rowlist, height):
+def aux_mt_plot_aset_height_for_row_except_head(table, rowlist, height):
     cells_list = []
     for row in rowlist:
         cells = [key for key in table._cells if key[0] == row]
@@ -1210,14 +2797,14 @@ def aset_height_for_row_except_head(table, rowlist, height):
             table._cells[cell]._height = height
 
 
-def bset_height_for_row_except_head(table, rowlist, height):
+def aux_mt_plot_bset_height_for_row_except_head(table, rowlist, height):
     for row in rowlist:
         for col in range(len(table[row])):
             cell = table[row, col]
             cell._height = height
 
 
-def cset_height_for_row_except_head(table, row_height):
+def aux_mt_plot_cset_height_for_row_except_head(table, row_height):
     """chatGPT function"""
     for i, cell in six.iteritems(table._cells):
         if i[0] == 0:  # Skip header row
@@ -1225,7 +2812,7 @@ def cset_height_for_row_except_head(table, row_height):
         cell.set_height(row_height)
 
 
-def set_height_for_row_except_head(cellDict, header_row_count, height):
+def aux_mt_plot_set_height_for_row_except_head(cellDict, header_row_count, height):
     for cell_key, cell in cellDict.items():
         row, col = cell_key
         if row < header_row_count:
@@ -1233,7 +2820,7 @@ def set_height_for_row_except_head(cellDict, header_row_count, height):
         cell.set_height(height)
 
 
-def table_header_colour(tablerows, tablecols, cellDict, mpl_table):
+def aux_mt_plot_table_header_colour(tablerows, tablecols, cellDict, mpl_table):
     allcells = [(x, y) for x in tablerows[0:1] for y in tablecols]
     header_list = [
         "Region",
@@ -1286,7 +2873,7 @@ def table_header_colour(tablerows, tablecols, cellDict, mpl_table):
 
 
 ### funciton for table creation
-def render_mpl_table(
+def aux_mt_plot_render_mpl_table(
     data,
     color_list,
     col_width=1.0,
@@ -1390,7 +2977,7 @@ def render_mpl_table(
     return ax
 
 
-def plot_data_table(data_table, stat_var, req_list, region_id):
+def aux_mt_plot_plot_data_table(latex_path, data_table, stat_var, req_list, region_id):
     # Width and height of A4 portrait with 1-inch margins
     width = 3.67 - 2  # one inch margin on each side
     height = 11.69 - 2  # one inch margin on the top and bottom
@@ -1429,7 +3016,7 @@ def plot_data_table(data_table, stat_var, req_list, region_id):
     plt.savefig(f"{latex_path}{var}_{region_id}_prob_v20240703.jpg", dpi=300)
 
 
-def pass_month_get_colnames(months):
+def aux_mt_plot_pass_month_get_colnames(months):
     original_list = [
         "region_x",
         "season",
@@ -1493,7 +3080,7 @@ def pass_month_get_colnames(months):
     return organized_list
 
 
-def table_df(tab_df, stat_var):
+def aux_mt_plot_table_df(tab_df, stat_var):
     tab_df_a = tab_df.rename(columns={"lead_time": "lt"})
     tab_df_m = create_month_column(tab_df_a)
     tab_df_m["pod_v"] = tab_df_m.apply(
