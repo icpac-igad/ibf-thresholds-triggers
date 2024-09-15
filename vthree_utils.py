@@ -1460,7 +1460,7 @@ def generate_trigger_dict(params, full_trigger_df=False):
     }
 
     if full_trigger_df:
-        return trigger_dict, dec_df, filtered_df
+        return trigger_dict, dec_df, filtered_df, df
     else:
         return trigger_dict, dec_df
 
@@ -1516,19 +1516,71 @@ def css_to_latex_color(css_string):
         return f"\\cellcolor{{{color}}}"
 
 
-def run_data_table_latex():
-    trigger_dict, dec_df, df = generate_trigger_dict(params, full_trigger_df=True)
-    styled = df.style.apply(style_dataframe, axis=1)
+def run_data_table_latex(params):
+    trigger_dict, dec_df, fil_df, df0 = generate_trigger_dict(
+        params, full_trigger_df=True
+    )
+    df0["td"].fillna(0.0, inplace=True)
+    percentage_columns = ["trigger_value", "hit_rate", "false_alarm_ratio"]
+    df0[percentage_columns] = df0[percentage_columns].mul(100)
+    df0a = df0[
+        [
+            "trigger_value",
+            "time_step",
+            "hit_rate",
+            "false_alarm_ratio",
+            "bias_score",
+            "hanssen_kuipers_score",
+            "heidke_skill_score",
+            "auroc_score",
+            "obs_count",
+            "hits",
+            "misses",
+            "FA",
+            "CN",
+            "hit_percentage",
+            "cat",
+            "td",
+        ]
+    ]
+
+    col_rename_dict = {
+        "trigger_value": "tv",
+        "time_step": "year\\#",
+        "hit_rate": "hr",
+        "false_alarm_ratio": "far",
+        "bias_score": "bs",
+        "hanssen_kuipers_score": "hk",
+        "heidke_skill_score": "hs",
+        "auroc_score": "au",
+        "obs_count": "oc",
+        "hits": "h",
+        "misses": "m",
+        "FA": "FA",
+        "CN": "CN",
+        "hit_percentage": "h\\%",
+        "cat": "cat",
+        "td": "td",
+    }
+    df0a = df0a.rename(columns=col_rename_dict)
+
+    # df = df0a.round(1)
+    styled = df0a.style.apply(style_dataframe, axis=1)
+    styled = styled.format(
+        {col: "{:.1f}" for col in df0a.select_dtypes(include=["float64"]).columns}
+    )
+    region_name = params.region_name_dict[params.region_id]
+
     latex_table = "\\centering\n" + styled.to_latex(
-        column_format="lcccc",  # Changed to include all 5 columns (index + 4 data columns)
+        column_format="lcccccccccccccccc",  # Changed to include all 5 columns (index + 4 data columns)
         environment="longtable",  # Use longtable environment
-        caption="Styled DataFrame",
+        caption=f"Available triggers with $>$0.5 AUROC, $>$50\\% HR, $<$35\\% FAR for region {region_name}",
         label="tab:styled_df",
         multirow_align="t",
         multicol_align="r",
         convert_css=css_to_latex_color,
     )
-
+    latex_lines = latex_table.split("\n")
     header_line = next(
         i for i, line in enumerate(latex_lines) if "\\begin{longtable}" in line
     )
@@ -1544,5 +1596,8 @@ def run_data_table_latex():
         print("%Warning: Could not find column headers where expected.")
 
     latex_table = "\n".join(latex_lines)
-    with open(f"{latex_path}vm_{region_id}_lt2.tex", "w") as f:
-        f.write(latex_document)
+    with open(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_lt{params.lead_int}.tex",
+        "w",
+    ) as f:
+        f.write(latex_table)
