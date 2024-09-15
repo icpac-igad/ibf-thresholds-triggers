@@ -57,6 +57,7 @@ class BinCreateParams:
         season_str,
         lead_int,
         level,
+        region_name_dict,
         spi_prod_name,
         data_path,
         spi4_data_path,
@@ -67,6 +68,7 @@ class BinCreateParams:
         self.lead_int = lead_int
         self.sc_season_str = season_str.lower()
         self.level = level
+        self.region_name_dict = region_name_dict
         self.spi_prod_name = spi_prod_name
         self.data_path = data_path
         self.spi4_data_path = spi4_data_path
@@ -1414,17 +1416,19 @@ def generate_trigger_dict(params, full_trigger_df=False):
         the trigger_value for the specified x2d_leadtime and region_seas_lt.
     """
 
-    df = pd.read_csv(f"{params.output_path}decisions_valv1.csv")
-
+    df = pd.read_csv(
+        f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}.csv"
+    )
+    filtered_df = df[df["td"] == 1]
     # Filter the DataFrame based on the desired x2d_leadtime and region_seas_lt
     # Adjust the following line to filter based on your specific criteria
-    filtered_df = df[
-        (df["x2d_leadtime"] == params.lead_int)
-        & (
-            df["region_seas_lt"]
-            == f"{params.region_id}_{params.sc_season_str}_{params.lead_int}"
-        )
-    ]
+    # filtered_df = df[
+    #    (df["x2d_leadtime"] == params.lead_int)
+    #    & (
+    #        df["region_seas_lt"]
+    #        == f"{params.region_id}_{params.sc_season_str}_{params.lead_int}"
+    #    )
+    # ]
     filtered_df1 = filtered_df[
         [
             "x2d_leadtime",
@@ -1476,3 +1480,69 @@ def run_bar_plot_df(params, is_obs_df=True):
         return obs_df, plot_df  # Return obs_df if is_obs_df is True
     else:
         return plot_df  # Otherwise, return plot_df
+
+
+def style_dataframe(row):
+    # Default style for the entire row based on 'cat'
+    if row["cat"] == "mod":
+        base_style = ["background-color: #E6F3FF"] * len(row)
+    elif row["cat"] == "sev":
+        base_style = ["background-color: #99CCFF"] * len(row)
+    elif row["cat"] == "ext":
+        base_style = ["background-color: #3399FF"] * len(row)
+    else:
+        base_style = [""] * len(row)
+
+    # Overlay for 'cat' column when 'td' is 1
+    # cat_index = row.index.get_loc('cat')
+    if row["td"] == 1:
+        if row["cat"] == "mod":
+            base_style = ["background-color: yellow"] * len(row)
+        elif row["cat"] == "sev":
+            base_style = ["background-color: brown"] * len(row)
+        elif row["cat"] == "ext":
+            base_style = ["background-color: red"] * len(row)
+
+    return base_style
+
+
+def css_to_latex_color(css_string):
+    if not css_string:
+        return ""
+    color = css_string.split(":")[1].strip()
+    if color.startswith("#"):
+        return f"\\cellcolor[HTML]{{{color[1:]}}}"
+    else:
+        return f"\\cellcolor{{{color}}}"
+
+
+def run_data_table_latex():
+    trigger_dict, dec_df, df = generate_trigger_dict(params, full_trigger_df=True)
+    styled = df.style.apply(style_dataframe, axis=1)
+    latex_table = "\\centering\n" + styled.to_latex(
+        column_format="lcccc",  # Changed to include all 5 columns (index + 4 data columns)
+        environment="longtable",  # Use longtable environment
+        caption="Styled DataFrame",
+        label="tab:styled_df",
+        multirow_align="t",
+        multicol_align="r",
+        convert_css=css_to_latex_color,
+    )
+
+    header_line = next(
+        i for i, line in enumerate(latex_lines) if "\\begin{longtable}" in line
+    )
+    column_header_line = header_line + 1
+
+    # Check if the next line is actually the column headers
+    if "&" in latex_lines[column_header_line]:
+        latex_lines.insert(
+            column_header_line + 1, "\\caption*{Styled DataFrame (continued)}\\\\"
+        )
+        latex_lines.insert(column_header_line + 2, "\\endhead")
+    else:
+        print("%Warning: Could not find column headers where expected.")
+
+    latex_table = "\n".join(latex_lines)
+    with open(f"{latex_path}vm_{region_id}_lt2.tex", "w") as f:
+        f.write(latex_document)

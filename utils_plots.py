@@ -42,6 +42,9 @@ from PIL import Image
 
 
 from vthree_utils import ken_mask_creator
+from vthree_utils import make_obs_fct_dataset
+from vthree_utils import get_threshold
+from vthree_utils import seas51_patch_empirical_probability
 
 # Set up logging
 logging.basicConfig(
@@ -360,7 +363,7 @@ def add_colorbar_and_title(figsize, params, output_dir="output"):
     """
     try:
         # Create a new figure for the colorbar and title
-        fig, ax = plt.subplots(figsize=figsize)  # Adjust size as needed
+        fig = plt.figure(figsize=figsize)
 
         ensemble_cmap_range = (-4, 4)
 
@@ -384,200 +387,21 @@ def add_colorbar_and_title(figsize, params, output_dir="output"):
             orientation="horizontal",
             label="Forecasts (mod/sev/ext)",
         )
-        title_ax = fig.add_axes(
-            [0.1, 0.6, 0.8, 0.3], frame_on=False
-        )  # Add frame_on=False
-        title_ax.text(
-            0.5,
-            0.5,
-            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022",
+        region_name = params.region_name_dict[params.region_id]
+        fig.suptitle(
+            f"{region_name} SEA51-CHRIPS Observations Forecasts for 1981-2022",
             fontsize=92,
             weight="bold",
-            ha="center",
-            va="center",
+            y=0.95,
         )
-        title_ax.set_axis_off()  # Hide the axis
-        title_ax.set_xticks([])  # Remove x-axis ticks
-        title_ax.set_yticks([])  # Remove y-axis ticks
-        title_ax.xaxis.set_visible(False)  # Hide x-axis
-        title_ax.yaxis.set_visible(False)  # Hide y-axis
-        for spine in title_ax.spines.values():  # Remove spines (box around the plot)
-            spine.set_visible(False)
-            # Create a new axis to cover the title area
-        # title_ax = fig.add_axes(
-        #    [0.1, 0.6, 0.8, 0.3], frame_on=False
-        # )  # Full width for title
-        # title_ax.text(
-        #    0.5,
-        #    0.5,
-        #    f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022",
-        #    fontsize=92,
-        #    weight="bold",
-        #    ha="center",
-        #    va="center",
-        # )
-        # title_ax.set_axis_off()  # Hide the axis
-        # title_ax.set_xticks([])  # Remove x-axis ticks
-        # title_ax.set_yticks([])  # Remove y-axis ticks
-        # title_ax.xaxis.set_visible(False)  # Hide x-axis
-        # title_ax.yaxis.set_visible(False)  # Hide y-axis
-        # for spine in title_ax.spines.values():  # Remove spines (box around the plot)
-        #    spine.set_visible(False)
-
+        for ax in fig.axes:
+            if ax != cbar_ax and ax != cbar_ax2:
+                fig.delaxes(ax)
         # Save the final figure
         final_output = f"{output_dir}/final_plot_with_colorbar_and_title_new.png"
         fig.savefig(final_output, dpi=100, bbox_inches="tight")
         plt.close(fig)
-
         logging.info(f"New final plot with colorbar and title saved to {final_output}")
-
-    except Exception as e:
-        logging.error(f"Error adding colorbar and title: {str(e)}")
-        raise
-
-
-def oadd_colorbar_and_title(figsize, params, output_dir="output"):
-    """
-    This function creates a new figure just for the colorbar and title, without using the previous figure.
-    """
-    try:
-        # Create a new figure for the colorbar and title
-        fig, ax = plt.subplots(figsize=figsize)  # Adjust size as needed
-
-        ensemble_cmap_range = (-4, 4)
-
-        # Adjust colorbar size and position
-        cbar_ax = fig.add_axes([0.1, 0.35, 0.8, 0.1])  # Adjusted for better fit
-        norm = plt.Normalize(vmin=ensemble_cmap_range[0], vmax=ensemble_cmap_range[1])
-        fig.colorbar(
-            plt.cm.ScalarMappable(norm=norm, cmap="RdBu"),
-            cax=cbar_ax,
-            orientation="horizontal",
-            label="SPI3 (Ensemble & Obs)",
-        )
-
-        # Add second colorbar
-        cbar_ax2 = fig.add_axes([0.1, 0.15, 0.8, 0.1])  # Adjusted for better fit
-        fct_cmap_range = (0.0, 1.0)
-        norm = plt.Normalize(vmin=fct_cmap_range[0], vmax=fct_cmap_range[1])
-        fig.colorbar(
-            plt.cm.ScalarMappable(norm=norm, cmap="Blues"),
-            cax=cbar_ax2,
-            orientation="horizontal",
-            label="Forecasts (mod/sev/ext)",
-        )
-
-        # Add a large title across the top
-        title_text = (
-            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022"
-        )
-        fig.suptitle(title_text, fontsize=16, weight="bold", ha="center", va="top")
-
-        # Save the final figure
-        final_output = f"{output_dir}/final_plot_with_colorbar_and_title_new.png"
-        fig.savefig(final_output, dpi=100, bbox_inches="tight")
-        plt.close(fig)
-
-        logging.info(f"New final plot with colorbar and title saved to {final_output}")
-
-    except Exception as e:
-        logging.error(f"Error adding colorbar and title: {str(e)}")
-        raise
-
-
-def oadd_colorbar_and_title(figsize, params, output_dir="output"):
-    """
-    This function creates a new figure just for the colorbar and title, without using the previous figure.
-    """
-    try:
-        # Create a new figure just for the colorbar and title
-        fig, ax = plt.subplots(figsize=figsize)  # Adjust size as needed
-
-        ensemble_cmap_range = (-4, 4)
-
-        # Add colorbar to the new figure
-        cbar_ax = fig.add_axes(
-            [0.90, 0.8, 0.05, 0.1]
-        )  # Position: (x, y, width, height)
-        ensemble_cmap_range = (-4, 4)  # Assuming this is the range
-        norm = plt.Normalize(vmin=ensemble_cmap_range[0], vmax=ensemble_cmap_range[1])
-        fig.colorbar(
-            plt.cm.ScalarMappable(norm=norm, cmap="RdBu"),
-            cax=cbar_ax,
-            orientation="horizontal",
-            label="SPI3 (Ensemble & Obs)",
-        )
-
-        cbar_ax2 = fig.add_axes([0.90, 0.2, 0.05, 0.1])
-        fct_cmap_range = (0.0, 1.0)
-        norm = plt.Normalize(vmin=fct_cmap_range[0], vmax=fct_cmap_range[1])
-        fig.colorbar(
-            plt.cm.ScalarMappable(norm=norm, cmap="Blues"),
-            cax=cbar_ax2,
-            orientation="horizontal",
-            label="Forecasts (mod/sev/ext)",
-        )
-
-        title_text = (
-            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022"
-        )
-
-        # Add a large title across the top
-        fig.suptitle(title_text, fontsize=16, weight="bold", ha="center", va="top")
-
-        # Save the final figure
-        final_output = f"{output_dir}/final_plot_with_colorbar_and_title_new.png"
-        fig.savefig(final_output, dpi=100, bbox_inches="tight")
-        plt.close(fig)
-
-        logging.info(f"New final plot with colorbar and title saved to {final_output}")
-
-    except Exception as e:
-        logging.error(f"Error adding colorbar and title: {str(e)}")
-        raise
-
-
-def _add_colorbars(fig, axs, color_mappable):
-    cbar_ax = fig.add_axes([0.90, 0.5, 0.05, 0.1])
-    # cbar = fig.colorbar(axs[0].collections[0], cax=cbar_ax, orientation="horizontal")
-    cbar = fig.colorbar(color_mappable, cax=cbar_ax, orientation="horizontal")
-    cbar.set_label("SPI3 (Ensemble & Obs)")
-
-    cbar_ax2 = fig.add_axes([0.90, 0.2, 0.05, 0.1])
-    # cbar2 = plt.colorbar(axs[-1].collections[0], cax=cbar_ax2, orientation="horizontal")
-    cbar2 = plt.colorbar(color_mappable, cax=cbar_ax2, orientation="horizontal")
-    cbar2.set_label("Forecasts (mod/sev/ext)")
-
-
-def oadd_colorbar_and_title(fig, axs, color_mappable, params, output_dir="output"):
-    """
-    This function clears the previous plot content, adds a colorbar, and then places a large title
-    spanning the figure. The layout (fig, axs) is reused from the previous plotting function.
-    """
-    try:
-        # Clear the existing axes without affecting the layout
-        for ax in axs.flat:
-            ax.clear()
-
-        # Reuse the existing _add_colorbars function to add colorbars
-        _add_colorbars(fig, axs, color_mappable)
-
-        # Add a large title across the top of the entire figure
-        fig.suptitle(
-            f"{params.region_id} SEA51-CHRIPS Observations Forecasts for 1981-2022",
-            fontsize=16,
-            weight="bold",
-            ha="center",
-            va="top",
-        )
-
-        # Save the final figure with the colorbar and title
-        final_output = f"{output_dir}/final_plot_with_colorbar_and_title.png"
-        fig.savefig(final_output, dpi=100, bbox_inches="tight")
-        plt.close(fig)
-
-        logging.info(f"Final plot with colorbar and title saved to {final_output}")
-
     except Exception as e:
         logging.error(f"Error adding colorbar and title: {str(e)}")
         raise
@@ -589,7 +413,7 @@ def plot_allrows(seas51tree, params):
     After all init plots are generated, it calls a separate function to add a colorbar and title.
     """
     # Example usage:
-    output_dir = f"{params.data_path}map_{params.region_id}"
+    output_dir = f"{params.output_path}map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         print(f"Folder created: {output_dir}")
@@ -604,7 +428,7 @@ def plot_allrows(seas51tree, params):
     last_fig, last_axs = None, None  # To store the figure from the last init
     color_mappable = None
 
-    for i, init in enumerate(inits[39:]):
+    for i, init in enumerate(inits):
         fig, axs, figsize = create_single_row_plot(
             seas51tree, init, params, region_geom
         )
@@ -632,6 +456,66 @@ def plot_allrows(seas51tree, params):
 
 
 def merge_png_files(
+    input_dir="single_row_plots",
+    output_file="merged_stamp_plots.png",
+    delete_originals=False,
+):
+    """
+    Merges PNG files in the input directory into a single image and
+    optionally deletes the original files. Saves the merged image in the same directory.
+    This version maintains the original sizes of all images.
+
+    Args:
+        input_dir (str): Path to the directory containing PNG files.
+        output_file (str): Name of the merged image file.
+        delete_originals (bool): Whether to delete original files after merging.
+    """
+    logging.info(f"Starting image merging process in {input_dir}")
+    try:
+        # Get all PNG files in the input directory
+        png_files = sorted(Path(input_dir).glob("*.png"))
+        if not png_files:
+            logging.warning(f"No PNG files found in {input_dir}")
+            return
+
+        # Open all images and get their sizes
+        images = []
+        max_width = 0
+        total_height = 0
+        for png_file in png_files:
+            with Image.open(png_file) as img:
+                images.append(img.copy())
+                max_width = max(max_width, img.width)
+                total_height += img.height
+
+        # Create a new image with the calculated dimensions
+        merged_image = Image.new("RGB", (max_width, total_height), (255, 255, 255))
+
+        # Paste each image into the merged image
+        y_offset = 0
+        for img in images:
+            merged_image.paste(img, ((max_width - img.width) // 2, y_offset))
+            y_offset += img.height
+
+        # Save the merged image in the input directory
+        output_path = os.path.join(input_dir, output_file)
+        merged_image.save(output_path, dpi=(300, 300))
+        logging.info(f"Merged image saved as {output_path}")
+
+        # Delete the individual PNG files if requested
+        if delete_originals:
+            for png_file in png_files:
+                try:
+                    os.remove(png_file)
+                except Exception as e:
+                    logging.error(f"Error deleting {png_file}: {e}")
+            logging.info(f"Individual PNG files in {input_dir} have been deleted.")
+
+    except Exception as e:
+        logging.error(f"An error occurred during the merging process: {e}")
+
+
+def amerge_png_files(
     input_dir="single_row_plots",
     output_file="merged_stamp_plots.png",
     delete_originals=False,
@@ -1086,3 +970,23 @@ def create_heatmap_subplot(dt_df, params):
     )
     plt.close(fig)
     return "made plot"
+
+
+def run_map_plot(params):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    obs_data, ens_data = make_obs_fct_dataset(
+        params.data_path, params.region_id, params.season_str, params.lead_int
+    )
+    fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+        ens_data, threshold_dict
+    )
+
+    dstree = helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext)
+    plot_allrows(dstree, params)
+
+    merge_png_files(
+        input_dir=f"{params.output_path}map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}",
+        output_file="map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}.png",
+        delete_originals=False,
+    )
+    return "merge plot"
