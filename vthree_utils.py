@@ -1446,7 +1446,7 @@ def generate_trigger_dict(params, full_trigger_df=False):
     new_names = {
         "x2d_leadtime": "lead_time",
         "trigger_value": "Trigger",
-        "obs_count": "#catDr",
+        "obs_count": "odc",
         "x2d_level": "cat",
         "hit_percentage": "%hit",
     }
@@ -1553,7 +1553,7 @@ def run_data_table_latex(params):
         "hanssen_kuipers_score": "hk",
         "heidke_skill_score": "hs",
         "auroc_score": "au",
-        "obs_count": "oc",
+        "obs_count": "odc",
         "hits": "h",
         "misses": "m",
         "FA": "FA",
