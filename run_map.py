@@ -1,56 +1,110 @@
 import os
 from dotenv import load_dotenv
-import numpy as np
-import pandas as pd
-import altair as alt
-from io import StringIO
-import xarray as xr
-
-from dask.distributed import Client
-from utils import get_threshold
 
 from vthree_utils import BinCreateParams
-from vthree_utils import ken_mask_creator
-from vthree_utils import make_obs_fct_dataset
-from vthree_utils import get_threshold
-from vthree_utils import seas51_patch_empirical_probability
-
-# from utils import prepare_data_for_concat
-from utils_plots import helper_stamp_plot
-from utils_plots import plot_allrows
-from utils_plots import merge_png_files
 from utils_plots import run_map_plot
 
 load_dotenv()
 
-params = BinCreateParams(
+"""params = BinCreateParams(
     region_id=0,
+    region_name_dict={0: "Karamoja", 1: "Marsabit", 2: "Wajir"},
     season_str="MAM",
     lead_int=2,
     level="mod",
-    region_name_dict={0: "Karamjoa", 1: "Marsabit", 2: "Wajir"},
     spi_prod_name="spi3",
     data_path=os.getenv("ea_input_path"),
     spi4_data_path=os.getenv("data_path"),
     output_path=os.getenv("output_path"),
 )
 
-
-# params.data_path = params.spi4_data_path
-
-threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+# run_xhist2d(params)
+run_map_plot(params)
 
 
-obs_data, ens_data = make_obs_fct_dataset(
-    params.data_path, params.region_id, params.season_str, params.lead_int
+params.lead_int = 3
+# run_xhist2d(params)
+run_map_plot(params)
+
+params.lead_int = 4
+# run_xhist2d(params)
+run_map_plot(params)
+
+params.season_str = "JJAS"
+params.sc_season_str = "jjas"
+params.spi_prod_name = "spi4"
+params.data_path = params.spi4_data_path
+params.lead_int = 2
+# run_xhist2d(params)
+run_map_plot(params)
+
+
+params.lead_int = 3
+run_map_plot(params)
+
+params.lead_int = 4
+run_map_plot(params)"""
+
+#########################
+#########################
+params = BinCreateParams(
+    region_id=1,
+    region_name_dict={0: "Karamoja", 1: "Marsabit", 2: "Wajir"},
+    season_str="MAM",
+    lead_int=2,
+    level="mod",
+    spi_prod_name="spi3",
+    data_path=os.getenv("ea_input_path"),
+    spi4_data_path=os.getenv("data_path"),
+    output_path=os.getenv("output_path"),
 )
-fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(ens_data, threshold_dict)
 
-dstree = helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext)
-plot_allrows(dstree, params)
+"""run_map_plot(params)
 
-merge_png_files(
-    input_dir=f"{params.output_path}map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}",
-    output_file="merged_stamp_plots1.png",
-    delete_originals=False,
-)
+params.lead_int = 3
+run_map_plot(params)
+
+params.lead_int = 4
+run_map_plot(params)
+
+params.season_str = "OND"
+params.sc_season_str = "ond"
+params.lead_int = 2
+run_map_plot(params)
+
+
+params.lead_int = 3
+run_map_plot(params)
+
+params.lead_int = 4
+run_map_plot(params)
+
+##########################
+##########################
+
+params.season_str = "MAM"
+params.sc_season_str = "mam"
+params.spi_prod_name = "spi3"
+params.region_id = 2
+params.lead_int = 2
+run_map_plot(params)
+
+
+params.lead_int = 3
+run_map_plot(params)
+
+params.lead_int = 4
+run_map_plot(params)"""
+
+params.season_str = "OND"
+params.sc_season_str = "ond"
+params.spi_prod_name = "spi3"
+params.lead_int = 2
+run_map_plot(params)
+
+
+# params.lead_int = 3
+# run_map_plot(params)
+
+# params.lead_int = 4
+# run_map_plot(params)

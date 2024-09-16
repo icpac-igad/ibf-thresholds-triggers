@@ -45,6 +45,9 @@ from vthree_utils import ken_mask_creator
 from vthree_utils import make_obs_fct_dataset
 from vthree_utils import get_threshold
 from vthree_utils import seas51_patch_empirical_probability
+from vthree_utils import run_bar_plot_df
+from vthree_utils import generate_trigger_dict
+
 
 # Set up logging
 logging.basicConfig(
@@ -389,7 +392,7 @@ def add_colorbar_and_title(figsize, params, output_dir="output"):
         )
         region_name = params.region_name_dict[params.region_id]
         fig.suptitle(
-            f"{region_name} SEA51-CHRIPS Observations Forecasts for 1981-2022",
+            f"{region_name} SEA51-CHRIPS Observations Forecasts for 1981-2023",
             fontsize=92,
             weight="bold",
             y=0.95,
@@ -714,6 +717,23 @@ def plot_decision_table(df):
     )
 
 
+def aux_mt_plot_round_list(lst, decimal_places):
+    """
+    Rounds each element in a list to a specified number of decimal places.
+
+    Parameters:
+    - lst (list of float): The list of numbers to be rounded.
+    - decimal_places (int): The number of decimal places to round each number to.
+
+    Returns:
+    - A list containing the rounded values of the input list.
+
+    Note:
+    - This function is useful for rounding numerical values in a list to ensure consistency or to improve readability.
+    """
+    return [round(x, decimal_places) for x in lst]
+
+
 def bar_stitch_plot(params, config):
     obs_plot = config["obs_plot"]
     lt2_plot = config["lt2_plot"]
@@ -724,10 +744,8 @@ def bar_stitch_plot(params, config):
     dec_dflt4 = config["dec_dflt4"]
     tab_df1 = pd.concat([dec_dflt2, dec_dflt3, dec_dflt4])
     tab_df1["Trigger"] = tab_df1["Trigger"] * 100
-    tab_df1["Trigger"] = tab_df1["Trigger"].apply(
-        lambda x: aux_mt_plot_round_list(x, 2)
-    )
-    tab_df1["%hit"] = tab_df1["%hit"].apply(lambda x: aux_mt_plot_round_list([x], 2))
+    tab_df1["Trigger"] = tab_df1["Trigger"].apply(lambda x: round(x, 2))
+    tab_df1["%hit"] = tab_df1["%hit"].apply(lambda x: round(x, 2))
 
     tab_plot = plot_decision_table(tab_df1).properties(height=200, width=400)
     # tab_plot
@@ -752,6 +770,57 @@ def bar_stitch_plot(params, config):
 
     # print(" Marsabit selected trigger for OND")
     panels.save(f"{params.output_path}{params.region_id}_{params.sc_season_str}.png")
+
+
+def run_bar_plot(params):
+    #######################
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    obs_df, plot_dflt2 = run_bar_plot_df(params, is_obs_df=True)
+
+    params.lead_int = 2
+    row_annotation = aux_plot_make_barchart_annotation(params)
+    decision_dict, dec_dflt2 = generate_trigger_dict(params, full_trigger_df=False)
+
+    obs_plot = plot_obs_chart_with_triggers(
+        "obs", obs_df, "year", params.spi_prod_name, threshold_dict, row_annotation
+    )
+    lt2_plot = plot_obs_chart_with_triggers(
+        "fct", plot_dflt2, "year", "ep_pb", decision_dict, row_annotation
+    )
+    #######################
+    params.lead_int = 3
+    plot_dflt3 = run_bar_plot_df(params, is_obs_df=False)
+
+    # run_xhist2d(params)
+    row_annotation = aux_plot_make_barchart_annotation(params)
+    decision_dict, dec_dflt3 = generate_trigger_dict(params, full_trigger_df=False)
+
+    lt3_plot = plot_obs_chart_with_triggers(
+        "fct", plot_dflt2, "year", "ep_pb", decision_dict, row_annotation
+    )
+    #######################
+    #######################
+    params.lead_int = 4
+    plot_dflt4 = run_bar_plot_df(params, is_obs_df=False)
+
+    # run_xhist2d(params)
+    row_annotation = aux_plot_make_barchart_annotation(params)
+    decision_dict, dec_dflt4 = generate_trigger_dict(params, full_trigger_df=False)
+
+    lt4_plot = plot_obs_chart_with_triggers(
+        "fct", plot_dflt4, "year", "ep_pb", decision_dict, row_annotation
+    )
+    #######################
+    bar_stitch_config = {
+        "obs_plot": obs_plot,
+        "lt2_plot": lt2_plot,
+        "lt3_plot": lt3_plot,
+        "lt4_plot": lt4_plot,
+        "dec_dflt2": dec_dflt2,
+        "dec_dflt3": dec_dflt3,
+        "dec_dflt4": dec_dflt4,
+    }
+    bar_stitch_plot(params, bar_stitch_config)
 
 
 def calculate_month(season, lt):
@@ -829,7 +898,8 @@ def create_category_dataframes(df):
     result = {cat: {metric: {} for metric in metrics} for cat in categories}
 
     # Extract unique months from the input DataFrame
-    all_months = sorted(df["lt_month"].unique(), key=get_month_num)
+    # all_months = sorted(df["lt_month"].unique(), key=get_month_num)
+    all_months = df["lt_month"].unique()
 
     # Iterate through the DataFrame
     for _, row in df.iterrows():
@@ -914,7 +984,7 @@ def create_heatmap_subplot(dt_df, params):
     'Extreme' categories. Two colorbars are added to the figure: one for hit rate and one for
     false alarm ratio.
     """
-    fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+    fig, axes = plt.subplots(2, 3, figsize=(10, 8))
 
     categories = ["mod", "sev", "ext"]
     titles = ["Moderate", "Severe", "Extreme"]
@@ -934,6 +1004,7 @@ def create_heatmap_subplot(dt_df, params):
             linewidths=0.5,
             linecolor="black",
             ax=axes[0, i],
+            square=True,
         )
         axes[0, i].set_title(f"{title} - Hit Rate")
 
@@ -948,6 +1019,7 @@ def create_heatmap_subplot(dt_df, params):
             linewidths=0.5,
             linecolor="black",
             ax=axes[1, i],
+            square=True,
         )
         axes[1, i].set_title(f"{title} - False Alarm Ratio")
 
@@ -962,14 +1034,44 @@ def create_heatmap_subplot(dt_df, params):
 
     cbar_ax = fig.add_axes([1.02, 0.1, 0.02, 0.35])  # [left, bottom, width, height]
     plt.colorbar(plt.cm.ScalarMappable(cmap=far_cmap, norm=far_norm), cax=cbar_ax)
-    cbar_ax.set_title("False Alarm Ratio", rotation=90, y=0.5)
+    cbar_ax.set_title("FAR")
     plt.savefig(
         f"{params.output_path}dt_{params.region_id}_{params.sc_season_str}.png",
-        dpi=300,
+        dpi=150,
         bbox_inches="tight",
     )
     plt.close(fig)
     return "made plot"
+
+
+def run_heatmap_plot(params):
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    obs_df, plot_dflt2 = run_bar_plot_df(params, is_obs_df=True)
+
+    params.lead_int = 2
+    decision_dict, dec_dflt2, dflt2, df0 = generate_trigger_dict(
+        params, full_trigger_df=True
+    )
+
+    params.lead_int = 3
+    decision_dict, dec_dflt2, dflt3, df0 = generate_trigger_dict(
+        params, full_trigger_df=True
+    )
+
+    params.lead_int = 4
+    decision_dict, dec_dflt2, dflt4, df0 = generate_trigger_dict(
+        params, full_trigger_df=True
+    )
+
+    df = pd.concat([dflt2, dflt3, dflt4])
+
+    df["lt_month"] = df.apply(
+        lambda row: calculate_month(row["x2d_season"], row["x2d_leadtime"]), axis=1
+    )
+
+    dt_df = create_category_dataframes(df)
+
+    create_heatmap_subplot(dt_df, params)
 
 
 def run_map_plot(params):
@@ -986,7 +1088,7 @@ def run_map_plot(params):
 
     merge_png_files(
         input_dir=f"{params.output_path}map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}",
-        output_file="map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}.png",
+        output_file=f"map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}.pdf",
         delete_originals=False,
     )
     return "merge plot"
