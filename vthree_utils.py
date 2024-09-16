@@ -1574,7 +1574,7 @@ def run_data_table_latex(params):
     latex_table = "\\centering\n" + styled.to_latex(
         column_format="lcccccccccccccccc",  # Changed to include all 5 columns (index + 4 data columns)
         environment="longtable",  # Use longtable environment
-        caption=f"Available triggers with $>$0.5 AUROC, $>$50\\% HR, $<$35\\% FAR for region {region_name}",
+        caption=f"Available triggers with $>$0.5 AUROC, $>$50\\% HR, $<$35\\% FAR for season {params.season_str}-{params.spi_prod_name} at region {region_name} with lead time {params.lead_int}",
         label="tab:styled_df",
         multirow_align="t",
         multicol_align="r",
@@ -1595,7 +1595,16 @@ def run_data_table_latex(params):
     else:
         print("%Warning: Could not find column headers where expected.")
 
-    latex_table = "\n".join(latex_lines)
+    subfile_content = [
+        "\\documentclass[article]{subfiles}",
+        "\\begin{document}",
+        "\\centering",
+        *latex_lines,
+        "\\end{document}",
+    ]
+
+    latex_table = "\n".join(subfile_content)
+    # latex_table = "\n".join(latex_lines)
     with open(
         f"{params.output_path}{params.region_id}_{params.sc_season_str}_lt{params.lead_int}.tex",
         "w",

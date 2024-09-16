@@ -231,81 +231,6 @@ def create_single_row_plot(tree, init, params, region_geom):
         raise
 
 
-def ocreate_single_row_plot(tree, init, params, region_geom):
-    logging.info(f"Creating single row plot for {init} with variable {variable}")
-    try:
-        output_dir = f"{params.output_path}map_region{params.region_id}"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            print(f"Folder created: {output_dir}")
-        else:
-            print(f"Folder already exists: {output_dir}")
-        members = list(tree["ensemble"].children.keys())
-        valid_times = tree["ensemble/member_0"].ds.valid_time.values
-        lats = tree["ensemble/member_0"].ds.lat.values
-        lons = tree["ensemble/member_0"].ds.lon.values
-        num_members = len(members)
-        num_additional_plots = 4  # Obs, mod, sev, ext
-        total_plots = num_members + num_additional_plots
-
-        # Create output directory if it doesn't exist
-
-        # Create a wide figure for a single row
-        fig, axs = plt.subplots(
-            1,
-            total_plots,
-            figsize=(2 * total_plots, 2),
-            subplot_kw={"projection": ccrs.PlateCarree()},
-        )
-
-        # Define the color scale ranges
-        ensemble_cmap_range = (-4, 4)
-        fct_cmap_range = (0.0, 1.0)
-
-        valid_time = valid_times[
-            np.where(tree["ensemble/member_0"].ds.init.values == init)[0][0]
-        ]
-
-        # Plot ensemble members
-        for j, member_key in enumerate(members):
-            overlay_shapefile = j == 0
-            _plot_ensemble_member(
-                tree,
-                member_key,
-                params.spi_prod_name,
-                init,
-                axs[0, j],
-                ensemble_cmap_range,
-                region_geom,
-                shape_overlay=True if overlay_shapefile else False,
-            )
-
-        # Add the observation and additional models as the last plots
-        plot_titles = ["Obs", "mod", "sev", "ext"]
-        plot_keys = ["observation", "fct_mod", "fct_sev", "fct_ext"]
-        for k, (title, key) in enumerate(zip(plot_titles, plot_keys)):
-            _plot_additional_data(
-                tree,
-                key,
-                params.spi_prod_name,
-                init,
-                valid_time,
-                axs[num_members + k],
-                title,
-                ensemble_cmap_range if key == "observation" else fct_cmap_range,
-            )
-
-        plt.tight_layout()
-        output_file = f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png'
-        plt.savefig(output_file, dpi=100, bbox_inches="tight")
-        logging.info(f"Plot saved to {output_file}")
-        plt.close()
-
-    except Exception as e:
-        logging.error(f"Error creating plot: {str(e)}")
-        raise
-
-
 def _plot_ensemble_member(
     tree, member_key, variable, init, ax, cmap_range, geom, shape_overlay=False
 ):
@@ -518,64 +443,6 @@ def merge_png_files(
         logging.error(f"An error occurred during the merging process: {e}")
 
 
-def amerge_png_files(
-    input_dir="single_row_plots",
-    output_file="merged_stamp_plots.png",
-    delete_originals=False,
-):
-    """
-    Merges PNG files in the input directory into a single image and
-    deletes the original files. Saves the merged image in the same directory.
-
-    Args:
-        input_dir (str): Path to the directory containing PNG files.
-        output_file (r): Name of the merged image file.
-    """
-    logging.info(f"Starting image merging process in {input_dir}")
-
-    try:
-        # Get all PNG files in the input directory
-        png_files = sorted(Path(input_dir).glob("*.png"))
-
-        if not png_files:
-            logging.warning(f"No PNG files found in {input_dir}")
-            return
-
-        # Open the first image to get dimensions
-        with Image.open(png_files[0]) as img:
-            row_width, row_height = img.size
-
-        # Create a new image with the calculated dimensions
-        merged_height = row_height * len(png_files)
-        merged_image = Image.new("RGB", (row_width, merged_height))
-
-        # Paste each row image into the merged image
-        for i, png_file in enumerate(png_files):
-            try:
-                with Image.open(png_file) as img:
-                    merged_image.paste(img, (0, i * row_height))
-            except Exception as e:
-                logging.error(f"Error processing {png_file}: {e}")
-                continue  # Skip this file and continue with the rest
-
-        # Save the merged image in the input directory
-        output_path = os.path.join(input_dir, output_file)
-        merged_image.save(output_path, dpi=(300, 300))
-        logging.info(f"Merged image saved as {output_path}")
-
-        # Delete the individual PNG files
-        if delete_originals:
-            for png_file in png_files:
-                try:
-                    os.remove(png_file)
-                except Exception as e:
-                    logging.error(f"Error deleting {png_file}: {e}")
-            logging.info(f"Individual PNG files in {input_dir} have been deleted.")
-
-    except Exception as e:
-        logging.error(f"An error occurred during the merging process: {e}")
-
-
 def plot_obs_chart_with_triggers(
     plot_type, df, year_column, spi_column, threshold_dict, row_annotations
 ):
@@ -691,7 +558,103 @@ def aux_plot_make_barchart_annotation(params):
     return annotation
 
 
-def plot_decision_table(df):
+def cplot_decision_table(df):
+    # Reset the index but keep it as a column
+    df_reset = df.reset_index(names="row_index")
+
+    # Create a categorical order based on the 'cat' column
+    cat_order = df_reset["cat"].unique().tolist()
+
+    # Create a custom sort order that groups by 'cat' but preserves original order within groups
+    df_reset["custom_sort"] = df_reset.groupby("cat").cumcount()
+
+    base = alt.Chart(df_reset).transform_fold(df.columns.tolist(), as_=["key", "value"])
+
+    text = base.mark_text().encode(
+        x=alt.X(
+            "key:N",
+            axis=alt.Axis(orient="top", labelAngle=0, title=None, ticks=False),
+            scale=alt.Scale(padding=10),
+            sort=None,
+        ),
+        y=alt.Y(
+            "row_index:O",
+            axis=None,
+            sort=alt.SortField(field="custom_sort", order="ascending"),
+            scale=alt.Scale(domain=df_reset["row_index"].tolist()),
+        ),
+        text="value:N",
+        color=alt.Color(
+            "cat:N",
+            legend=None,
+            scale=alt.Scale(domain=cat_order, range=["##000000", "#000000", "#000000"]),
+        ),
+    )
+
+    # Add subtle grid lines
+    # grid = base.mark_rule(color="lightgray", strokeDash=[1, 2]).encode(y="row_index:O")
+
+    # Combine text and grid
+    chart = text.properties(
+        width=len(df.columns) * 80,  # Adjust width based on number of columns
+        height=len(df) * 25,  # Adjust height based on number of rows
+    )
+
+    return chart
+
+
+def bplot_decision_table(df):
+    # Reset the index but keep it as a column
+    df_reset = df.reset_index(names="row_index")
+
+    # Create a categorical order based on the 'cat' column
+    cat_order = df_reset["cat"].unique().tolist()
+
+    # Create a custom sort order that groups by 'cat' but preserves original order within groups
+    df_reset["custom_sort"] = df_reset.groupby("cat").cumcount()
+
+    return (
+        alt.Chart(df_reset)
+        .mark_text()
+        .transform_fold(df.columns.tolist())
+        .encode(
+            alt.X(
+                "key:N",
+                axis=alt.Axis(
+                    orient="top",
+                    labelAngle=0,
+                    title=None,
+                    ticks=False,
+                ),
+                scale=alt.Scale(padding=10),
+                sort=None,
+            ),
+            alt.Y(
+                "row_index:O",
+                axis=None,
+                sort=alt.SortField(field="custom_sort", order="ascending"),
+                scale=alt.Scale(domain=df_reset["row_index"].tolist()),
+            ),
+            alt.Text("value:N"),
+            alt.Color(
+                "cat:N",
+                legend=None,
+                scale=alt.Scale(
+                    domain=cat_order, range=["#e7ba52", "#a7a7a7", "#aec7e8"]
+                ),
+            ),
+            alt.Row(
+                "cat:N",
+                header=alt.Header(title=None, labelAngle=0, labelAlign="left"),
+                sort=cat_order,
+            ),
+        )
+        .configure_facet(spacing=0)
+        .configure_view(stroke=None)
+    )
+
+
+def aplot_decision_table(df):
     return (
         alt.Chart(df.reset_index())
         .mark_text()
@@ -713,6 +676,92 @@ def plot_decision_table(df):
             ),
             alt.Y("index", type="ordinal", axis=None),
             alt.Text("value", type="nominal"),
+        )
+    )
+
+
+def eplot_decision_table(df):
+    # Create a new column to preserve the original index
+    df["original_index"] = df.index
+
+    return (
+        alt.Chart(df)
+        .mark_text()
+        .transform_fold(df.columns.tolist())
+        .encode(
+            alt.X(
+                "key",
+                type="nominal",
+                axis=alt.Axis(
+                    orient="top",  # flip x labels upside down
+                    labelAngle=0,  # put x labels into horizontal direction
+                    title=None,
+                    ticks=False,
+                ),
+                scale=alt.Scale(padding=10),
+                sort=None,  # preserve the original order of columns
+            ),
+            alt.Y("original_index:O", axis=None),  # Use the preserved index for Y-axis
+            alt.Text("value:Q"),  # Display the values
+        )
+    )
+
+
+def del_plot_decision_table(df):
+    # Ensure all columns are included for folding
+
+    fold_columns = df.columns.tolist()  # List of all columns in the DataFrame
+
+    return (
+        alt.Chart(df.reset_index())
+        .mark_text()
+        .transform_fold(fold_columns)
+        .encode(
+            alt.X(
+                "key:N",  # Nominal type for categorical data
+                axis=alt.Axis(
+                    orient="top",  # Flip x labels upside down
+                    labelAngle=0,  # Put x labels into horizontal direction
+                    title=None,
+                    ticks=False,
+                ),
+                scale=alt.Scale(padding=10),
+                sort=None,  # Ensure order is not reset
+            ),
+            alt.Y(
+                "index:O", axis=None  # Ordinal type to maintain original index order
+            ),
+            alt.Text("value:N"),  # Text value for each cell in the table
+        )
+    )
+
+
+def plot_decision_table(df1):
+    # Ensure all columns are included for folding
+    df = df1.reset_index()
+    df = df.drop(columns=["index"])
+    fold_columns = df.columns.tolist()  # List of all columns in the DataFrame
+
+    return (
+        alt.Chart(df.reset_index())
+        .mark_text()
+        .transform_fold(fold_columns)
+        .encode(
+            alt.X(
+                "key:N",  # Nominal type for categorical data
+                axis=alt.Axis(
+                    orient="top",  # Flip x labels upside down
+                    labelAngle=0,  # Put x labels into horizontal direction
+                    title=None,
+                    ticks=False,
+                ),
+                scale=alt.Scale(padding=10),
+                sort=None,  # Ensure order is not reset
+            ),
+            alt.Y(
+                "index:O", axis=None  # Ordinal type to maintain original index order
+            ),
+            alt.Text("value:N"),  # Text value for each cell in the table
         )
     )
 
