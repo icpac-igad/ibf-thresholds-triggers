@@ -29,7 +29,7 @@ params.data_path = params.spi4_data_path
 run_heatmap_plot(params)
 #########################
 #########################
-"""params = BinCreateParams(
+params = BinCreateParams(
     region_id=1,
     region_name_dict={0: "Karamoja", 1: "Marsabit", 2: "Wajir"},
     season_str="MAM",
@@ -61,4 +61,4 @@ run_heatmap_plot(params)
 params.season_str = "OND"
 params.sc_season_str = "ond"
 params.spi_prod_name = "spi3"
-run_heatmap_plot(params)"""
+run_heatmap_plot(params)

@@ -473,10 +473,10 @@ def get_threshold(region_id, season):
     data = """region_id,region,season,mod,sev,ext
     0,kmj,mam,-0.55,-0.98,-0.99
     0,kmj,jjas,-0.40,-0.98,-0.99
-    1,mbt,mam,-0.14,-0.38,-1.0
-    1,mbt,ond,-0.44,-0.71,-1.0
-    2,wjr,mam,-0.19,-0.45,-1.0
-    2,wjr,ond,-0.46,-0.76,-1.0
+    1,mbt,mam,-0.15,-0.53,-0.71
+    1,mbt,ond,-0.15,-0.53,-0.71
+    2,wjr,mam,-0.29,-0.76,-0.90
+    2,wjr,ond,-0.29,-0.76,-0.90
     """
     # Use StringIO to convert the string data to a file-like object
     data_io = StringIO(data)

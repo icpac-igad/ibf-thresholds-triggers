@@ -35,6 +35,7 @@ load_dotenv()
 
 params = BinCreateParams(
     region_id=1,
+    region_name_dict={0: "Karamoja", 1: "Marsabit", 2: "Wajir"},
     season_str="MAM",
     lead_int=2,
     level="mod",
