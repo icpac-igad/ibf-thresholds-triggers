@@ -235,6 +235,71 @@ def ken_mask_creator(data_path):
         raise
 
 
+def gcs_paraquet_mask_creator(service_account_json, gcs_file_url, region_filter):
+    """
+    Utility for generating region/district masks using regionmask library,
+    with data sourced from Google Cloud Storage.
+
+    Parameters:
+    - service_account_json (str): Path to the service account key file.
+    - gcs_file_url (str): GCS file URL for the parquet file.
+    - region_filter (str): Pipe-separated string of region codes to filter (e.g., 'kmj|mbt|wjr').
+
+    Returns:
+    -------
+    the_mask : regionmask.Regions
+        The created mask for the regions.
+    rl_dict : dict
+        Dictionary mapping region numbers to region names.
+    gdf : geopandas.GeoDataFrame
+        GeoDataFrame containing geometry, region, and region_name information.
+    """
+    logger.info("Starting gcs_mask_creator function")
+
+    try:
+        # Create credentials object
+        credentials = service_account.Credentials.from_service_account_file(
+            service_account_json,
+            scopes=["https://www.googleapis.com/auth/devstorage.read_only"],
+        )
+
+        # Read the parquet file from GCS
+        logger.info(f"Reading parquet file from {gcs_file_url}")
+        ddf = dd.read_parquet(gcs_file_url, storage_options={'token': credentials}, engine='pyarrow')
+
+        # Filter for required regions
+        logger.info(f"Filtering regions based on: {region_filter}")
+        fdf = ddf[ddf['gbid'].str.contains(region_filter, case=False)]
+        df = fdf.compute()
+
+        logger.info("Converting WKB to Shapely geometries")
+        df['geometry'] = df['geometry'].apply(wkb.loads)
+
+        logger.info("Creating GeoDataFrame")
+        gdf = gpd.GeoDataFrame(df, geometry='geometry')
+
+        # Assuming 'gbid' is the column for region codes and there's a 'name' column for region names
+        # If the column names are different, please adjust accordingly
+        gdf = gdf.rename(columns={'gbid': 'region', 'name': 'region_name'})
+
+        if gdf.empty:
+            raise ValueError("GeoDataFrame is empty")
+
+        logger.info("Creating region-name dictionary")
+        rl_dict = dict(zip(gdf.region, gdf.region_name))
+
+        logger.info("Creating regionmask from GeoDataFrame")
+        the_mask = regionmask.from_geopandas(gdf, numbers="region", names="region_name")
+
+        logger.info("gcs_mask_creator function completed successfully")
+        return the_mask, rl_dict, gdf
+
+    except Exception as e:
+        logger.error(f"An error occurred in gcs_mask_creator: {e}")
+        raise
+
+
+
 def spi3_prod_name_creator(ds_ens, var_name):
     """
     Convenience function to generate a list of SPI product
@@ -471,7 +536,9 @@ def get_threshold(region_id, season):
     -0.14
     """
     data = """region_id,region,season,mod,sev,ext
-    0,kmj,mam,-0.55,-0.98,-0.99
+    0,kmj,mamo,-0.55,-0.98,-0.99
+    0,kmj,mam,-0.43,-0.67,-0.84
+    0,kmj,jja,-0.43,-0.67,-0.84
     0,kmj,jjas,-0.40,-0.98,-0.99
     1,mbt,mam,-0.15,-0.53,-0.71
     1,mbt,ond,-0.15,-0.53,-0.71
