@@ -1,13 +1,26 @@
 ## AA triggers selection using forecast verification 
 
-The notesbooks shows the methods for verifiying SEAS51 forecast using CHRIPS data
-and select triggers for AA. 
+The notesbooks and script needed to be run one after another.
 
-1. 01-input-spi-seas51, methods for processing SEAS51 and calculate SPI
-2. 02-input-spi-chrips, methods for processing CHRIPS and calcualte SPI
-3. 03-inputs-kiwama-region, methods for align forecast and observation as suitable for [Climpred](https://climpred.readthedocs.io/en/stable/)
-4. 04-dichotomous-contingency-scores, set of functions to carry out dichotomous contingency based scores
-5. 05-trigger-decisions-tableplot, methods for to filter tested triggers with suitable scores to be used for AA
-6. 06-plot-table, table plots of selected triggers with FAR and POD scores
+1. Notebook `src/01-input-spi-seas51`, methods for processing SEAS51 and
+   calculate SPI
+2. Notebook `src/02-input-spi-chrips`, methods for processing CHRIPS and
+   calcualte SPI
+3. The python script `src/run_kmj.py`, to do the 2d and 1d forecast
+   verification, metrices such as AUROC with bootstrap, subset the triggers and
+   save the triggers and metrices as csv files
+4. The python script `src/run_map.py`, to do the stamp plot map of SPI in
+   forecast ensemble members, CHIRPS observations and threshold exceedance
+   emprical probablity from netcdf files
+5. The python script `src/run_bar.py`. This has to be run after manually
+   selecting the trigger values from the csv file in step 3. This script makes
+   bar plots of selected triggers with comparision of 1d analysis comparing
+   observation and forecast.
+6. The python script `src/run_heatmap.py`. This makes decised triggers
+   reflecting it with FAR and HR in heatmap format. 
+7. The python script `src/run_latex_table.py`. Which makes latex longtable to
+   be used with the report on analysis. Which shows the list of trigger values
+   having AUROC score >0.5 and manually selected triggers marked in the table.  
 
-Each notebooks has documentation on the steps and methods used. 
+Using the latex tempalte in doc/ the report can be compiled. 
+
