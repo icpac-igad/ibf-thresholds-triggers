@@ -1,26 +1,32 @@
 ## AA triggers selection using forecast verification 
 
-The notesbooks and script needed to be run one after another.
+The following Jupyter notebooks and Python scripts need to be executed
+sequentially:
 
-1. Notebook `src/01-input-spi-seas51`, methods for processing SEAS51 and
-   calculate SPI
-2. Notebook `src/02-input-spi-chrips`, methods for processing CHRIPS and
-   calcualte SPI
-3. The python script `src/run_kmj.py`, to do the 2d and 1d forecast
-   verification, metrices such as AUROC with bootstrap, subset the triggers and
-   save the triggers and metrices as csv files
-4. The python script `src/run_map.py`, to do the stamp plot map of SPI in
-   forecast ensemble members, CHIRPS observations and threshold exceedance
-   emprical probablity from netcdf files
-5. The python script `src/run_bar.py`. This has to be run after manually
-   selecting the trigger values from the csv file in step 3. This script makes
-   bar plots of selected triggers with comparision of 1d analysis comparing
-   observation and forecast.
-6. The python script `src/run_heatmap.py`. This makes decised triggers
-   reflecting it with FAR and HR in heatmap format. 
-7. The python script `src/run_latex_table.py`. Which makes latex longtable to
-   be used with the report on analysis. Which shows the list of trigger values
-   having AUROC score >0.5 and manually selected triggers marked in the table.  
+1. **Notebook** `src/01-input-spi-seas51`: Contains methods for processing
+   SEAS51 data and calculating the Standardized Precipitation Index (SPI).
+   
+2. **Notebook** `src/02-input-spi-chrips`: Contains methods for processing
+   CHIRPS data and calculating SPI.
 
-Using the latex tempalte in doc/ the report can be compiled. 
+3. **Python Script** `src/run_kmj.py`: Performs 2D and 1D forecast
+   verification, calculating metrics such as AUROC using bootstrapping. It
+   subsets and saves trigger data and metrics as CSV files.
+
+4. **Python Script** `src/run_map.py`: Generates stamp plot maps of SPI for
+   forecast ensemble members, CHIRPS observations, and threshold exceedance
+   empirical probabilities from NetCDF files.
+
+5. **Python Script** `src/run_bar.py`: After manually selecting trigger values
+   from the CSV file in step 3, this script creates bar plots of selected
+   triggers, comparing 1D analyses of observations and forecasts.
+
+6. **Python Script** `src/run_heatmap.py`: Generates a heatmap of decisive
+   triggers, displaying False Alarm Rate (FAR) and Hit Rate (HR).
+
+7. **Python Script** `src/run_latex_table.py`: Creates a LaTeX longtable for
+   inclusion in the analysis report, listing trigger values with AUROC scores
+   greater than 0.5 and highlighting manually selected triggers.
+
+To compile the report, use the LaTeX template provided in the `doc/` folder.
 
