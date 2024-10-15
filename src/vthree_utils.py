@@ -10,10 +10,12 @@ import xesmf as xe
 import numpy as np
 import pandas as pd
 import regionmask
+from shapely import wkb
 import geopandas as gp
 from climpred import HindcastEnsemble
 from datetime import datetime
 from datatree import DataTree
+import dask.dataframe as daskdf
 
 import xhistogram.xarray as xhist
 from sklearn.metrics import roc_auc_score
@@ -35,7 +37,7 @@ from dateutil.relativedelta import relativedelta
 from calendar import monthrange
 from PIL import Image
 
-
+from google.oauth2 import service_account
 # Set up logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -48,8 +50,6 @@ logger = logging.getLogger(__name__)
 
 
 # latex_path = os.getenv("latex_path")
-
-
 class BinCreateParams:
     def __init__(
         self,
@@ -62,6 +62,11 @@ class BinCreateParams:
         data_path,
         spi4_data_path,
         output_path,
+        obs_netcdf_file,
+        fct_netcdf_file,
+        service_account_json,
+        gcs_file_url,
+        region_filter
     ):
         self.region_id = region_id
         self.season_str = season_str
@@ -70,9 +75,30 @@ class BinCreateParams:
         self.level = level
         self.region_name_dict = region_name_dict
         self.spi_prod_name = spi_prod_name
-        self.data_path = data_path
-        self.spi4_data_path = spi4_data_path
-        self.output_path = output_path
+        self.data_path = self._ensure_trailing_slash(data_path)
+        self.spi4_data_path = self._ensure_trailing_slash(spi4_data_path)
+        self.output_path = self._ensure_trailing_slash(output_path)
+        self.obs_netcdf_file = obs_netcdf_file
+        self.fct_netcdf_file = fct_netcdf_file
+        self.service_account_json = service_account_json
+        self.gcs_file_url = gcs_file_url
+        self.region_filter = region_filter
+
+        # Create necessary directories
+        self._create_directories()
+
+    def _ensure_trailing_slash(self, path):
+        """Ensure the path ends with a trailing slash."""
+        if not path.endswith(os.path.sep):
+            return os.path.join(path, '')
+        return path
+
+    def _create_directories(self):
+        """Create necessary directories if they don't exist."""
+        directories = [self.output_path]
+        for directory in directories:
+            os.makedirs(directory, exist_ok=True)
+        print(f"Directories created/checked: {', '.join(directories)}")
 
 
 def transform_data(data_at_time):
@@ -235,7 +261,7 @@ def ken_mask_creator(data_path):
         raise
 
 
-def gcs_paraquet_mask_creator(service_account_json, gcs_file_url, region_filter):
+def gcs_paraquet_mask_creator(params):
     """
     Utility for generating region/district masks using regionmask library,
     with data sourced from Google Cloud Storage.
@@ -259,24 +285,24 @@ def gcs_paraquet_mask_creator(service_account_json, gcs_file_url, region_filter)
     try:
         # Create credentials object
         credentials = service_account.Credentials.from_service_account_file(
-            service_account_json,
+            params.service_account_json,
             scopes=["https://www.googleapis.com/auth/devstorage.read_only"],
         )
 
         # Read the parquet file from GCS
-        logger.info(f"Reading parquet file from {gcs_file_url}")
-        ddf = dd.read_parquet(gcs_file_url, storage_options={'token': credentials}, engine='pyarrow')
+        logger.info(f"Reading parquet file from {params.gcs_file_url}")
+        ddf = daskdf.read_parquet(params.gcs_file_url, storage_options={'token': credentials}, engine='pyarrow')
 
         # Filter for required regions
-        logger.info(f"Filtering regions based on: {region_filter}")
-        fdf = ddf[ddf['gbid'].str.contains(region_filter, case=False)]
+        logger.info(f"Filtering regions based on: {params.region_filter}")
+        fdf = ddf[ddf['gbid'].str.contains(params.region_filter, case=False)]
         df = fdf.compute()
 
         logger.info("Converting WKB to Shapely geometries")
         df['geometry'] = df['geometry'].apply(wkb.loads)
 
         logger.info("Creating GeoDataFrame")
-        gdf = gpd.GeoDataFrame(df, geometry='geometry')
+        gdf = gp.GeoDataFrame(df, geometry='geometry')
 
         # Assuming 'gbid' is the column for region codes and there's a 'name' column for region names
         # If the column names are different, please adjust accordingly
@@ -289,7 +315,9 @@ def gcs_paraquet_mask_creator(service_account_json, gcs_file_url, region_filter)
         rl_dict = dict(zip(gdf.region, gdf.region_name))
 
         logger.info("Creating regionmask from GeoDataFrame")
-        the_mask = regionmask.from_geopandas(gdf, numbers="region", names="region_name")
+        #TO DO
+        #the_mask = regionmask.from_geopandas(gdf, numbers="region", names="region_name")
+        the_mask=''
 
         logger.info("gcs_mask_creator function completed successfully")
         return the_mask, rl_dict, gdf
@@ -379,7 +407,7 @@ def spi4_prod_name_creator(ds_ens, var_name):
     return spi_prod_list
 
 
-def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
+def make_obs_fct_dataset(params):
     """
     Prepares observed and forecasted dataset subsets for a specific region, season, and lead time.
 
@@ -414,22 +442,22 @@ def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
     for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
     """
     try:
-        the_mask, rl_dict, mds1 = ken_mask_creator(data_path)
+        the_mask, rl_dict, mds1 = gcs_paraquet_mask_creator(params)
         bounds = mds1.bounds
-        llon, llat = bounds.iloc[region_id][["minx", "miny"]]
-        ulon, ulat = bounds.iloc[region_id][["maxx", "maxy"]]
+        llon, llat = bounds.iloc[params.region_id][["minx", "miny"]]
+        ulon, ulat = bounds.iloc[params.region_id][["maxx", "maxy"]]
 
         logger.debug(
             f"Region bounds: llon={llon}, llat={llat}, ulon={ulon}, ulat={ulat}"
         )
 
-        if len(season_str) == 3:
-            kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi3_20240717.nc")
-            kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi3_20240717.nc")
+        if len(params.season_str) == 3:
+            kn_fct = xr.open_dataset(os.path.join(params.data_path, params.fct_netcdf_file))
+            kn_obs = xr.open_dataset(os.path.join(params.data_path, params.obs_netcdf_file))
             logger.info("Loaded SPI3 datasets")
         else:
-            kn_fct = xr.open_dataset(f"{data_path}kn_fct_spi4.nc")
-            kn_obs = xr.open_dataset(f"{data_path}kn_obs_spi4.nc")
+            kn_fct = xr.open_dataset(os.path.join(params.data_path, params.fct_netcdf_file))
+            kn_obs = xr.open_dataset(os.path.join(params.data_path, params.obs_netcdf_file))
             logger.info("Loaded SPI4 datasets")
 
         a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
@@ -441,22 +469,22 @@ def make_obs_fct_dataset(data_path, region_id, season_str, lead_int):
 
         a_fc1 = hindcast.get_initialized()
         logger.debug("Added climpred HindcastEnsemble to add valid_time in fcst")
-        a_fc2 = a_fc1.isel(lead=lead_int)
+        a_fc2 = a_fc1.isel(lead=params.lead_int)
 
-        if len(season_str) == 3:
+        if len(params.season_str) == 3:
             spi_prod_list = spi3_prod_name_creator(a_fc2, "valid_time")
             obs_spi_prod_list = spi3_prod_name_creator(a_obs, "time")
         else:
             spi_prod_list = spi4_prod_name_creator(a_fc2, "valid_time")
             obs_spi_prod_list = spi4_prod_name_creator(a_obs, "time")
         logger.info(
-            f"added SPI prodcut in obs and fcst dataset, filtered to {season_str}"
+            f"added SPI prodcut in obs and fcst dataset, filtered to {params.season_str}"
         )
         a_fc2 = a_fc2.assign_coords(spi_prod=("init", spi_prod_list))
-        a_fc3 = a_fc2.where(a_fc2.spi_prod == season_str, drop=True)
+        a_fc3 = a_fc2.where(a_fc2.spi_prod == params.season_str, drop=True)
 
         a_obs1 = a_obs.assign_coords(spi_prod=("time", obs_spi_prod_list))
-        a_obs2 = a_obs1.where(a_obs1.spi_prod == season_str, drop=True)
+        a_obs2 = a_obs1.where(a_obs1.spi_prod == params.season_str, drop=True)
 
         # Convert valid_time to numpy datetime64 for comparison from cftime of a_fc3
         fct_valid_times = np.array(
@@ -968,9 +996,7 @@ def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
 
 def run_xhist2d(params):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
-    obs_data, ens_data = make_obs_fct_dataset(
-        params.data_path, params.region_id, params.season_str, params.lead_int
-    )
+    obs_data, ens_data = make_obs_fct_dataset(params)
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
         ens_data, threshold_dict
     )
@@ -1395,9 +1421,7 @@ def update_ctdb(ctdb, obs_df, fct_df, threshold_dict, params):
 
 def run_xhist1d(params):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
-    obs_data, ens_data = make_obs_fct_dataset(
-        params.data_path, params.region_id, params.season_str, params.lead_int
-    )
+    obs_data, ens_data = make_obs_fct_dataset(params)
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
         ens_data, threshold_dict
     )
@@ -1534,9 +1558,7 @@ def generate_trigger_dict(params, full_trigger_df=False):
 
 def run_bar_plot_df(params, is_obs_df=True):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
-    obs_data, ens_data = make_obs_fct_dataset(
-        params.data_path, params.region_id, params.season_str, params.lead_int
-    )
+    obs_data, ens_data = make_obs_fct_dataset(params)
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
         ens_data, threshold_dict
     )

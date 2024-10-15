@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 
 import climpred
-from sqlalchemy import False_
+#from sqlalchemy import False_
 import xarray as xr
 import xesmf as xe
 import numpy as np
@@ -25,12 +25,13 @@ from dask.distributed import Client
 
 # matplotlib.use("Agg")
 import altair as alt
+import vl_convert as vlc
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from calendar import month_abbr
+from calendar import AUGUST, month_abbr
 import cartopy.crs as ccrs
 import six
 import textwrap as tw
@@ -524,7 +525,7 @@ def aux_plot_make_barchart_annotation(params):
         return date.strftime("%b")
 
     # Dictionary to map season strings to their last month
-    last_month_dict = {"MAM": "May", "JJAS": "September", "OND": "December"}
+    last_month_dict = {"MAM": "May", "JJA":"August", "JJAS": "September", "OND": "December"}
 
     # Get the last month of the season
     last_month_str = last_month_dict.get(params.season_str)
@@ -639,9 +640,10 @@ def bar_stitch_plot(params, config):
         labelFontSize=12, titleFontSize=14
     )
 
-    # print(" Marsabit selected trigger for OND")
-    panels.save(f"{params.output_path}{params.region_id}_{params.sc_season_str}.png")
-
+    # Export the plot using vl_convert to save as PNG
+    output_path = f"{params.output_path}{params.region_id}_{params.sc_season_str}.png"
+    with open(output_path, "wb") as f:
+        f.write(vlc.vegalite_to_png(panels.to_dict()))
 
 def run_bar_plot(params):
     #######################
@@ -709,7 +711,7 @@ def calculate_month(season, lt):
     Raises:
     ValueError: If an unsupported season string is provided.
     """
-    last_month_dict = {"mam": "May", "jjas": "September", "ond": "December"}
+    last_month_dict = {"mam": "May","jja":"August", "jjas": "September", "ond": "December"}
 
     # Get the last month of the season
     last_month_str = last_month_dict.get(season)
@@ -947,9 +949,7 @@ def run_heatmap_plot(params):
 
 def run_map_plot(params):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
-    obs_data, ens_data = make_obs_fct_dataset(
-        params.data_path, params.region_id, params.season_str, params.lead_int
-    )
+    obs_data, ens_data = make_obs_fct_dataset(params)
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
         ens_data, threshold_dict
     )
