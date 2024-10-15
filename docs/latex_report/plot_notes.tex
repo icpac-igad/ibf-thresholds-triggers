@@ -1,0 +1,226 @@
+
+\chapter{Thresholds and triggers for Anticipatory Action in Karamoja Region}
+
+
+\section{Introduction} 
+
+This document details the analysis for verifying seasonal drought forecasts for anticipatory action in the Karamoja region, including thresholds and triggers.
+
+A trigger is a forecast issued at a certain lead time that exceeds both the danger level and the probability threshold, leading to the initiation of predefined actions. Thresholds, on the other hand, are past drought extreme observations that can be set forward to monitor future forecasts based on predefined triggers. This helps determine whether a given forecast exceeds the threshold, aiding in decision-making for anticipatory action.
+
+In Karamoja, the danger levels for drought, defined as thresholds (Moderate, Extreme, Severe), are predefined through an analysis of the frequency of long-term SPI values observed in the region (Figure \ref{fig:a}) and subsequent stakeholder consultations during 2023, comparing these values with the drought disaster impact experienced in the region (Table \ref{tab:incpacks}). The current analysis explores the long-term monthly SPI variability in Karamoja, verifying forecast quality and determining the trigger for each threshold in terms of probability for defined danger levels for SPI products, namely SPI3-MAM and SPI3-JJA (Figure \ref{fig:b}).
+
+The final product is a trigger value (empirical probability of ensemble forecasts exceeding the given threshold ranges) reflected in terms of False Alarm Ratio and Hit Rate with respect to different lead times and threshold levels.
+
+\begin{figure*}
+	\center
+	{\includegraphics[width=0.7\columnwidth]{img2}}
+	%\raisebox{3in}[0in][0in]{\color{red}
+	%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Threshold selection for Karamoja region based on long term observed SPI values}\label{fig:a}
+\end{figure*}
+
+
+\begin{figure*}
+\center
+{\includegraphics[width=0.7\columnwidth]{img1}}
+%\raisebox{3in}[0in][0in]{\color{red}
+%\makebox[\textwidth][c]{\Huge Text over Image}}
+\caption{Lead time and SPI products available for verification for Karamjoa region based on Growing and rainy season}\label{fig:b}
+\end{figure*}
+
+
+\begin{table}[!ht]
+	\centering
+	\caption[SPI threshold for Karamoja ]{SPI threshold for Karamoja. WHich is higher side of the range set in the consultation workshop 2023}
+	\label{tab:incpacks}
+	\begin{tabular}{p{0.2\columnwidth}p{0.2\columnwidth}p{0.2\columnwidth}p{0.2\columnwidth}}
+		\toprule
+		&\textbf{Moderate} &\textbf{Extreme} &\textbf{Severe}\\
+		\midrule
+		%accessibility & tagged & generates the document structure and tagging \\
+	MAM &-0.43 &-0.67 &-0.84 \\
+	JJA &-0.43 &-0.67 &-0.84 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+
+
+
+The method closely follows the paper by Gabriela et.al 2024 and 2023,
+
+Guimarães Nobre, G.; Towner, J.; Nhantumbo, B.; João da Conceição Marcos Matuele, C.; Raiva, I.; Pasqui, M.; Quaresima, S.; Bonifácio, R. Ready, Set, Go! An Anticipatory Action System against Droughts. EGUsphere 2024, 2024, 1–30. https://doi.org/10.5194/egusphere-2024-538.
+
+
+Nobre, Gabriela Guimarães, et al. "Forecasting, thresholds, and triggers: Towards developing a Forecast-based Financing system for droughts in Mozambique." Climate Services 30 (2023): 100344. 
+
+
+\section{Analysis Steps}
+
+\begin{enumerate}
+	
+	\item \textbf{Data Processing of SEAS5 and CHIRPS} (scripts for this step: \url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/01-input-spi-seas51.ipynb} and \url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/02-input-spi-chrips.ipynb})
+	\subitem CHIRPS monthly mean observation data, upscaled from 5km to 25km. 
+	
+	\subitem SEAS5 forecast data, lead time 1-6 months, downscaled from 100km to 25km. 
+	
+	\subitem SPI calculation on CHIRPS data. 
+	
+	\subitem Processing SEAS51 data. 
+	
+	\subitem Replacing time steps with lead time. 
+	
+	\subitem Converting precipitation from m/s to mm/month. 
+	
+	\subitem SPI calculation on SEAS51 data, considering SPI product and month lead time as shown in Figure 1.
+	
+	\item \textbf{Forecast verification stats and plotting of outputs} 
+	\subitem Aligning SPI3 values of observation and forecast for each month shown in Figure 1 (Months 11, 12, 1, 2 for SPI MAM). Calculate AUROC score with bootstrapping and other metrics in 2D and 1D forms (\url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/run_kmj.py}).
+	
+	\subitem Display the decided triggers in heatmap table form (\url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/run_heatmap.py}). 
+	
+	\subitem Create a bar chart plot for observation and forecast with a table showing forecast performance for past years (\url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/run_heatmap.py}). 
+	
+	\subitem Generate a table of other potential triggers that can be chosen based on user needs (\url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/run_latex_table.py}).
+	
+	\subitem Map the observation and forecast in 2D map format with region shapefile overlay, including members, observation, and forecast empirical probability for each season and lead time (\url{https://github.com/icpac-igad/ibf-thresholds-triggers/blob/xarray-method/run_map.py}).
+	
+\end{enumerate}
+
+
+
+
+
+
+\section{MAM}
+
+The analysis results for selected triggers are shown in Figure \ref{fig:kmj-mam-tv}. These trigger values, representing the empirical probability of exceeding given thresholds, can be used with monthly SEAS51 SPI3 forecasts for MAM for the specified lead times. The bar plot in Figure \ref{fig:kmj-mam-bar} further justifies the selected triggers by showing the observed drought categories count (odc) for the analysis period and the overall performance of SPI for MAM by SEAS51 and the chosen trigger. Tables \ref{tab:table1} to \ref{tab:table3} present alternative trigger values that meet the conditions set forth by Gabriela et al. (2024) in "Ready, Set, Go! An Anticipatory Action System against Droughts." The maps in Figures \ref{fig:kmj-mam-lt2} to \ref{fig:kmj-mam-lt4} show time series plots of the dataset used for the forecast verification analysis. 
+
+
+\begin{figure*}[h]
+	\centering % Center the image horizontally
+	\includegraphics[width=0.8\textwidth, keepaspectratio]{../dt_0_mam} % Set width to 50% of textwidth
+	\caption{Selected MAM triggers for Karamjoa}\label{fig:kmj-mam-tv}
+\end{figure*}
+
+\begin{figure*}
+	\centering
+	\includegraphics[width=1.1\textwidth, keepaspectratio]{../0_mam}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Overview of MAM Hit rate(\%) and False alarm ratio(\%) per SPI indicator, lead time of the forecasting information in months and region wise. The chosen trigger value is displayed within each tile}\label{fig:kmj-mam-bar}
+\end{figure*}
+
+%\clearpage
+%\subfile{../0_mam_lt2.tex}
+%\subfile{../0_mam_lt3.tex}
+%\subfile{../0_mam_lt4.tex}
+
+
+	
+	%\caption{Caption for Table 1}
+	\label{tab:table1}
+	\subfile{../0_mam_lt2.tex} % Include your first table subfile
+
+
+
+
+	%\caption{Caption for Table 2}
+	\label{tab:table2}
+	\subfile{../0_mam_lt3.tex} % Include your second table subfile
+
+
+
+
+	%\caption{Caption for Table 3}
+	\label{tab:table3}
+	\subfile{../0_mam_lt4.tex} % Include your third table subfile
+
+
+\begin{figure*}
+	\noindent
+	\resizebox{\textwidth}{\textheight}
+	{\includegraphics{../map_0_mam_lt3/map_0_mam_lt3}}\hspace*{-\textwidth}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Time series map plot of MAM for Karamoja region for the lead time 3}\label{fig:kmj-mam-lt2}
+\end{figure*}
+
+\begin{figure*}
+	\noindent
+	\resizebox{\textwidth}{\textheight}
+	{\includegraphics{../map_0_mam_lt3/map_0_mam_lt3}}\hspace*{-\textwidth}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Time series map plot of MAM for Karamoja region for the lead time 3}\label{fig:kmj-mam-lt3}
+\end{figure*}
+
+\begin{figure*}
+	\noindent
+	\resizebox{\textwidth}{\textheight}
+	{\includegraphics{../map_0_mam_lt4/map_0_mam_lt4}}\hspace*{-\textwidth}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Time series map plot of MAM for Karamoja region for the lead time 4}\label{fig:kmj-mam-lt4}
+\end{figure*}
+
+\newpage
+\section{JJA}
+The following figures and tables show the analysis related to the June, July, August, and September season SPI3. The outcome of the analysis on selected triggers is shown in Figure \ref{fig:kmj-jja-tv}. These trigger values, representing the empirical probability of exceeding given thresholds, can be used along with monthly SEAS51 SPI3 forecasts for JJA for the given lead time. The bar plot in Figure \ref{fig:kmj-jja-bar} further justifies the selected triggers by showing observed drought categories count (odc) for the analysis period and the overall performance of SPI for JJA by SEAS51 and the chosen trigger. Tables \ref{tab:kmj-jja-lt2} to \ref{tab:kmj-jja-lt4} present the availability of alternative trigger values. The maps in Figures \ref{fig:kmj-mam-lt2} to \ref{fig:kmj-mam-lt4} show the time series plot of the dataset used for forecast verification analysis. 
+
+It can be noted that the forecast quality is poorer compared to MAM forecasts, and trigger values are not available for the "Severe" threshold category. This can potentially be improved by bias correction or post-processing methods. 
+
+
+\begin{figure*}
+	\centering % Center the image horizontally
+	\includegraphics[width=0.8\textwidth, keepaspectratio]{../dt_0_jja} % Set width to 50% of textwidth
+	\caption{Selected JJA triggers for Karamjoa}\label{fig:kmj-jja-tv}
+\end{figure*}
+
+\begin{figure*}
+	\centering
+	\includegraphics[width=1.1\textwidth, keepaspectratio]{../0_jja}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Overview of JJA Hit rate(\%) and False alarm ratio(\%) per SPI indicator, lead time of the forecasting information in months and region wise. The chosen trigger value is displayed within each tile }\label{fig:kmj-jja-bar}
+\end{figure*}
+
+\clearpage
+	\label{tab:kmj-jja-lt2}
+\subfile{../0_jja_lt2.tex}
+	\label{tab:kmj-jja-lt3}
+\subfile{../0_jja_lt3.tex}
+	\label{tab:kmj-jja-lt4}
+\subfile{../0_jja_lt4.tex}
+
+
+\begin{figure*}
+	\noindent
+	\resizebox{\textwidth}{\textheight}
+	{\includegraphics{../map_0_jja_lt2/map_0_jja_lt2}}\hspace*{-\textwidth}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Time series map plot of JJA for Karamoja region for the lead time 2}\label{fig:kmj-jja-lt2}
+\end{figure*}
+
+\begin{figure*}
+	\noindent
+	\resizebox{\textwidth}{\textheight}
+	{\includegraphics{../map_0_jja_lt3/map_0_jja_lt3}}\hspace*{-\textwidth}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Time series map plot of JJA for Karamoja region for the lead time 3}\label{fig:kmj-jja-lt3}
+\end{figure*}
+
+\begin{figure*}
+	\noindent
+	\resizebox{\textwidth}{\textheight}
+	{\includegraphics{../map_0_jja_lt4/map_0_jja_lt4}}\hspace*{-\textwidth}
+	%\raisebox{3in}[0in][0in]{\color{red}
+		%\makebox[\textwidth][c]{\Huge Text over Image}}
+	\caption{Time series map plot of JJA for Karamoja region for the lead time 4}\label{fig:kmj-jja-lt4}
+\end{figure*}
+
+
+
