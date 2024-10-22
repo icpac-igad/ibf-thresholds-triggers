@@ -1,0 +1,37 @@
+name: base
+channels:
+  - conda-forge
+dependencies:
+  - python=3.9
+  - pandas
+  - numpy
+  - fsspec
+  - gcsfs
+  - ujson
+  - xarray
+  - kerchunk
+  - climpred
+  - dask
+  - xesmf
+  - regionmask
+  - xhistogram
+  - scikit-learn
+  - xskillscore
+  - cartopy
+  - flask
+  - cfgrib
+  - requests
+  - s3fs
+  - boto3
+  - pyarrow
+  - google-cloud-storage
+  - pytest
+  - gunicorn
+  - altair
+  - matplotlib
+  - pip:
+      - xbootstrap
+      - python-dotenv
+      - vl-convert-python
+      - coiled
+
