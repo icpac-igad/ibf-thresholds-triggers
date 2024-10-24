@@ -1,6 +1,21 @@
 # Use the micromamba image as base
 FROM docker.io/mambaorg/micromamba:bookworm-slim
 
+# Set environment variables
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+ENV ENV_NAME="itt"
+ENV MAMBA_ROOT_PREFIX="/opt/conda"
+ENV MAMBA_EXE="/bin/micromamba"
+ARG MAMBA_USER=mambauser
+ARG MAMBA_USER_ID=57439
+ARG MAMBA_USER_GID=57439
+ENV MAMBA_USER=$MAMBA_USER
+ENV MAMBA_USER_ID=$MAMBA_USER_ID
+ENV MAMBA_USER_GID=$MAMBA_USER_GID
+
+# Installation settings for TeX Live
+ARG TL_MIRROR="https://texlive.info/CTAN/systems/texlive/tlnet"
+
 # Switch to root to install system packages
 USER root
 
@@ -8,55 +23,80 @@ USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     curl \
-    vim
-    
+    vim \
+    perl \
+    fontconfig \
+    libgcc1 \
+    gnupg \
+    wget \
+    xz-utils \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install TeX Live from mirror
+RUN mkdir "/tmp/texlive" && cd "/tmp/texlive" && \
+    wget "$TL_MIRROR/install-tl-unx.tar.gz" && \
+    tar xzvf ./install-tl-unx.tar.gz && \
+    ( \
+        echo "selected_scheme scheme-minimal" && \
+        echo "instopt_adjustpath 0" && \
+        echo "tlpdbopt_install_docfiles 0" && \
+        echo "tlpdbopt_install_srcfiles 0" && \
+        echo "TEXDIR /opt/texlive/" && \
+        echo "TEXMFLOCAL /opt/texlive/texmf-local" && \
+        echo "TEXMFSYSCONFIG /opt/texlive/texmf-config" && \
+        echo "TEXMFSYSVAR /opt/texlive/texmf-var" && \
+        echo "TEXMFHOME ~/.texmf" \
+    ) > "/tmp/texlive.profile" && \
+    "./install-tl-"*"/install-tl" --location "$TL_MIRROR" -profile "/tmp/texlive.profile" && \
+    rm -vf "/opt/texlive/install-tl" && \
+    rm -vf "/opt/texlive/install-tl.log" && \
+    rm -vrf /tmp/*
+
+# Add TeX Live to PATH
+ENV PATH="/opt/texlive/bin/x86_64-linux:${PATH}"
+
+# Install basic TeX packages
+RUN tlmgr update --self && \
+    tlmgr install \
+    scheme-basic \
+    collection-latex \
+    collection-latexrecommended \
+    collection-fontsrecommended
+
+# Create necessary directories
+RUN mkdir -p /home/$MAMBA_USER/.aws && \
+    chown -R $MAMBA_USER:$MAMBA_USER /home/$MAMBA_USER/.aws
+
 # Switch back to the mambauser
 USER $MAMBA_USER
 
-# Install Python packages using micromamba
-RUN micromamba install -y -n base -c conda-forge \
-    python \
-    pip \
-    pip-tools \
-    pandas \
-    numpy \
-    fsspec \
-    gcsfs \
-    ujson \
-    xarray \
-    kerchunk \
-    climpred \
+# Copy the environment.yml file into the container
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml ./
+
+# Create the environment specified in environment.yml
+RUN micromamba create -n $ENV_NAME -f environment.yml && \
+    micromamba install -y -n $ENV_NAME -c conda-forge \
     dask \
-    xarray \
-    xesmf \
-    regionmask \
-    xhistogram \
-    scikit-learn \
-    xskillscore \
-    cartopy \
-    flask \
-    cfgrib \
-    requests \
-    s3fs \
+    coiled \
     boto3 \
-    pyarrow \
-    google-cloud-storage \
-    pytest \
-    gunicorn \
-    altair \
-    matplotlib \
+    jupyterhub \
+    jupyterlab \
+    notebook \
+    ipywidgets \
     && micromamba clean --all --yes
+
+# Set the PATH to include the new environment
+ENV PATH /opt/conda/envs/$ENV_NAME/bin:$PATH
 
 # Set the entrypoint to use micromamba activate
 ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
 
-# Install additional Python packages
-# Install additional Python packages
-RUN /opt/conda/envs/base/bin/python -m pip install --upgrade pip && \
-    /opt/conda/envs/base/bin/pip install xbootstrap xhistogram calendar \
-    python-dotenv vl-convert-python coiled# Set the working directory
+# Set the working directory
+WORKDIR /home/$MAMBA_USER/work
 
-WORKDIR /app
+# Create a volume mount point for persistent storage
+VOLUME /home/$MAMBA_USER/work
 
-# Create directory for AWS credentials
-
+# Expose JupyterHub port
+EXPOSE 8888
