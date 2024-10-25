@@ -1,0 +1,47 @@
+# Use the micromamba image as base
+FROM docker.io/mambaorg/micromamba:bookworm-slim
+
+# Set environment variables
+ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
+ENV ENV_NAME="itt"
+ENV MAMBA_ROOT_PREFIX="/opt/conda"
+ENV MAMBA_EXE="/bin/micromamba"
+ARG MAMBA_USER=mambauser
+ARG MAMBA_USER_ID=57439
+ARG MAMBA_USER_GID=57439
+ENV MAMBA_USER=$MAMBA_USER
+ENV MAMBA_USER_ID=$MAMBA_USER_ID
+ENV MAMBA_USER_GID=$MAMBA_USER_GID
+
+# Switch to root to install system packages
+USER root
+
+# Install system packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unzip \
+    curl \
+    vim
+
+# Switch back to the mambauser
+USER $MAMBA_USER
+
+# Copy the environment.yml file into the container
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml ./
+
+# Create the environment specified in environment.yml without overwriting base environment
+RUN micromamba create -n $ENV_NAME -f environment.yml && \
+    micromamba install -y -n $ENV_NAME -c conda-forge \
+    dask \
+    coiled \
+    boto3 \
+    jupyterlab \
+    && micromamba clean --all --yes
+
+# Set the PATH to include the new environment
+ENV PATH /opt/conda/envs/your_env_name/bin:$PATH
+
+# Set the entrypoint to use micromamba activate
+ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
+
+# Expose JupyterHub port
+#EXPOSE 8888
