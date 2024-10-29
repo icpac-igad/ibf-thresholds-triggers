@@ -12,18 +12,28 @@ ARG MAMBA_USER_GID=57439
 ENV MAMBA_USER=$MAMBA_USER
 ENV MAMBA_USER_ID=$MAMBA_USER_ID
 ENV MAMBA_USER_GID=$MAMBA_USER_GID
+ENV NUMBA_DISABLE_CACHING=1
 
 # Switch to root to install system packages
 USER root
 
-# Install system packages
+#RUN chown -R $MAMBA_USER:$MAMBA_USER /opt/conda/envs/itt/lib/python3.9/site-packages
+
+# Install system packages including basic shell
 RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     curl \
-    vim
+    vim \
+    bash \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Switch back to the mambauser
 USER $MAMBA_USER
+
+ENV NUMBA_CACHE_DIR=/home/$MAMBA_USER/.numba_cache
+RUN mkdir -p $NUMBA_CACHE_DIR && \
+    chown -R $MAMBA_USER:$MAMBA_USER $NUMBA_CACHE_DIR
 
 # Copy the environment.yml file into the container
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml ./
@@ -35,13 +45,21 @@ RUN micromamba create -n $ENV_NAME -f environment.yml && \
     coiled \
     boto3 \
     jupyterlab \
+    jupyterhub \
     && micromamba clean --all --yes
 
 # Set the PATH to include the new environment
-ENV PATH /opt/conda/envs/your_env_name/bin:$PATH
+ENV PATH /opt/conda/envs/$ENV_NAME/bin:$PATH
 
-# Set the entrypoint to use micromamba activate
-ENTRYPOINT ["/usr/local/bin/_entrypoint.sh"]
+# Make sure the entrypoint script uses bash
+#RUN echo '#!/bin/bash' > /opt/conda/entrypoint.sh && \
+#    echo 'micromamba activate $ENV_NAME' >> /opt/conda/entrypoint.sh && \
+#    echo 'exec "$@"' >> /opt/conda/entrypoint.sh && \
+#    chmod +x /opt/conda/entrypoint.sh
 
-# Expose JupyterHub port
-#EXPOSE 8888
+# Set the entrypoint
+#ENTRYPOINT ["/opt/conda/entrypoint.sh"]
+#CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=''"]
+# Use micromamba run in the CMD
+CMD ["micromamba", "run", "-n", "itt", "jupyterhub-singleuser"]
+

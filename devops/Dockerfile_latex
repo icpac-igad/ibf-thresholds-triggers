@@ -1,4 +1,5 @@
 # Use the micromamba image as base
+# https://github.com/kjarosh/latex-docker/blob/main/Dockerfile
 FROM docker.io/mambaorg/micromamba:bookworm-slim
 
 # Set environment variables

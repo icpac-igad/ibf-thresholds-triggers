@@ -443,8 +443,94 @@ def merge_png_files(
     except Exception as e:
         logging.error(f"An error occurred during the merging process: {e}")
 
-
 def plot_obs_chart_with_triggers(
+    plot_type, df, year_column, spi_column, threshold_dict, row_annotations
+):
+    """
+    Create an Altair chart with a bar chart overlaid by trigger lines.
+    Parameters:
+    df : pandas.DataFrame
+        The DataFrame containing the data.
+    year_column : str
+        The name of the DataFrame column containing the year.
+    spi_column : str
+        The name of the DataFrame column containing SPI values.
+    threshold_dict : dict
+        A dictionary with keys as threshold names and values as threshold values.
+    """
+    # Define the replacement dictionary
+    replacement_dict = {'mod': 'mild', 'sev': 'mod', 'ext': 'sev'}
+    
+    # Reverse the dictionary for color mapping (since we need original keys for threshold_dict)
+    reverse_dict = {v: k for k, v in replacement_dict.items()}
+    
+    # Bar chart
+    if plot_type == "obs":
+        bar_chart = (
+            alt.Chart(df)
+            .mark_bar()
+            .encode(
+                x=alt.X(f"{year_column}:N", axis=alt.Axis(labelAngle=90)),
+                y=alt.Y(
+                    f"{spi_column}:Q", title=spi_column, scale=alt.Scale(domain=[-4, 4])
+                ),
+                color=alt.condition(
+                    alt.datum[spi_column] > 0,
+                    alt.value("blue"),  # Color for positive values
+                    alt.value("red"),  # Color for negative values
+                ),
+            )
+            .properties(width=400, height=200)
+        )
+    else:
+        # Update the color scale with new category names
+        color_scale = alt.Scale(
+            domain=["mild", "mod", "sev"],  # Updated category names
+            range=["#f4eb13", "#f89821", "#ed2227"],
+        )
+        
+        # If the dataframe has the old category names, we need to replace them
+        if 'cat' in df.columns:
+            df = df.copy()
+            df['cat'] = df['cat'].replace(replacement_dict)
+            
+        bar_chart = (
+            alt.Chart(df)
+            .mark_bar()
+            .encode(
+                x=alt.X(f"{year_column}:N", axis=alt.Axis(labelAngle=90)),
+                y=alt.Y(f"{spi_column}:Q", title="Probability (%)", stack=None),
+                color=alt.Color("cat:N", scale=color_scale, sort=["mild", "mod", "sev"]),
+            )
+            .properties(width=400, height=200)
+            + row_annotations
+        )
+
+    # Adding trigger lines
+    rules = []
+    # Create a color mapping dictionary with new category names
+    color_mapping = {
+        k: {"ext": "#ed2227", "sev": "#f89821", "mod": "#f4eb13"}[k]
+        for k in threshold_dict.keys()
+    }
+    
+    for key, value in threshold_dict.items():
+        rule = (
+            alt.Chart(pd.DataFrame({"y": [value]}))
+            .mark_rule(
+                strokeWidth=2,
+                stroke=color_mapping[key],
+            )
+            .encode(y="y:Q")
+        )
+        rules.append(rule)
+        
+    # Combine the bar chart with trigger lines
+    final_chart = alt.layer(bar_chart, *rules)
+    return final_chart
+
+
+def aaplot_obs_chart_with_triggers(
     plot_type, df, year_column, spi_column, threshold_dict, row_annotations
 ):
     """
@@ -482,6 +568,8 @@ def plot_obs_chart_with_triggers(
     else:
         color_scale = alt.Scale(
             # domain=["ext", "sev", "mod"], range=["#880203", "#ffa400", "#fffe00"]
+            # TODO: Temporary fix - CAT RENAME revisit and remove
+            #domain=["mild", "mod", "sev"],
             domain=["mod", "sev", "ext"],
             range=["#f4eb13", "#f89821", "#ed2227"],
         )
@@ -492,7 +580,7 @@ def plot_obs_chart_with_triggers(
             .encode(
                 x=alt.X(f"{year_column}:N", axis=alt.Axis(labelAngle=90)),
                 y=alt.Y(f"{spi_column}:Q", title="Probability (%)", stack=None),
-                color=alt.Color("cat:N", scale=color_scale, sort=["sev", "mod", "ext"]),
+                color=alt.Color("cat:N", scale=color_scale, sort=["mild", "mod", "sev"]),
             )
             .properties(width=400, height=200)
             + row_annotations
@@ -563,6 +651,10 @@ def plot_decision_table(df1):
     # Ensure all columns are included for folding
     df = df1.reset_index()
     df = df.drop(columns=["index"])
+    # TODO: Temporary fix - CAT RENAME revisit and remove
+    replacement_dict={'mod':'mild','sev':'mod','ext':'sev'}
+    df['cat'] = df['cat'].replace(replacement_dict)
+    #######
     fold_columns = df.columns.tolist()  # List of all columns in the DataFrame
 
     return (
@@ -801,7 +893,7 @@ def create_category_dataframes(df):
             # Ensure all months are present, fill with NaN if missing
             for month in all_months:
                 if month not in df.columns:
-                    df[month] = pd.np.nan
+                    df[month] = np.nan
             # Sort columns (months) based on calendar order
             df = df.reindex(columns=all_months)
             result[cat][metric] = df
@@ -860,7 +952,10 @@ def create_heatmap_subplot(dt_df, params):
     fig, axes = plt.subplots(2, 3, figsize=(10, 8))
 
     categories = ["mod", "sev", "ext"]
-    titles = ["Moderate", "Severe", "Extreme"]
+    #titles = ["Moderate", "Severe", "Extreme"]
+    #TODO: Temporary name change for the mild moderate and Severe
+    titles = ["Mild", "Moderate", "Severe"]
+
 
     hr_cmap, hr_norm = generate_custom_colormap(reverse_colors=True)
     far_cmap, far_norm = generate_custom_colormap(reverse_colors=False)

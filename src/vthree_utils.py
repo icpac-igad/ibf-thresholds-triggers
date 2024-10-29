@@ -1573,6 +1573,32 @@ def run_bar_plot_df(params, is_obs_df=True):
 
 def style_dataframe(row):
     # Default style for the entire row based on 'cat'
+    if row["cat"] == "mild":
+        base_style = ["background-color: #E6F3FF"] * len(row)
+    elif row["cat"] == "mod":
+        base_style = ["background-color: #99CCFF"] * len(row)
+    elif row["cat"] == "sev":
+        base_style = ["background-color: #3399FF"] * len(row)
+    else:
+        base_style = [""] * len(row)
+
+    # Overlay for 'cat' column when 'td' is 1
+    # cat_index = row.index.get_loc('cat')
+    if row["td"] == 1:
+        if row["cat"] == "mild":
+            base_style = ["background-color: yellow"] * len(row)
+        elif row["cat"] == "mod":
+            base_style = ["background-color: brown"] * len(row)
+        elif row["cat"] == "sev":
+            base_style = ["background-color: red"] * len(row)
+
+    return base_style
+
+
+
+
+def aastyle_dataframe(row):
+    # Default style for the entire row based on 'cat'
     if row["cat"] == "mod":
         base_style = ["background-color: #E6F3FF"] * len(row)
     elif row["cat"] == "sev":
@@ -1652,7 +1678,9 @@ def run_data_table_latex(params):
         "td": "td",
     }
     df0a = df0a.rename(columns=col_rename_dict)
-
+    # TODO: Temporary fix - CAT RENAME revisit and remove
+    replacement_dict={'mod':'mild','sev':'mod','ext':'sev'}
+    df0a['cat'] = df0a['cat'].replace(replacement_dict)
     # df = df0a.round(1)
     styled = df0a.style.apply(style_dataframe, axis=1)
     styled = styled.format(

@@ -10,6 +10,8 @@ dependencies:
   - ujson
   - xarray
   - kerchunk
+  - numba>=0.56
+  - xclim>=0.38
   - climpred
   - dask
   - xesmf
