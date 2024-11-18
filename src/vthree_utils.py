@@ -442,26 +442,28 @@ def make_obs_fct_dataset(params):
     for lead time index 0, aligning the observed data time coordinates with the forecasted data valid time coordinates.
     """
     try:
-        the_mask, rl_dict, mds1 = gcs_paraquet_mask_creator(params)
-        bounds = mds1.bounds
-        llon, llat = bounds.iloc[params.region_id][["minx", "miny"]]
-        ulon, ulat = bounds.iloc[params.region_id][["maxx", "maxy"]]
+        #the_mask, rl_dict, mds1 = gcs_paraquet_mask_creator(params)
+        #bounds = mds1.bounds
+        #llon, llat = bounds.iloc[params.region_id][["minx", "miny"]]
+        #ulon, ulat = bounds.iloc[params.region_id][["maxx", "maxy"]]
 
-        logger.debug(
-            f"Region bounds: llon={llon}, llat={llat}, ulon={ulon}, ulat={ulat}"
+        #logger.debug(
+        #    f"Region bounds: llon={llon}, llat={llat}, ulon={ulon}, ulat={ulat}"
         )
 
         if len(params.season_str) == 3:
-            kn_fct = xr.open_dataset(os.path.join(params.data_path, params.fct_netcdf_file))
-            kn_obs = xr.open_dataset(os.path.join(params.data_path, params.obs_netcdf_file))
+            kn_obs = xr.open_dataset('./kmj-25km-chirps-v2.0.monthly.nc')
+            kn_fct = xr.open_dataset('./kn_fct_spi3.nc')
             logger.info("Loaded SPI3 datasets")
         else:
             kn_fct = xr.open_dataset(os.path.join(params.data_path, params.fct_netcdf_file))
             kn_obs = xr.open_dataset(os.path.join(params.data_path, params.obs_netcdf_file))
             logger.info("Loaded SPI4 datasets")
 
-        a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
-        a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        #a_fc = kn_fct.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        #a_obs = kn_obs.sel(lon=slice(llon, ulon), lat=slice(llat, ulat))
+        a_obs=kn_obs
+        a_fc=kn_fct
         logger.info("subsetted obs and fcst to given region")
         logger.debug("Created HindcastEnsemble")
         hindcast = HindcastEnsemble(a_fc)
