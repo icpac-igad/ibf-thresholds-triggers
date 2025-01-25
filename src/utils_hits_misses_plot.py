@@ -30,27 +30,46 @@ data_path=os.getenv("data_path")
 
 def ken_mask_creator():
     """
-    Utiliity for generating region/district masks using regionmask library
+    Utility for generating region/district masks using regionmask library
 
     Returns
     -------
-    the_mask : TYPE
-        DESCRIPTION.
-    rl_dict : TYPE
-        DESCRIPTION.
-
+    the_mask : regionmask.Regions
+        Mask regions object for spatial selection
+    rl_dict : dict
+        Dictionary mapping region numbers to names
+    mds2 : GeoDataFrame
+        GeoDataFrame containing region geometries and metadata
     """
-    dis=gp.read_file(f'{data_path}Karamoja_boundary_dissolved.shp')
-    mbt_path=os.getenv("mbt_path")
-    reg=gp.read_file(f'{data_path}wajir_mbt_extent.shp')
-    mds=pd.concat([dis,reg])
-    mds1=mds.reset_index()
-    mds1['region']=[0,1,2]
-    mds1['region_name']=['Karamoja', 'Marsabit','Wajir']
-    mds2=mds1[['geometry','region','region_name']]
-    rl_dict=dict(zip(mds2.region, mds2.region_name))
-    the_mask = regionmask.from_geopandas(mds2,numbers='region',overlap=True)
-    return the_mask, rl_dict, mds2
+    try:
+        # Read shapefiles
+        dis = gp.read_file(f'{data_path}Karamoja_boundary_dissolved.shp')
+        reg = gp.read_file(f'{data_path}wajir_mbt_extent.shp')
+        
+        # Combine and prepare regions
+        mds = pd.concat([dis, reg])
+        mds1 = mds.reset_index()
+        mds1['region'] = [0, 1, 2]
+        mds1['region_name'] = ['Karamoja', 'Marsabit', 'Wajir']
+        mds2 = mds1[['geometry', 'region', 'region_name']]
+        
+        # Create regionmask object
+        the_mask = regionmask.Regions(
+            outlines=mds2.geometry.values,
+            numbers=mds2.region.values,
+            names=mds2.region_name.values,
+            name='seas51_regions',
+            overlap=False
+        )
+        
+        # Create region name dictionary
+        rl_dict = dict(zip(mds2.region, mds2.region_name))
+        
+        return the_mask, rl_dict, mds2
+        
+    except Exception as e:
+        logger.error(f"Error in ken_mask_creator: {str(e)}")
+        raise
 
 def spi3_prod_name_creator(ds_ens,var_name):
     """
