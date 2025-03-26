@@ -21,35 +21,54 @@ The implementation consists of the following key files:
 9. **vthree_utils_auth_patch.py**: Authentication patch for existing utilities.
 
 ---
-## 1. Dependencies Management
+## 1. Environment and Libraries Management
 
-The `requirements.txt` includes:
-
-```bash
-python-dotenv
-numpy
-pandas
-xarray
-scipy
-matplotlib
-dask
-geopandas
-shapely
-pyarrow
-h5netcdf
-fsspec
-gcsfs
-google-auth
-zarr
-scikit-learn
+```yaml
+name: drought_env
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pandas
+  - numpy
+  - fsspec
+  - gcsfs
+  - ujson
+  - xarray
+  - kerchunk
+  - numba>=0.56
+  - xclim>=0.38
+  - climpred
+  - dask
+  - xesmf
+  - regionmask
+  - xhistogram
+  - scikit-learn
+  - xskillscore
+  - cartopy
+  - flask
+  - cfgrib
+  - requests
+  - s3fs
+  - boto3
+  - pyarrow
+  - google-cloud-storage
+  - pytest
+  - gunicorn
+  - altair
+  - matplotlib
+  - pip:
+      - xbootstrap
+      - python-dotenv
+      - vl-convert-python
+      - coiled
+      - cdsapi
 ```
+To isntall the dependencies, following commands have to be run 
 
-Installation script (`install_dependencies.sh`):
-
-```bash
-#!/bin/bash
-pip install -r requirements.txt
-mkdir -p output
+```
+micromamba create -f environment.yml
+micromamba activate drought_env
 ```
 
 ## 2. Execution Flow

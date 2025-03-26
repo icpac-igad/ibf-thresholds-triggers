@@ -14,7 +14,7 @@ from shapely import wkb
 import geopandas as gp
 from climpred import HindcastEnsemble
 from datetime import datetime
-from datatree import DataTree
+#from datatree import DataTree
 import dask.dataframe as daskdf
 
 import xhistogram.xarray as xhist
@@ -449,7 +449,7 @@ def make_obs_fct_dataset(params):
 
         #logger.debug(
         #    f"Region bounds: llon={llon}, llat={llat}, ulon={ulon}, ulat={ulat}"
-        )
+        #)
 
         if len(params.season_str) == 3:
             kn_obs = xr.open_dataset('./kmj-25km-chirps-v2.0.monthly.nc')
