@@ -14,7 +14,7 @@ import regionmask
 import geopandas as gp
 from climpred import HindcastEnsemble
 from datetime import datetime
-from datatree import DataTree
+#from datatree import DataTree
 
 import xhistogram.xarray as xhist
 from sklearn.metrics import roc_auc_score
@@ -138,17 +138,17 @@ def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
     """
     try:
         logger.info("Starting datatree with helper_stamp_plot function")
-        seas51tree = DataTree()
+        seas51tree = xr.DataTree()
         for member in ens_data.member:
             member_data = ens_data.sel(member=member)
-            seas51tree[f"ensemble/member_{int(member)}"] = DataTree(
-                name=f"member_{int(member)}", data=member_data
+            seas51tree[f"ensemble/member_{int(member)}"] = xr.DataTree(
+                name=f"member_{int(member)}", dataset=member_data
             )
 
-        seas51tree["observation"] = DataTree(name="observation", data=obs_data)
-        seas51tree["fct_mod"] = DataTree(name="fct_mod", data=fct_mod)
-        seas51tree["fct_sev"] = DataTree(name="fct_sev", data=fct_sev)
-        seas51tree["fct_ext"] = DataTree(name="fct_ext", data=fct_ext)
+        seas51tree["observation"] = xr.DataTree(name="observation", dataset=obs_data)
+        seas51tree["fct_mod"] = xr.DataTree(name="fct_mod", dataset=fct_mod)
+        seas51tree["fct_sev"] = xr.DataTree(name="fct_sev", dataset=fct_sev)
+        seas51tree["fct_ext"] = xr.DataTree(name="fct_ext", dataset=fct_ext)
         logger.info(f"made the combined_data as xarray datatree {seas51tree}")
         logger.info("helper_stamp_plot function completed successfully")
         return seas51tree
