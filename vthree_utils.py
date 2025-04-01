@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import logging
 from pathlib import Path
+from google.oauth2 import service_account
 
 import climpred
 import xarray as xr
@@ -99,6 +100,15 @@ class BinCreateParams:
         for directory in directories:
             os.makedirs(directory, exist_ok=True)
         print(f"Directories created/checked: {', '.join(directories)}")
+
+
+def get_credentials(service_account_json):
+    """Create and return Google Cloud credentials."""
+    credentials = service_account.Credentials.from_service_account_file(
+        service_account_json,
+        scopes=["https://www.googleapis.com/auth/devstorage.read_only"],
+    )
+    return credentials
 
 
 def transform_data(data_at_time):
@@ -259,6 +269,80 @@ def ken_mask_creator(data_path):
     except Exception as e:
         logger.error(f"An error occurred in ken_mask_creator: {e}")
         raise
+
+
+def get_region_bounds(region_id, credentials=None, buffer=0.5, use_local=False, local_shapefile_path='../kmj_polygon.shp'):
+    """
+    Get geographic bounds for a specific region with buffer, supporting both local and GCS data sources.
+    
+    Args:
+        region_id (str): The region identifier to filter by
+        credentials: Google Cloud credentials (required if use_local=False)
+        buffer (float): Buffer in degrees to add around the region extent
+        use_local (bool): Whether to use local shapefile (True) or GCS (False)
+        local_shapefile_path (str): Path to local shapefile if use_local=True
+        
+    Returns:
+        tuple: (gdf, extent) where:
+              - gdf is a GeoDataFrame containing the filtered region data
+              - extent is [lat_min, lat_max, lon_min, lon_max]
+    """
+   
+    if use_local:
+        # Read from local shapefile
+        try:
+            gdf = gp.read_file(local_shapefile_path)
+            
+            # Filter by region id (assuming column name is 'gbid', adjust if different)
+            if 'gbid' in gdf.columns:
+                gdf = gdf[gdf['gbid'].str.contains(region_id)]
+            else:
+                # If 'gbid' column doesn't exist, try to find a suitable ID column
+                id_columns = [col for col in gdf.columns if 'id' in col.lower()]
+                if id_columns:
+                    gdf = gdf[gdf[id_columns[0]].astype(str).str.contains(region_id)]
+                else:
+                    raise ValueError("No suitable ID column found in local shapefile")
+            
+            if len(gdf) == 0:
+                raise ValueError(f"No regions found with id containing '{region_id}' in local shapefile")
+                
+        except Exception as e:
+            raise ValueError(f"Error reading local shapefile: {str(e)}")
+    else:
+        # Read from GCS
+        if credentials is None:
+            raise ValueError("Credentials required when not using local shapefile")
+            
+        
+        gcs_file_url = 'gs://seas51/ea_admin0_2_custom_polygon_shapefile_v5.parquet'
+        ddf = daskdf.read_parquet(gcs_file_url, storage_options={'token': credentials}, engine='pyarrow')
+        
+        # Filter by region id
+        fdf = ddf[ddf['gbid'].str.contains(region_id)]
+        df1 = fdf.compute()
+        
+        if len(df1) == 0:
+            raise ValueError(f"No regions found with id containing '{region_id}' in GCS dataset")
+        
+        # Convert geometry from WKB to shapely geometry
+        df1['geometry'] = df1['geometry'].apply(wkb.loads)
+        gdf = gp.GeoDataFrame(df1, geometry='geometry')
+    
+     # Get bounds
+    bounds = gdf.bounds
+    lat_min = bounds['miny'].min() - buffer
+    lat_max = bounds['maxy'].max() + buffer
+    lon_min = bounds['minx'].min() - buffer
+    lon_max = bounds['maxx'].max() + buffer
+    extent = [lat_min, lat_max, lon_min, lon_max]
+    
+    return gdf, extent
+
+
+
+
+
 
 
 def gcs_paraquet_mask_creator(params):

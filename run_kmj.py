@@ -13,11 +13,6 @@ import xskillscore as xs
 from dask.distributed import Client
 from vthree_utils import get_threshold
 
-from vthree_utils import ken_mask_creator
-from vthree_utils import make_obs_fct_dataset
-from vthree_utils import get_threshold
-from vthree_utils import seas51_patch_empirical_probability
-from vthree_utils import xhist_metrics_2d
 from vthree_utils import BinCreateParams
 from vthree_utils import run_xhist2d
 from vthree_utils import run_xhist1d

@@ -80,9 +80,7 @@ def get_region_bounds(region_id, credentials=None, buffer=0.5, use_local=False, 
               - gdf is a GeoDataFrame containing the filtered region data
               - extent is [lat_min, lat_max, lon_min, lon_max]
     """
-    import geopandas as gpd
-    from shapely import wkb
-    
+   
     if use_local:
         # Read from local shapefile
         try:
@@ -125,7 +123,7 @@ def get_region_bounds(region_id, credentials=None, buffer=0.5, use_local=False, 
         df1['geometry'] = df1['geometry'].apply(wkb.loads)
         gdf = gpd.GeoDataFrame(df1, geometry='geometry')
     
-    # Get bounds
+     # Get bounds
     bounds = gdf.bounds
     lat_min = bounds['miny'].min() - buffer
     lat_max = bounds['maxy'].max() + buffer

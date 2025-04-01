@@ -31,7 +31,7 @@ import seaborn as sns
 from matplotlib.colors import ListedColormap, BoundaryNorm
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from calendar import AUGUST, month_abbr
+from calendar import month_abbr
 import cartopy.crs as ccrs
 import six
 import textwrap as tw
@@ -41,8 +41,8 @@ from dateutil.relativedelta import relativedelta
 from calendar import monthrange
 from PIL import Image
 
-
-from vthree_utils import ken_mask_creator
+from vthree_utils import get_credentials
+from vthree_utils import get_region_bounds 
 from vthree_utils import make_obs_fct_dataset
 from vthree_utils import get_threshold
 from vthree_utils import seas51_patch_empirical_probability
@@ -336,7 +336,7 @@ def add_colorbar_and_title(figsize, params, output_dir="output"):
         raise
 
 
-def plot_allrows(seas51tree, params):
+def plot_allrows(seas51tree, shapefile_df,params):
     """
     This function loops through the initializations and creates row plots for each init.
     After all init plots are generated, it calls a separate function to add a colorbar and title.
@@ -348,9 +348,10 @@ def plot_allrows(seas51tree, params):
         print(f"Folder created: {output_dir}")
     else:
         print(f"Folder already exists: {output_dir}")
+    
 
-    the_mask, rl_dict, mds1 = ken_mask_creator(params.data_path)
-    region_geom = mds1[mds1["region"] == params.region_id]["geometry"].values[0]
+    #the_mask, rl_dict, mds1 = ken_mask_creator(params.data_path)
+    region_geom = shapefile_df["geometry"].values[0]
 
     inits = seas51tree["ensemble/member_0"].ds.init.values
     plot_files = []  # Keep track of all the generated plot files
@@ -1042,7 +1043,7 @@ def run_heatmap_plot(params):
     create_heatmap_subplot(dt_df, params)
 
 
-def run_map_plot(params):
+def run_map_plot(params, use_local=False):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
     obs_data, ens_data = make_obs_fct_dataset(params)
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
@@ -1050,7 +1051,15 @@ def run_map_plot(params):
     )
 
     dstree = helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext)
-    plot_allrows(dstree, params)
+    region_id=params.region_filter 
+    if use_local:
+        shapefile_df, extent = get_region_bounds(region_id, use_local=True)
+    else:
+        credentials = get_credentials('coiled-data.json')
+        #credentials=''
+        shapefile_df, extent=get_region_bounds(region_id, credentials, use_local=False, buffer=0.5)
+
+    plot_allrows(dstree, shapefile_df, params)
 
     merge_png_files(
         input_dir=f"{params.output_path}map_{params.region_id}_{params.sc_season_str}_lt{params.lead_int}",
