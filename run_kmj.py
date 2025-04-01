@@ -50,10 +50,11 @@ params = BinCreateParams(
     region_filter="kmj",
 )
 
+"""
 run_xhist2d(params)
 run_xhist1d(params)
 
-"""
+
 params.lead_int = 3
 run_xhist2d(params)
 run_xhist1d(params)
@@ -61,7 +62,7 @@ run_xhist1d(params)
 params.lead_int = 4
 run_xhist2d(params)
 run_xhist1d(params)
-
+"""
 params.season_str = "JJA"
 params.sc_season_str = "jja"
 params.spi_prod_name = "spi3"
@@ -77,4 +78,4 @@ run_xhist1d(params)
 
 params.lead_int = 4
 run_xhist2d(params)
-run_xhist1d(params)"""
+run_xhist1d(params)

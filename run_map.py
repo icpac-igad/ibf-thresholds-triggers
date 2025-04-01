@@ -5,7 +5,7 @@ from vthree_utils import BinCreateParams
 from utils_plots import run_map_plot
 
 load_dotenv()
-ea_input_path = os.getenv("ea_input_path")
+ea_input_path = './'
 sa_file = os.getenv("sa_file")
 polygon_pq_uri = os.getenv("polygon_pq_uri")
 
