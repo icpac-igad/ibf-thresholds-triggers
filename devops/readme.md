@@ -161,26 +161,7 @@ references.
    ```
    Note this URL for the next step.
 
-### 2. Setting Up Port Forwarding (Using MobaXterm)
-
-There are two ways to set up port forwarding in MobaXterm:
-
-#### Method 1: Using the MobaXterm GUI while connected
-1. Click on "Tunneling" button in the top toolbar
-2. Click "New SSH tunnel"
-3. Select "Local port forwarding"
-4. Configure:
-   - Forward port: 4888 (local machine)
-   - Remote server: localhost
-   - Remote port: 4888 (remote machine)
-5. Save and start the tunnel
-
-#### Method 2: Configure when creating your SSH session
-1. In the session settings, go to the "Tunneling" tab
-2. Add port forwarding with the same settings as above
-3. This will automatically establish the tunnel when you connect
-
-### 3. Accessing Jupyter Lab from Your Local Browser
+### 2. Accessing Jupyter Lab from Your Local Browser
 
 1. Open a web browser on your Windows computer
 2. Paste the URL with the token from step 1:
