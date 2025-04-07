@@ -1,0 +1,271 @@
+=======================================================
+Acquiring Data for Drought Forecasting: CHIRPS and ECMWF SEAS5
+=======================================================
+
+This guide explains how to download the two essential datasets required for drought forecasting using Standardized Precipitation Index (SPI):
+
+1. **CHIRPS** - Climate Hazards Group InfraRed Precipitation with Station data (observational dataset)
+2. **ECMWF SEAS5** - Seasonal forecast system from the European Centre for Medium-Range Weather Forecasts
+
+Downloading CHIRPS Observational Data
+------------------------------------
+
+CHIRPS version 3.0 provides quasi-global rainfall data from 1981 to near-present, making it ideal for drought monitoring.
+
+**Data Access Options:**
+
+1. **Direct Web Download**
+
+   CHIRPS data can be downloaded directly from the Climate Hazards Center website:
+   
+   .. code-block:: bash
+   
+      https://data.chc.ucsb.edu/products/CHIRPS/v3.0/
+
+2. **Python Implementation with wget**
+
+   .. code-block:: python
+   
+      import os
+      import subprocess
+      
+      def download_chirps(output_dir="./data", filename="chirps-v3.0.monthly.nc"):
+          """
+          Download CHIRPS precipitation data using wget
+          
+          Args:
+              output_dir: Directory to save the downloaded data
+              filename: Name for the output file
+          
+          Returns:
+              str: Path to the downloaded file
+          """
+          print("Downloading CHIRPS precipitation data...")
+          
+          # Create output directory if it doesn't exist
+          os.makedirs(output_dir, exist_ok=True)
+          
+          output_file = os.path.join(output_dir, filename)
+          url = "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/monthly/global/netcdf/chirps-v3.0.monthly.nc"
+          
+          try:
+              # Check if file already exists
+              if os.path.exists(output_file):
+                  print(f"CHIRPS data already exists at: {output_file}")
+                  return output_file
+                  
+              # Use wget to download the file
+              subprocess.run(["wget", url, "-O", output_file], check=True)
+              print(f"CHIRPS data downloaded successfully to: {output_file}")
+              return output_file
+          except subprocess.CalledProcessError as e:
+              print(f"Error downloading CHIRPS data: {e}")
+              return None
+          except Exception as e:
+              print(f"Unexpected error: {e}")
+              return None
+      
+      # Example: Download CHIRPS data
+      chirps_file = download_chirps()
+      
+      # Open the data with xarray
+      import xarray as xr
+      ds = xr.open_dataset(chirps_file)
+      print(ds)
+
+ECMWF SEAS5 Forecast Data from the Climate Data Store (CDS)
+---------------------------------------------------------
+
+SEAS5 is ECMWF's fifth generation seasonal forecast system, providing global forecasts with lead times up to 7 months.
+
+**CDS Account Creation:**
+
+1. **Register for a CDS Account**
+
+   Visit the Copernicus Climate Data Store (CDS) website:
+   
+   .. code-block:: bash
+   
+      https://cds.climate.copernicus.eu/user/register
+   
+   Complete the registration form and agree to the Terms and Conditions.
+
+2. **Generate an API Key**
+
+   After registration:
+   
+   - Log in to your CDS account
+   - Go to your profile page (click on your username in the top-right corner)
+   - Scroll down to the "API key" section
+   - The page will display your User ID and API Key
+
+3. **Configure the CDS API Client**
+
+   Create a file called ``.cdsapirc`` in your home directory with the following contents:
+   
+   .. code-block:: bash
+   
+      $ cat ~/.cdsapirc
+      url: https://cds.climate.copernicus.eu/api/v2
+      key: <your-user-id>:<your-api-key>
+      verify: 0
+
+   Replace ``<your-user-id>`` and ``<your-api-key>`` with the values from your profile.
+
+**Python Implementation for ECMWF SEAS5 Download:**
+
+.. code-block:: python
+
+   import os
+   import datetime
+   import cdsapi
+   import glob
+   
+   def download_seas5(output_dir="./data", filename_prefix="seas5_precipitation_"):
+       """
+       Download SEAS5 dataset from ECMWF CDS API
+       
+       Args:
+           output_dir: Directory to save the downloaded data
+           filename_prefix: Prefix for the output filename
+       
+       Returns:
+           str: Path to the downloaded file
+       """
+       print("Downloading SEAS5 data from ECMWF CDS...")
+       
+       # Create output directory if it doesn't exist
+       os.makedirs(output_dir, exist_ok=True)
+       
+       # Current date to use in the filename
+       current_date = datetime.datetime.now().strftime("%Y%m%d")
+       output_file = os.path.join(output_dir, f"{filename_prefix}{current_date}.grib")
+       
+       # Define the SEAS5 dataset and request parameters
+       dataset = "seasonal-monthly-single-levels"
+       request = {
+           "originating_centre": "ecmwf",
+           "system": "51",
+           "variable": ["total_precipitation"],
+           "year": [
+               "1981", "1982", "1983", "1984", "1985", "1986", "1987", "1988", "1989",
+               "1990", "1991", "1992", "1993", "1994", "1995", "1996", "1997", "1998",
+               "1999", "2000", "2001", "2002", "2003", "2004", "2005", "2006", "2007",
+               "2008", "2009", "2010", "2011", "2012", "2013", "2014", "2015", "2016",
+               "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"
+           ],
+           "month": [
+               "01", "02", "03", "04", "05", "06", 
+               "07", "08", "09", "10", "11", "12"
+           ],
+           "leadtime_month": ["1", "2", "3", "4", "5", "6"],
+           "data_format": "grib",
+           "product_type": ["monthly_mean"],
+           "area": [23, 21, -12, 53]  # North, West, South, East
+       }
+       
+       try:
+           client = cdsapi.Client()
+           client.retrieve(dataset, request, output_file)
+           print(f"SEAS5 data downloaded successfully to: {output_file}")
+           return output_file
+       except Exception as e:
+           print(f"Error downloading SEAS5 data: {e}")
+           return None
+   
+   def cleanup_old_seas5_files(output_dir="./data", filename_prefix="seas5_precipitation_", keep_latest=True):
+       """
+       Remove old SEAS5 files, optionally keeping the latest one
+       
+       Args:
+           output_dir: Directory containing the SEAS5 files
+           filename_prefix: Prefix of the SEAS5 files
+           keep_latest: Whether to keep the latest file
+       """
+       print("Cleaning up old SEAS5 files...")
+       
+       # Get all SEAS5 files
+       pattern = os.path.join(output_dir, f"{filename_prefix}*.grib")
+       files = glob.glob(pattern)
+       
+       if not files:
+           print("No SEAS5 files found for cleanup.")
+           return
+       
+       if keep_latest and len(files) > 1:
+           # Sort files by modification time (newest last)
+           files.sort(key=os.path.getmtime)
+           # Remove the latest file from the list
+           latest_file = files.pop()
+           print(f"Keeping latest file: {os.path.basename(latest_file)}")
+       
+       # Remove remaining files
+       for file in files:
+           try:
+               os.remove(file)
+               print(f"Removed: {os.path.basename(file)}")
+           except Exception as e:
+               print(f"Error removing {file}: {e}")
+   
+   # Example: Download SEAS5 data and clean up old files
+   seas5_file = download_seas5()
+   cleanup_old_seas5_files()
+   
+   # Open the data with xarray
+   import xarray as xr
+   ds = xr.open_dataset(seas5_file)
+   print(ds)
+
+**Important CDS Usage Notes:**
+
+- There are **usage limits** for data retrieval from CDS (number of requests, volume)
+- Large requests are **queued** and may take time to complete
+- If your request fails, the system will automatically retry
+- Monitor your pending requests in the CDS web interface under "My Requests"
+
+Data Management and Processing
+------------------------
+
+The provided script includes several important features for managing the downloaded data:
+
+1. **Automatic File Management**:
+   
+   - CHIRPS v3.0 data is downloaded only once (checks if file already exists)
+   - SEAS5 files are automatically date-stamped and old files are cleaned up
+   - Option to keep all SEAS5 files if needed for historical analysis
+
+2. **Regional Specification**:
+   
+   - SEAS5 data is downloaded for a specific region ([23°N, 21°E, -12°S, 53°E])
+   - This focused approach reduces download size and processing time
+
+3. **Preprocessing Considerations**:
+
+   After downloading both datasets, you'll typically need to:
+   
+   - **Convert GRIB to NetCDF**: SEAS5 data is downloaded in GRIB format and may need conversion
+   - **Handle Different Spatial Resolutions**: CHIRPS and SEAS5 have different resolutions
+   - **Apply Temporal Alignment**: Match forecast periods with observational data
+
+   .. code-block:: python
+   
+      import xarray as xr
+      import cfgrib
+      import xesmf as xe
+      
+      # Load datasets (note different formats)
+      forecast = xr.open_dataset("./data/seas5_precipitation_20250407.grib", engine="cfgrib")
+      obs = xr.open_dataset("./data/chirps-v3.0.monthly.nc")
+      
+      # Define the regridder if needed
+      regridder = xe.Regridder(
+          forecast, 
+          obs, 
+          "bilinear",
+          periodic=True
+      )
+      
+      # Apply regridding
+      forecast_regridded = regridder(forecast)
+
+This automated approach to data acquisition forms the foundation for developing robust drought monitoring applications based on the Standardized Precipitation Index (SPI).

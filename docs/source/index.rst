@@ -6,17 +6,15 @@
 ibf-thresholds-triggers training documentation
 =====================================
 
-#Add your content using ``reStructuredText`` syntax. See the
-#`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-#documentation for details.
-
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
    1
+   2a
    3a
+   2b
    3
    4 
    5 

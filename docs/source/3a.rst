@@ -1,0 +1,88 @@
+======================================================
+Overview of Python Libraries for Forecast Verification 
+======================================================
+Core Libraries for Forecast Analysis
+------------------------------------
+
+xarray
+^^^^^^
+Essential for handling multidimensional arrays with labeled coordinates. Provides powerful data structures for working with forecast and observational gridded data across multiple time periods and ensemble members.
+
+xclim
+^^^^^
+Specialized for climate indices calculation, particularly the standardized_precipitation_index function, which is fundamental for translating precipitation data into drought indicators using gamma distribution fitting.
+
+xskillscore
+^^^^^^^^^^^
+Provides verification metrics specific to Earth science data. Used for calculating ROC curves and skill scores when evaluating forecast performance against observations.
+
+xhistogram
+^^^^^^^^^^
+Enables efficient histogram generation along multiple dimensions for gridded data. Critical for categorizing forecast and observation pairs into contingency tables for binary verification.
+
+xesmf
+^^^^^
+Handles regridding between different spatial resolutions. Essential for aligning ECMWF SEAS5 forecast data with CHIRPS observational data before verification can begin.
+
+xbootstrap
+^^^^^^^^^^
+Implements bootstrapping methods for uncertainty quantification. Used to generate confidence intervals for AUROC scores and other verification metrics.
+
+Statistical and Geospatial Processing
+-------------------------------------
+
+numpy
+^^^^^
+Provides the mathematical foundation for array operations. Handles the numerical calculations underpinning all verification metrics and statistical analyses.
+
+pandas
+^^^^^^
+Manages tabular data structures for storing verification results. Facilitates filtering, aggregating, and organizing trigger statistics by threshold level and lead time.
+
+dask
+^^^^
+Enables parallel computing and lazy evaluation for large datasets. Critical for handling the memory-intensive forecast ensemble calculations across multiple lead times.
+
+regionmask
+^^^^^^^^^^
+Creates masked arrays based on geographic boundaries. Essential for focusing the analysis on specific regions like Karamoja while excluding irrelevant grid cells.
+
+geopandas
+^^^^^^^^^
+Extends pandas to work with geospatial data. Handles the shapefile operations needed to define region boundaries and create regional masks.
+
+shapely
+^^^^^^^
+Provides computational geometry operations. Used for manipulating region polygons, calculating bounds, and applying buffers around analysis regions.
+
+Visualization
+------------
+
+matplotlib
+^^^^^^^^^
+Creates the foundational plots and visualizations. Generates time series, heatmaps, and spatial maps of SPI values and forecast skill.
+
+seaborn
+^^^^^^
+Builds on matplotlib to create more attractive statistical visualizations. Particularly useful for the heatmaps showing hit rates and false alarm ratios.
+
+altair
+^^^^^
+Provides a declarative visualization syntax. Used for creating interactive and linked visualization components showing forecast performance.
+
+vl_convert
+^^^^^^^^^
+Converts Vega-Lite specifications (from Altair) to static image formats like PNG. Essential for including visualizations in reports.
+
+Cloud Data Access
+---------------
+
+google.oauth2
+^^^^^^^^^^^
+Manages authentication for accessing cloud-stored data. Enables secure access to forecast and observation datasets stored in Google Cloud Storage.
+
+fsspec
+^^^^^^
+Provides a unified file system interface. Allows consistent access to data regardless of whether it's stored locally or in cloud storage.
+
+These libraries work together to form a comprehensive toolkit for drought forecast verification, enabling the entire workflow from data retrieval through processing, verification, and visualization of results.
