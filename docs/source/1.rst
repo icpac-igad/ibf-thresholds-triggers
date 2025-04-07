@@ -78,3 +78,11 @@ Role in Trigger Selection
 Beyond serving as a quality filter, AUROC scores influence the selection of optimal trigger values. Higher AUROC scores indicate greater potential for skillful discrimination, allowing for more confident selection of triggers based on other performance metrics like hit rates and false alarm ratios.
 
 In the context of long-term verification, AUROC provides a foundation for justifying AA initiatives to stakeholders and funders by demonstrating that the underlying forecasting system possesses genuine predictive skill, making it a suitable basis for humanitarian decision-making.
+
+
+References
+-----------
+
+1. Nobre, Gabriela Guimarães, et al. "Forecasting, thresholds, and triggers: towards developing a forecast-based financing system for droughts in Mozambique." Climate Services 30 (2023): 100344.
+
+2. Guimarães Nobre, Gabriela, et al. "Ready, Set & Go! An anticipatory action system against droughts." Natural Hazards and Earth System Sciences 24.12 (2024): 4661-4682.

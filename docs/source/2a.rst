@@ -31,6 +31,8 @@ Version control is fundamental to scientific computing, providing the infrastruc
 
 In fields where computational results inform policy decisions or emergency response, version control provides the audit trail necessary for scientific credibility and accountability. Git's ability to document exactly how and when analytical thresholds were developed makes it particularly valuable for creating verified trigger systems in early warning applications.
 
+The current code base along with the source files to create the documentaiton in pdf is stored in github link (https://github.com/icpac-igad/ibf-thresholds-triggers/tree/kmj) where the kmj is the current branch name. 
+
 Jupyter Notebooks as a Python Learning Tool
 ------------------------------------------------
 
