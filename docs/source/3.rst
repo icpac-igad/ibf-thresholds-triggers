@@ -1,4 +1,4 @@
-SPI Calculation and Foundational Libraries
+SPI Calculation using Python Libraries
 =========================================
 
 The Standardized Precipitation Index (SPI)

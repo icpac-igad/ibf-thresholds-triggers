@@ -6,9 +6,9 @@
 ibf-thresholds-triggers training documentation
 =====================================
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
+#Add your content using ``reStructuredText`` syntax. See the
+#`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
+#documentation for details.
 
 
 .. toctree::
@@ -16,9 +16,10 @@ documentation for details.
    :caption: Contents:
 
    1
+   3a
    3
    4 
    5 
    6 
-   7
+   7 
    8
