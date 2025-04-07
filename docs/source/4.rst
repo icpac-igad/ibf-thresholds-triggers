@@ -1,0 +1,84 @@
+Regridding Datasets with xESMF
+==============================
+
+Spatial Resolution Harmonization
+-------------------------------
+
+A critical step in comparing forecasts with observations involves addressing the inherent resolution mismatch between datasets. In the drought anticipatory action system, CHIRPS observations (native resolution of 0.05°) and SEAS5 forecasts (native resolution of 1.0°) must be harmonized to a common grid to enable meaningful comparisons. The ``run-process-spi.py`` script implements this harmonization through regridding, bringing both datasets to an intermediate resolution of 0.25° (approximately 25 km at the equator).
+
+The regridding process handles two distinct cases:
+
+1. **CHIRPS Observation Regridding (5 km → 25 km)**:
+
+   .. code-block:: python
+
+       # Create output grid with regular spacing
+       ds_out = xr.Dataset({
+           "lat": (["lat"], np.arange(lat_min, lat_max, res), {"units": "degrees_north"}),
+           "lon": (["lon"], np.arange(lon_min, lon_max, res), {"units": "degrees_east"}),
+       })
+       
+       # Regrid using conservative method
+       regridder = xe.Regridder(ds1, ds_out, "conservative")
+       dr_out = regridder(dr, keep_attrs=True)
+
+   This upscaling process preserves precipitation totals through conservative regridding, which maintains the area-integrated rainfall quantity during the transition to a coarser grid.
+
+2. **SEAS5 Forecast Regridding (100 km → 25 km)**:
+
+   .. code-block:: python
+
+       # Create output grid matching observations
+       ds_out = xr.Dataset({
+           "lat": (["lat"], kn_obs['lat'].values, {"units": "degrees_north"}),
+           "lon": (["lon"], kn_obs['lon'].values, {"units": "degrees_east"}),
+       })
+           
+       # Perform regridding
+       regridder = xe.Regridder(gd2, ds_out, "bilinear", periodic=False)
+       dr_out = regridder(agd, keep_attrs=True)
+
+   For the forecast data, bilinear interpolation is employed to downscale from 100 km to 25 km, producing smoother transitions between grid cells appropriate for the forecast uncertainty.
+
+The xESMF Library
+----------------
+
+The Earth System Modeling Framework (ESMF) regridding functionality is made accessible through xESMF, a Python interface that integrates seamlessly with xarray datasets. This library provides multiple interpolation methods appropriate for different variables and scientific needs:
+
+1. **Conservative**: Preserves the integral of the field (used for CHIRPS precipitation upscaling)
+2. **Bilinear**: Weighted average of nearest grid points (used for SEAS5 interpolation)
+3. **Nearest-neighbor**: Assigns value from nearest source point
+4. **Higher-order patch**: Smoother interpolation useful for continuous fields
+
+In the implementation, regridding objects are created once and stored for repeated application across dimensions:
+
+.. code-block:: python
+
+    regridder = xe.Regridder(gd2, ds_out, "bilinear", periodic=False)
+
+The ``periodic=False`` parameter indicates that the longitude dimension is not treated as periodic (wrapped around the globe), which is appropriate for regional domains in East Africa.
+
+Handling Special Cases in Regridding
+-----------------------------------
+
+The regridding implementation addresses several technical challenges:
+
+1. **Coordinate System Compatibility**: The script ensures coordinate naming consistency before regridding:
+
+   .. code-block:: python
+
+       # Rename coordinates for consistency if needed
+       if 'longitude' in ds_p_m1.dims and 'latitude' in ds_p_m1.dims:
+           gd2 = ds_p_m1.rename({'longitude': 'lon', 'latitude': 'lat'})
+
+2. **Land-Sea Mask Preservation**: The regridding process preserves missing values to maintain the integrity of land-sea boundaries.
+
+3. **Ensemble Dimension Handling**: When processing SEAS5 ensemble data, regridding is applied individually to each lead time to manage memory efficiently:
+
+   .. code-block:: python
+
+       for fm in range(min(6, len(all_leads))):
+           # Regridding for each lead time
+           # ...
+
+This approach ensures that both datasets align on a common 0.25° grid, enabling direct comparison between forecasts and observations while balancing spatial detail against computational efficiency in the SPI calculation and verification process.

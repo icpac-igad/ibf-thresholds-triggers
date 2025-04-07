@@ -1,0 +1,40 @@
+AUROC: A Key Metric for Forecast Verification
+--------------------------------------------
+
+The Area Under the Receiver Operating Characteristic curve (AUROC) represents a fundamental metric in the verification of probabilistic forecasts for Anticipatory Action (AA) systems. This metric addresses a central question: does the forecasting system effectively discriminate between drought and non-drought events?
+
+AUROC Concept and Calculation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The AUROC score quantifies a forecast's ability to discriminate between binary outcomes (drought/no drought) across different probability thresholds. As described by Guimarães Nobre et al. (2023), the calculation involves setting a range of probability thresholds for converting forecasts into binary predictions, then evaluating how well these predictions match observations.
+
+The resulting curve plots the hit rate (proportion of observed droughts correctly forecast) against the false alarm rate (proportion of non-droughts incorrectly forecast as droughts) at various threshold levels. The area under this curve—the AUROC score—ranges from 0 to 1, where:
+
+- 0.5 indicates no skill (equivalent to random guessing)
+- 1.0 indicates perfect discrimination
+- Values below 0.5 suggest systematically incorrect forecasts
+
+Quality Threshold for Anticipatory Action
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In operational AA systems for drought, an AUROC score of 0.5 serves as a critical quality threshold. As implemented in the "Ready, Set & Go!" system (Guimarães Nobre et al., 2024), forecasts with AUROC scores below 0.5 are considered unsuitable for triggering anticipatory actions, as they provide no added value over random chance.
+
+This threshold represents a minimum standard for forecast quality—one that ensures actions are based on information with at least some predictive skill. When evaluating potential triggers for AA, only those derived from forecasts with AUROC > 0.5 are considered, creating a first-level quality control in the system design.
+
+Bootstrapping for Uncertainty Assessment
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To account for sampling uncertainty in AUROC estimation, the verification process employs bootstrapping techniques. By repeatedly resampling the forecast-observation pairs with replacement (typically 1,000 iterations), a distribution of AUROC scores is generated, allowing for:
+
+1. Estimation of confidence intervals around the AUROC score
+2. Assessment of statistical significance of skill above the 0.5 threshold
+3. More robust decision-making about forecast quality
+
+This approach acknowledges that verification statistics based on limited historical records contain inherent uncertainty, particularly for rare events like severe droughts.
+
+Role in Trigger Selection
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Beyond serving as a quality filter, AUROC scores influence the selection of optimal trigger values. Higher AUROC scores indicate greater potential for skillful discrimination, allowing for more confident selection of triggers based on other performance metrics like hit rates and false alarm ratios.
+
+In the context of long-term verification, AUROC provides a foundation for justifying AA initiatives to stakeholders and funders by demonstrating that the underlying forecasting system possesses genuine predictive skill, making it a suitable basis for humanitarian decision-making.
