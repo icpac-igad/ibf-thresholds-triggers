@@ -49,6 +49,13 @@ Triggers are selected based on a combination of metrics:
 - **Hit Rate** (HR) > 50% (minimum detection rate)
 - **False Alarm Ratio** (FAR) < 35% (maximum acceptable false alarms)
 - **Operational considerations** (lead time, practical implementation)
+- **Trigger Decision**: From candidates meeting the above criteria, select the trigger value that:
+  
+  - Maximizes hit rate (if focusing on preventing missed events)
+  - Minimizes false alarm ratio (if false alarms are costly)
+  - Achieves bias score closest to 1 (for unbiased forecasts)
+
+The CSV output contains all candidate trigger values, with the preferred trigger often highlighted or marked (typically with a ``td`` column value of 1).
 
 Verification Metrics
 ------------------
@@ -73,6 +80,39 @@ Verification Metrics
   - ``bias_score``: Ratio of forecast frequency to observed frequency
   - ``hanssen_kuipers_scores``: Difference between hit rate and false alarm rate
   - ``heidke_skill_scores``: Forecast accuracy relative to random chance
+
+Implementation in the Ready, Set & Go! System
+---------------------------------------------
+
+The Ready, Set & Go! system uses this verification process to:
+
+1. **Ready Phase**: Use longer lead time forecasts with acceptable skill for early preparedness.
+2. **Set Phase**: Use shorter lead time forecasts with higher skill for confirmation.
+3. **Go! Phase**: Implement anticipatory actions based on both forecasts exceeding their respective triggers.
+
+This double-confirmation approach balances the need for advance notice with forecast reliability, typically achieving higher hit rates and lower false alarm ratios than a single trigger approach.
+
+Example of Analysis Using the CSV Data
+--------------------------------------
+
+Here's how the CSV data might be used in decision-making:
+
+.. code-block:: python
+
+  # Find the trigger with highest hit rate among candidates with FAR < 35%
+  candidates = df[(df['auroc_score'] > 0.5) & (df['hit_rate'] > 50) & (df['false_alarm_ratio'] < 35)]
+  best_trigger = candidates.loc[candidates['hit_rate'].idxmax()]
+
+  # Or find the trigger with bias score closest to 1 (most unbiased)
+  best_unbiased = candidates.iloc[(candidates['bias_score'] - 1).abs().argsort()[0]]
+
+  # Relevant metrics for decision-makers
+  print(f"Recommended trigger value: {best_trigger['trigger_value']}%")
+  print(f"Hit rate: {best_trigger['hit_rate']:.1f}%")
+  print(f"False alarm ratio: {best_trigger['false_alarm_ratio']:.1f}%")
+  print(f"Expected return period: Once every {total/(hits+FA):.1f} years")
+
+This analytical process helps stakeholders select appropriate trigger values for implementing anticipatory actions, balancing the costs of action against the benefits of early preparation for drought events.
 
 Downstream Processing Dependencies
 --------------------------------
