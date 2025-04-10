@@ -537,7 +537,7 @@ def make_obs_fct_dataset(params):
 
         if len(params.season_str) == 3:
             kn_obs = xr.open_dataset('./kmj_obs_spi3_masked.nc')
-            kn_fct = xr.open_dataset('./kmj_fct_spi3_masked.nc')
+            kn_fct = xr.open_dataset('./kmj_rgr_seas51_spi3_masked.nc')
             logger.info("Loaded SPI3 datasets")
         else:
             kn_fct = xr.open_dataset(os.path.join(params.data_path, params.fct_netcdf_file))
