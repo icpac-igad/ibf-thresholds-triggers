@@ -703,7 +703,9 @@ def print_usage_examples():
 
       # Merge multiple SEAS51 files and process
       python 01-run-process-spi.py --region-id kmj --mode seas51 --obs-file kmj_obs_spi3.nc --seas51-main-file ../historical_seas51_1981_2025March.grib --seas51-additional-files ../seas51_2025_January_April.grib
-      
+      # Doing all the steps 
+      python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../../data/kmj_polygon.shp --chirps-file ../../data/chirps-v3.0.monthly.nc --seas51-main-file ../../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
+
       # Using GCP data with credentials
       python 01-run-process-spi.py --region-id kmj --credentials-file ./coiled-data.json
     """
