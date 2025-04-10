@@ -8,7 +8,8 @@ from utils_plots import run_bar_plot
 load_dotenv()
 
 # Get environment variables
-ea_input_path = os.getenv("ea_input_path")
+ea_input_path = './'
+#ea_input_path = os.getenv("ea_input_path")
 sa_file = os.getenv("sa_file")
 polygon_pq_uri = os.getenv("polygon_pq_uri")
 
@@ -31,7 +32,7 @@ params = BinCreateParams(
     region_filter="kmj",
 )
 
-run_bar_plot(params)
+#run_bar_plot(params)
 
 params.season_str = "JJA"
 params.sc_season_str = "jja"
@@ -39,40 +40,4 @@ params.spi_prod_name = "spi3"
 #params.data_path = params.spi4_data_path
 
 run_bar_plot(params)
-#########################
-#########################
-"""
-params = BinCreateParams(
-    region_id=1,
-    region_name_dict={0: "Karamoja", 1: "Marsabit", 2: "Wajir"},
-    season_str="MAM",
-    lead_int=2,
-    level="mod",
-    spi_prod_name="spi3",
-    data_path=os.getenv("ea_input_path"),
-    spi4_data_path=os.getenv("data_path"),
-    output_path=os.getenv("output_path"),
-)
 
-run_bar_plot(params)
-
-params.season_str = "OND"
-params.sc_season_str = "ond"
-
-run_bar_plot(params)
-
-##########################
-##########################
-
-params.season_str = "MAM"
-params.sc_season_str = "mam"
-params.spi_prod_name = "spi3"
-params.region_id = 2
-
-run_bar_plot(params)
-
-params.season_str = "OND"
-params.sc_season_str = "ond"
-params.spi_prod_name = "spi3"
-run_bar_plot(params)
-"""
