@@ -1043,7 +1043,7 @@ def run_heatmap_plot(params):
     create_heatmap_subplot(dt_df, params)
 
 
-def run_map_plot(params, use_local=False):
+def run_map_plot(params, use_local=True):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
     obs_data, ens_data = make_obs_fct_dataset(params)
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
