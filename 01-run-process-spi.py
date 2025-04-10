@@ -278,19 +278,50 @@ def merge_grib_files(main_file, additional_files, output_file=None):
             logger.error(f"Error processing file {add_file}: {e}")
             continue
     
-    # Combine all datasets
+    # Handle merging carefully to ensure monotonic time index
     logger.info("Combining all datasets")
-    combined_ds = xr.combine_by_coords(all_datasets, combine_attrs="drop_conflicts", 
-                                      data_vars="minimal", coords="minimal", compat="override")
+    
+    try:
+        # First attempt: Try to combine directly
+        combined_ds = xr.combine_by_coords(all_datasets, combine_attrs="drop_conflicts", 
+                                          data_vars="minimal", coords="minimal", compat="override")
+    except ValueError as e:
+        if "monotonic" in str(e) and "time" in str(e):
+            logger.warning("Time coordinate not monotonic, attempting alternative merge approach")
+            
+            # Alternative approach: manually combine and sort time indices
+            # First, concatenate all datasets along the time dimension
+            concat_ds = xr.concat(all_datasets, dim="time")
+            
+            # Then remove duplicates by sorting and drop_duplicates
+            time_values = concat_ds.time.values
+            sorted_indices = np.argsort(time_values)
+            sorted_ds = concat_ds.isel(time=sorted_indices)
+            
+            # Find unique time values
+            _, unique_indices = np.unique(sorted_ds.time.values, return_index=True)
+            combined_ds = sorted_ds.isel(time=unique_indices)
+            
+            logger.info(f"Successfully merged using alternative approach. Time periods: {len(combined_ds.time)}")
+        else:
+            # If it's not a monotonicity error, re-raise
+            raise e
     
     # Remove duplicates if any
     # This assumes 'time' is the main coordinate for identifying duplicates
     if 'time' in combined_ds.coords:
         logger.info("Checking for duplicate time periods")
-        _, index = np.unique(combined_ds['time'], return_index=True)
-        if len(index) < len(combined_ds['time']):
-            logger.info(f"Found {len(combined_ds['time']) - len(index)} duplicate time periods - removing")
-            combined_ds = combined_ds.isel(time=sorted(index))
+        time_vals = combined_ds['time'].values
+        unique_times, indices = np.unique(time_vals, return_index=True)
+        
+        if len(indices) < len(time_vals):
+            logger.info(f"Found {len(time_vals) - len(indices)} duplicate time periods - removing")
+            combined_ds = combined_ds.isel(time=sorted(indices))
+    
+    # Explicitly sort by time to ensure monotonicity
+    if 'time' in combined_ds.coords:
+        combined_ds = combined_ds.sortby('time')
+        logger.info(f"Sorted dataset by time. First time: {combined_ds.time.values[0]}, Last time: {combined_ds.time.values[-1]}")
     
     # Save to file if requested
     if output_file:
