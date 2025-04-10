@@ -1,6 +1,8 @@
+
 #!/usr/bin/env python3
 """
-ECMWF SEAS5 and CHIRPS Data Downloader
+ECMWF 
+MWF SEAS5 and CHIRPS Data Downloader
 
 This script downloads:
 1. SEAS5 seasonal forecast data from ECMWF CDS API
@@ -62,12 +64,12 @@ def download_seas5(output_dir="./data", filename_prefix="seas5_precipitation_"):
     """
     print("Downloading SEAS5 data from ECMWF CDS...")
     
- fb    # Create output directory if it doesn't exist
+    # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
     
     # Current date to use in the filename
     current_date = datetime.datetime.now().strftime("%Y%m%d")
-    output_file = os.path.join(output_dir, f"{filename_prefix}{current_date}.grib")
+    output_file = os.path.join(output_dir, f'{filename_prefix}{current_date}.grib')
     
     # Define the SEAS5 dataset and request parameters
     dataset = "seasonal-monthly-single-levels"
@@ -91,49 +93,7 @@ def download_seas5(output_dir="./data", filename_prefix="seas5_precipitation_"):
         "product_type": ["monthly_mean"],
         "area": [23, 21, -12, 53]
     }
-    dataset = "seasonal-monthly-single-levels"
-request = {
-    "originating_centre": "ecmwf",
-    "system": "51",
-    "variable": ["total_precipitation"],
-    "product_type": ["monthly_mean"],
-    "year": [
-        "1981", "1982", "1983",
-        "1984", "1985", "1986",
-        "1987", "1988", "1989",
-        "1990", "1991", "1992",
-        "1993", "1994", "1995",
-        "1996", "1997", "1998",
-        "1999", "2000", "2001",
-        "2002", "2003", "2004",
-        "2005", "2006", "2007",
-        "2008", "2009", "2010",
-        "2011", "2012", "2013",
-        "2014", "2015", "2016",
-        "2017", "2018", "2019",
-        "2020", "2021", "2022",
-        "2023", "2024", "2025"
-    ],
-    "month": [
-        "01", "02", "03",
-        "04", "05", "06",
-        "07", "08", "09",
-        "10", "11", "12"
-    ],
-    "leadtime_month": [
-        "1",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6"
-    ],
-    "data_format": "grib",
-    "area": [90, -180, -90, 180]
-}
-
-client = cdsapi.Client()
-client.retrieve(dataset, request).download()    
+    
     try:
         client = cdsapi.Client()
         client.retrieve(dataset, request, output_file)
@@ -160,7 +120,7 @@ def download_chirps(output_dir="./data", filename="chirps-v3.0.monthly.nc"):
     os.makedirs(output_dir, exist_ok=True)
     
     output_file = os.path.join(output_dir, filename)
-    url = "https://data.chc.ucsb.edu/products/CHIRPS/v3.0/monthly/global/netcdf/chirps-v3.0.monthly.nc"
+    url = "https://data.chc.ucsb.edu/products/CHIRPS-2.0/global_monthly/netcdf/chirps-v2.0.monthly.nc"
     
     try:
         # Check if file already exists
