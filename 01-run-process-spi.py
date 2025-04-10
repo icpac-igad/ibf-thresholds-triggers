@@ -1,3 +1,4 @@
+import sys
 import pandas as pd
 import fsspec
 from google.oauth2 import service_account
@@ -13,6 +14,7 @@ import numpy as np
 import os
 import regionmask
 import logging
+import argparse 
 
 # Set up logging
 logging.basicConfig(
@@ -233,7 +235,72 @@ def process_chirps_data(region_id, credentials, extent, chirps_file=None, output
     logger.info(f"Observation SPI-3 saved to {output_file}")
     return output_file
 
-def process_seas51_data(region_id, obs_file, credentials, extent, seas51_file=None, output_dir='.'):
+
+def merge_grib_files(main_file, additional_files, output_file=None):
+    """
+    Merge multiple GRIB files, removing any duplicate time periods.
+    
+    Args:
+        main_file (str): Path to the main GRIB file (historical data)
+        additional_files (list): List of paths to additional GRIB files
+        output_file (str): Optional path to save the merged file
+        
+    Returns:
+        xarray.Dataset: The merged dataset
+    """
+    logger.info(f"Merging main GRIB file: {main_file} with additional files")
+    
+    # Open the main file
+    if main_file.endswith('.grib') or main_file.endswith('.grb') or main_file.endswith('.grib2'):
+        main_ds = xr.open_dataset(main_file, engine='cfgrib', 
+                                 backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    else:
+        main_ds = xr.open_dataset(main_file)
+    
+    # Process each additional file
+    all_datasets = [main_ds]
+    
+    for add_file in additional_files:
+        logger.info(f"Processing additional file: {add_file}")
+        
+        try:
+            # Open the additional file
+            if add_file.endswith('.grib') or add_file.endswith('.grb') or add_file.endswith('.grib2'):
+                add_ds = xr.open_dataset(add_file, engine='cfgrib', 
+                                        backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+            else:
+                add_ds = xr.open_dataset(add_file)
+            
+            # Append to our list
+            all_datasets.append(add_ds)
+            
+        except Exception as e:
+            logger.error(f"Error processing file {add_file}: {e}")
+            continue
+    
+    # Combine all datasets
+    logger.info("Combining all datasets")
+    combined_ds = xr.combine_by_coords(all_datasets, combine_attrs="drop_conflicts", 
+                                      data_vars="minimal", coords="minimal", compat="override")
+    
+    # Remove duplicates if any
+    # This assumes 'time' is the main coordinate for identifying duplicates
+    if 'time' in combined_ds.coords:
+        logger.info("Checking for duplicate time periods")
+        _, index = np.unique(combined_ds['time'], return_index=True)
+        if len(index) < len(combined_ds['time']):
+            logger.info(f"Found {len(combined_ds['time']) - len(index)} duplicate time periods - removing")
+            combined_ds = combined_ds.isel(time=sorted(index))
+    
+    # Save to file if requested
+    if output_file:
+        logger.info(f"Saving merged dataset to {output_file}")
+        combined_ds.to_netcdf(output_file)
+    
+    return combined_ds
+
+
+def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=None, output_dir='.'):
     """
     Process SEAS51 forecast data for a region and calculate SPI-3.
     
@@ -251,6 +318,7 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_file=No
     logger.info(f"Processing SEAS51 data for region {region_id}...")
     start = time.time()
     lat_min, lat_max, lon_min, lon_max = extent 
+    
     # First, open the observation dataset to determine its extent
     logger.info(f"Opening observation dataset: {obs_file}")
     try:
@@ -274,22 +342,28 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_file=No
             lat_min, lat_max, lon_min, lon_max = extent
             logger.info(f"Using provided extent: {lat_min:.2f}, {lat_max:.2f}, {lon_min:.2f}, {lon_max:.2f}")
             
-        # Check if the provided/calculated extent covers the observation dataset
-        if (lat_min > obs_lat_min or lat_max < obs_lat_max or 
-            lon_min > obs_lon_min or lon_max < obs_lon_max):
-            logger.warning("Warning: The selected extent does not fully cover the observation dataset.")
     except Exception as e:
         logger.error(f"Error opening observation file: {e}")
         raise
     
     # Load SEAS51 data
-    if seas51_file:
-        logger.info(f"Using local SEAS51 file: {seas51_file}")
-        if seas51_file.endswith('.grib') or seas51_file.endswith('.grb') or seas51_file.endswith('.grib2'):
-            logger.info("Processing GRIB file format")
-            sds = xr.open_dataset(seas51_file, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+    if seas51_files:
+        # Check if it's a single file or multiple files
+        if isinstance(seas51_files, str):
+            logger.info(f"Using single local SEAS51 file: {seas51_files}")
+            if seas51_files.endswith('.grib') or seas51_files.endswith('.grb') or seas51_files.endswith('.grib2'):
+                logger.info("Processing GRIB file format")
+                sds = xr.open_dataset(seas51_files, engine='cfgrib', 
+                                     backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+            else:
+                sds = xr.open_dataset(seas51_files)
         else:
-            sds = xr.open_dataset(seas51_file)
+            # Multiple files - use the merge function
+            logger.info(f"Merging {len(seas51_files)} SEAS51 files")
+            main_file = seas51_files[0]
+            additional_files = seas51_files[1:]
+            merged_file = os.path.join(output_dir, f'{region_id}_merged_seas51.nc')
+            sds = merge_grib_files(main_file, additional_files, output_file=merged_file)
     else:
         logger.info(f"Loading SEAS51 data from GCP")
         suri = 'gs://seas51/ea_seas51_20250312_v3.zarr'
@@ -411,7 +485,7 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_file=No
         kn_fct['lead'].attrs['units'] = 'months'
     
     # Save to NetCDF
-    output_file = os.path.join(output_dir, f'{region_id}_fct_spi3.nc')
+    output_file = os.path.join(output_dir, f'{region_id}_rgr_seas51_spi3.nc')
     kn_fct.to_netcdf(output_file)
     
     logger.info(f"Forecast SPI-3 saved to {output_file}")
@@ -614,62 +688,229 @@ def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_siz
     
     return output_obs_path , output_forecast_path 
 
+def print_usage_examples():
+    """Print usage examples for the script."""
+    examples = """
+    Examples:
+      # Run both CHIRPS and SEAS51 processing for region 'kmj' using local data
+      python 01-run-process-spi.py --region-id kmj --mode both --use-local --chirps-file ../chirps-v3.0.monthly.nc --seas51-main-file ../historical_seas51_1981_2025March.grib
+
+      # Run only CHIRPS processing
+      python 01-run-process-spi.py --region-id kmj --mode chirps --use-local --chirps-file ../chirps-v3.0.monthly.nc
+
+      # Run only SEAS51 processing using an existing observation file
+      python 01-run-process-spi.py --region-id kmj --mode seas51 --use-local --obs-file kmj_obs_spi3.nc --seas51-main-file ../historical_seas51_1981_2025March.grib
+
+      # Merge multiple SEAS51 files and process
+      python 01-run-process-spi.py --region-id kmj --mode seas51 --obs-file kmj_obs_spi3.nc --seas51-main-file ../historical_seas51_1981_2025March.grib --seas51-additional-files ../seas51_2025_January_April.grib
+      
+      # Using GCP data with credentials
+      python 01-run-process-spi.py --region-id kmj --credentials-file ./coiled-data.json
+    """
+    print(examples)
+
+def parse_arguments():
+    """
+    Parse command line arguments for the script.
+    
+    Returns:
+        argparse.Namespace: The parsed arguments
+    """
+    parser = argparse.ArgumentParser(
+        description="Process SPI calculations for CHIRPS observations and SEAS51 forecasts",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    # Add this line after creating the argument parser but before parsing args
+    parser.epilog = "Run with --examples for detailed usage examples."
+    parser.add_argument("--examples", action="store_true", help="Show usage examples and exit")
+
+    # General arguments
+    parser.add_argument("--region-id", type=str, required=True,
+                        help="Region identifier (e.g., 'kmj')")
+    parser.add_argument("--output-dir", type=str, default=".",
+                        help="Directory to save output files")
+    parser.add_argument("--buffer", type=float, default=0.5,
+                        help="Buffer size in degrees to add around region extent")
+    
+    # Mode selection (run both, only CHIRPS, or only SEAS51)
+    parser.add_argument("--mode", type=str, choices=["both", "chirps", "seas51"], default="both",
+                        help="Run mode: both=run both CHIRPS and SEAS51, chirps=only CHIRPS, seas51=only SEAS51")
+                        
+    # Local vs GCP data source options
+    parser.add_argument("--use-local", action="store_true",
+                        help="Use local shapefile instead of GCP")
+    parser.add_argument("--local-shapefile", type=str, default="../kmj_polygon.shp",
+                        help="Path to local shapefile if use-local is True")
+    parser.add_argument("--credentials-file", type=str, default=None,
+                        help="Path to GCP credentials JSON file")
+    
+    # CHIRPS options
+    parser.add_argument("--chirps-file", type=str, default=None,
+                        help="Path to local CHIRPS file (use GCP if not specified)")
+    
+    # SEAS51 options
+    parser.add_argument("--seas51-main-file", type=str, default=None,
+                        help="Path to main local SEAS51 GRIB file")
+    parser.add_argument("--seas51-additional-files", type=str, nargs="+", default=[],
+                        help="Paths to additional SEAS51 GRIB files to merge with the main file")
+    parser.add_argument("--obs-file", type=str, default=None,
+                        help="Path to observation file (required for SEAS51 only mode)")
+    
+    # Masking options
+    parser.add_argument("--apply-mask", action="store_true",
+                        help="Apply shapefile masking to output files")
+    parser.add_argument("--mask-buffer", type=float, default=0.25,
+                        help="Buffer size for masking in degrees")
+    
+    return parser.parse_args()
 
 if __name__ == "__main__":
-    # Process a single region
-    region_id ='kmj' 
-    #credentials = get_credentials('coiled-data.json')
-    credentials=''
-    #gdf, extent=get_region_bounds(region_id, credentials, buffer=0.5) 
-    gdf, extent = get_region_bounds(region_id, use_local=True)
-    # Local file paths if available (set to None to use GCP data)
-    chirps_file = '../chirps-v3.0.monthly.nc'  # 'path/to/local/chirps.nc'
-    seas51_file = '../3c58a474556eba4e1fd6a0d24e9824e8.grib'   # 'path/to/local/seas51.grib'
-    # Process observation data
-    obs_file = process_chirps_data(
-        region_id, 
-        credentials, 
-        extent, 
-        chirps_file=chirps_file
-    )
+    # Parse command line arguments
+    args = parse_arguments()
+    # At the beginning of your main code:
+    if args.examples:
+        print_usage_examples()
+        sys.exit(0) 
+    # Setup output directory
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
     
-    # Process forecast data
-    fct_file = process_seas51_data(
-        region_id, 
-        obs_file, 
-        credentials, 
-        extent,
-        seas51_file=seas51_file
-    )
-
-    # Process specific region
-    #region_id = 'kmj'
-    #obs_file = process_chirps_data(region_id, credentials)
-    #fct_file = process_seas51_data(region_id, obs_file, credentials)
+    # Set up logging
+    log_file = os.path.join(args.output_dir, f"{args.region_id}_spi_processing.log")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    logger.addHandler(file_handler)
     
-    logger.info(f"Completed processing for region {region_id}")
-    logger.info(f"Observation file: {obs_file}")
-    logger.info(f"Forecast file: {fct_file}")
+    logger.info(f"Starting SPI processing in {args.mode} mode for region {args.region_id}")
     
-    # Process all admin1 and custom regions
-    # results = process_all_regions('coiled-data.json', 'output_data', ['admin1', 'custom'])
-    # Apply shapefile masking to both outputs
-    shapefile_df = gdf  # set your shapefile path
+    # Get credentials if needed
+    credentials = None
+    if args.credentials_file:
+        try:
+            credentials = get_credentials(args.credentials_file)
+            logger.info(f"Successfully loaded credentials from {args.credentials_file}")
+        except Exception as e:
+            logger.error(f"Failed to load credentials: {e}")
+            if not args.use_local:
+                logger.error("Cannot proceed without credentials when using GCP data")
+                sys.exit(1)
     
-    # Define output paths for masked files
-    masked_fct_path = f'{region_id}_fct_spi3_masked.nc'
-    masked_obs_path = f'{region_id}_obs_spi3_masked.nc'
+    # Get region bounds
+    try:
+        if args.use_local:
+            logger.info(f"Using local shapefile: {args.local_shapefile}")
+            gdf, extent = get_region_bounds(args.region_id, use_local=True, 
+                                         local_shapefile_path=args.local_shapefile,
+                                         buffer=args.buffer)
+        else:
+            logger.info("Using GCP shapefile data")
+            gdf, extent = get_region_bounds(args.region_id, credentials=credentials, 
+                                         buffer=args.buffer)
+        
+        logger.info(f"Region extent: {extent}")
+    except Exception as e:
+        logger.error(f"Failed to get region bounds: {e}")
+        sys.exit(1)
     
-    # Run the masking function
-    masked_fct, masked_obs = mask_netcdf_with_shapefile(
-        forecast_path=fct_file, 
-        obs_path=obs_file, 
-        shapefile_df=shapefile_df,
-        buffer_size=0.25,
-        output_forecast_path=masked_fct_path,
-        output_obs_path=masked_obs_path
-    )
+    obs_file = None
+    fct_file = None
     
-    logger.info(f"Masked datasets have been saved:")
-    logger.info(f"Masked forecast: {masked_fct}")
-    logger.info(f"Masked observations: {masked_obs}")
+    # Process CHIRPS data if requested
+    if args.mode in ["both", "chirps"]:
+        try:
+            logger.info("Starting CHIRPS observation data processing")
+            obs_file = process_chirps_data(
+                args.region_id,
+                credentials,
+                extent,
+                chirps_file=args.chirps_file,
+                output_dir=args.output_dir
+            )
+            logger.info(f"Successfully processed CHIRPS data: {obs_file}")
+        except Exception as e:
+            logger.error(f"Failed to process CHIRPS data: {e}")
+            if args.mode == "chirps":
+                sys.exit(1)
+    
+    # Process SEAS51 data if requested
+    if args.mode in ["both", "seas51"]:
+        # For SEAS51-only mode, we need an observation file
+        if args.mode == "seas51" and not obs_file:
+            if args.obs_file:
+                obs_file = args.obs_file
+                logger.info(f"Using provided observation file: {obs_file}")
+            else:
+                logger.error("An observation file is required for SEAS51-only mode")
+                logger.error("Provide one with --obs-file or run in 'both' mode")
+                sys.exit(1)
+        
+        try:
+            logger.info("Starting SEAS51 forecast data processing")
+            
+            # Prepare SEAS51 files
+            seas51_files = None
+            if args.seas51_main_file:
+                if args.seas51_additional_files:
+                    seas51_files = [args.seas51_main_file] + args.seas51_additional_files
+                    logger.info(f"Using main SEAS51 file {args.seas51_main_file} and " 
+                               f"{len(args.seas51_additional_files)} additional files")
+                else:
+                    seas51_files = args.seas51_main_file
+                    logger.info(f"Using single SEAS51 file: {args.seas51_main_file}")
+            
+            fct_file = process_seas51_data(
+                args.region_id,
+                obs_file,
+                credentials,
+                extent,
+                seas51_files=seas51_files,
+                output_dir=args.output_dir
+            )
+            logger.info(f"Successfully processed SEAS51 data: {fct_file}")
+        except Exception as e:
+            logger.error(f"Failed to process SEAS51 data: {e}")
+            if args.mode == "seas51":
+                sys.exit(1)
+    
+    # Apply masking if requested
+    if args.apply_mask and obs_file and fct_file:
+        try:
+            logger.info("Applying shapefile masking to output files")
+            masked_fct_path = os.path.join(args.output_dir, f'{args.region_id}_rgr_seas51_spi3_masked.nc')
+            masked_obs_path = os.path.join(args.output_dir, f'{args.region_id}_obs_spi3_masked.nc')
+            
+            masked_obs, masked_fct = mask_netcdf_with_shapefile(
+                forecast_path=fct_file,
+                obs_path=obs_file,
+                shapefile_df=gdf,
+                buffer_size=args.mask_buffer,
+                output_forecast_path=masked_fct_path,
+                output_obs_path=masked_obs_path
+            )
+            
+            logger.info(f"Masked datasets have been saved:")
+            logger.info(f"  Masked observations: {masked_obs}")
+            logger.info(f"  Masked forecast: {masked_fct}")
+        except Exception as e:
+            logger.error(f"Failed to apply masking: {e}")
+    
+    # Print summary at the end
+    logger.info("=== Processing Summary ===")
+    logger.info(f"Region: {args.region_id}")
+    logger.info(f"Mode: {args.mode}")
+    if obs_file:
+        logger.info(f"Observation SPI-3 file: {obs_file}")
+    if fct_file:
+        logger.info(f"Forecast SPI-3 file: {fct_file}")
+    logger.info("========================")
+    
+    print("\n=== SPI Processing Complete ===")
+    print(f"Region: {args.region_id}")
+    print(f"Mode: {args.mode}")
+    print(f"Log file: {log_file}")
+    if obs_file:
+        print(f"Observation SPI-3 file: {obs_file}")
+    if fct_file:
+        print(f"Forecast SPI-3 file: {fct_file}")
+    print("================================")
