@@ -489,7 +489,7 @@ def main():
         output_path="./output/",
         spi4_data_path="",
         obs_netcdf_file=f"kmj_obs_spi3_masked.nc",
-        fct_netcdf_file=f"kmj_fct_spi3_masked.nc",
+        fct_netcdf_file=f"kmj_rgr_seas51_spi3_masked.nc",
         service_account_json="",
         gcs_file_url="",
         region_filter=args.region_id
@@ -504,6 +504,9 @@ def main():
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
     # Calculate empirical probabilities
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(ens_data, threshold_dict)
+
+    month=args.month
+    year=args.year
     dm_ens_data=ens_data.sel(init=(ens_data.init.dt.year == year) & (ens_data.init.dt.month == month))
     dm_fct_mod = fct_mod.sel(init=(fct_mod.init.dt.year == year) & (fct_mod.init.dt.month == month))
     dm_fct_sev = fct_sev.sel(init=(fct_sev.init.dt.year == year) & (fct_sev.init.dt.month == month))
