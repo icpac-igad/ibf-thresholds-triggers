@@ -533,7 +533,6 @@ def main():
     else:
         pass 
 
-    shapefile_df=gp.read_file(args.use_shpfile)
     output_dir=params.output_path
     mdplot_single_row(fct_dt, params, shapefile_df, output_dir)
 
