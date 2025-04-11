@@ -15,7 +15,7 @@ import cartopy.crs as ccrs
 from datetime import datetime, timedelta
 import logging
 import sys
-
+import geopandas as gp 
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
 from climpred import HindcastEnsemble
@@ -465,7 +465,11 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
     return output_file 
 
 def main():
-    """Main function to parse arguments and run the script"""
+    """Main function to parse arguments and run the script
+    
+    python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+    """
     parser = argparse.ArgumentParser(description="Generate forecast plots for a specific month")
     parser.add_argument("--region_id", default="kmj", help="Region ID (e.g., kmj)")
     parser.add_argument("--season", default="MAM", help="Season (e.g., MAM, JJA)")
@@ -473,6 +477,7 @@ def main():
     parser.add_argument("--year", type=int, default=2023, help="Target year")
     parser.add_argument("--month", type=int, default=4, help="Target month (1-12)")
     parser.add_argument("--use_shpfile", action="store_true", help="Use local shapefiles")
+    parser.add_argument("--shapefile_path", help="Path to local shapefile")
     parser.add_argument("--output_dir", help="Output directory for plots")
     
     args = parser.parse_args()
@@ -520,6 +525,14 @@ def main():
     tdfe=create_binary_trigger_map(dm_fct_ext, td['ext']/100)
     fct_dt=forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,tdfm, tdfs, tdfe)
     
+    if args.use_shpfile:
+        if args.shapefile_path:
+            shapefile_df = gp.read_file(args.shapefile_path)
+        else:
+            shapefile_df = gp.read_file('../../data/kmj_polygon.shp')  # Default path
+    else:
+        pass 
+
     shapefile_df=gp.read_file(args.use_shpfile)
     output_dir=params.output_path
     mdplot_single_row(fct_dt, params, shapefile_df, output_dir)
