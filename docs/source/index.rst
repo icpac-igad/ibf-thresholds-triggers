@@ -11,6 +11,7 @@ ibf-thresholds-triggers training documentation
    :maxdepth: 2
    :caption: Contents:
 
+   0
    1
    2a
    3a

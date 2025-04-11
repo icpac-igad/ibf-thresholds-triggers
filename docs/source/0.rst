@@ -1,0 +1,134 @@
+=============================================
+Quick Start Guide
+=============================================
+
+Quick Start Commands
+-------------------
+
+Run these commands in sequence to set up and run the complete drought anticipatory action system:
+
+.. code-block:: bash
+
+   # Step 1: Download required data
+   python 00-download-data.py --output-dir './' --keep-all-seas5 --only-current-month-seas5 4 --year 2025
+
+   # Step 2: Process SPI for SEAS5 forecasts and CHIRPS observations 
+   python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
+
+   # Step 3: Run forecast verification
+   python 02-run-fv-kmj.py
+
+   # Step 4: Generate bar plots
+   python 04-run-bar-plot.py
+
+   # Step 5: Create heatmap visualizations
+   python 05-run-heatmap.py
+
+   # Step 6: Plot SEAS51 forecasts
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+Detailed Guide
+-------------
+
+Step 1: Download ECMWF SEAS5 and CHIRPS Data
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 00-download-data.py --output-dir './' --keep-all-seas5 --only-current-month-seas5 4 --year 2025
+
+**Parameters explained:**
+
+* ``--output-dir './'``: Specifies the directory where downloaded data will be saved
+* ``--keep-all-seas5``: Keeps all previously downloaded SEAS5 files instead of deleting older ones
+* ``--only-current-month-seas5 4``: Downloads SEAS5 data only for April (month 4)
+* ``--year 2025``: Specifies the year for the SEAS5 data
+
+**Additional options:**
+
+* ``--seas5-only``: Download only SEAS5 data (no CHIRPS)
+* ``--chirps-only``: Download only CHIRPS data (no SEAS5)
+* ``--only-current-month-seas5 {1-12}``: Specify which month's data to download
+
+.. note::
+   This script automatically names files with date stamps (e.g., ``seas5_precipitation_20250402.grib``) and CHIRPS data is only downloaded if it doesn't already exist.
+
+Step 2: Process SPI (Standardized Precipitation Index)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
+
+**Parameters explained:**
+
+* ``--region-id kmj``: Specifies the region identifier (Karamoja in this case)
+* ``--mode both``: Processes both forecast and observation data
+* ``--use-local``: Uses local files instead of cloud storage
+* ``--local-shapefile ../data/kmj_polygon.shp``: Path to the shapefile defining the region
+* ``--chirps-file`` and ``--seas51-main-file``: Paths to input data files
+* ``--apply-mask``: Applies a spatial mask based on the shapefile
+* ``--mask-buffer 0.25``: Adds a 0.25-degree buffer around the masked region
+
+**Output:** This script generates netCDF files with calculated SPI values for both observations and forecasts.
+
+Step 3: Run Forecast Verification
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 02-run-fv-kmj.py
+
+This script runs the forecast verification process without requiring additional parameters. It:
+
+* Calculates 2D and 1D forecast verification metrics
+* Uses bootstrapping to calculate AUROC scores
+* Generates CSV files containing verification statistics
+* Subsets and saves trigger data for subsequent visualization
+
+Step 4: Generate Bar Plots
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 04-run-bar-plot.py
+
+This script creates bar plot visualizations comparing:
+
+* Observed SPI values from CHIRPS data
+* Forecast SPI values from SEAS5 data
+* Decision tables with trigger performance metrics
+
+The script requires no parameters as it uses the CSV files generated in Step 3.
+
+Step 5: Create Heatmap Visualizations
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 05-run-heatmap.py
+
+This script generates heatmap visualizations showing:
+
+* Hit rates and false alarm ratios across different drought categories
+* Trigger values for different lead times and regions
+* Performance metrics for mild, moderate, and severe drought categories
+
+Step 6: Plot SEAS51 Forecasts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+**Parameters explained:**
+
+* ``--region_id kmj``: Defines the region (Karamoja)
+* ``--season JJA``: Sets the season to analyze (June-July-August)
+* ``--lead_time 3``: Sets the forecast lead time in months
+* ``--year 2025`` and ``--month 4``: Sets the forecast initialization date
+* ``--use_shpfile``: Uses a shapefile to define the region boundaries
+* ``--shapefile_path``: Path to the shapefile
+* ``--output_dir './'``: Directory where output plots will be saved
+
+**Output:** This script generates visualization maps showing ensemble forecasts, observations, and probabilistic forecasts for the selected region and season.
