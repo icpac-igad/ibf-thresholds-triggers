@@ -5,6 +5,13 @@
 
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
+# Add path to conf.py in docs/rst_report
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../..'))
+
+# Add output directory to static paths
+html_static_path = ['_static', '../../output']
 
 project = 'Drought Triggers Training Document'
 #copyright = '2025, Nishadh Kalladath, Eunice Koech, Anthony Mwanthi'

@@ -12,18 +12,6 @@ In Karamoja, the danger levels for drought, defined as thresholds (Mild, Moderat
 
 The final product is a trigger value (empirical probability of ensemble forecasts exceeding the given threshold ranges) reflected in terms of False Alarm Ratio and Hit Rate with respect to different lead times and threshold levels.
 
-.. figure:: img2
-   :width: 70%
-   :align: center
-   
-   Figure 1: Threshold selection for Karamoja region based on long term observed SPI values
-
-.. figure:: img1
-   :width: 70%
-   :align: center
-   
-   Figure 2: Lead time and SPI products available for verification for Karamoja region based on Growing and rainy season
-
 .. table:: Table 1: SPI threshold for Karamoja. Which is higher side of the range set in the consultation workshop 2023
    :widths: 20 20 20 20
    
@@ -68,13 +56,13 @@ The following figures and tables show the analysis related to the June, July, Au
 
 It can be noted that the forecast quality is poorer compared to MAM forecasts, and trigger values are not available for the "Severe" threshold category. This can potentially be improved by bias correction or post-processing methods.
 
-.. figure:: ../../output/dt_0_jjas
+.. figure:: _static/dt_0_jja.png
    :width: 80%
    :align: center
    
    Figure 8: Selected JJA triggers for Karamoja
 
-.. figure:: ../../output/0_jjas
+.. figure:: _static/0_jja.png
    :width: 110%
    :align: center
    
@@ -82,29 +70,29 @@ It can be noted that the forecast quality is poorer compared to MAM forecasts, a
 
 .. _table5:
 
-.. include:: ../../output/0_jjas_lt2.rst
+.. include:: ../../output/0_jja_lt2.rst
 
 .. _table6:
 
-.. include:: ../../output/0_jjas_lt3.rst
+.. include:: ../../output/0_jja_lt3.rst
 
 .. _table7:
 
-.. include:: ../../output/0_jjas_lt4.rst
+.. include:: ../../output/0_jja_lt4.rst
 
-.. figure:: ../../output/map_0_jjas_lt2/map_0_jjas_lt2
+.. figure:: _static/map_0_jja_lt2.png
    :width: 100%
    :align: center
    
    Figure 10: Time series map plot of JJA for Karamoja region for the lead time 2
 
-.. figure:: ../../output/map_0_jjas_lt3/map_0_jjas_lt3
+.. figure:: _static/map_0_jja_lt3.png
    :width: 100%
    :align: center
    
    Figure 11: Time series map plot of JJA for Karamoja region for the lead time 3
 
-.. figure:: ../../output/map_0_jjas_lt4/map_0_jjas_lt4
+.. figure:: _static/map_0_jja_lt4.png
    :width: 100%
    :align: center
    
