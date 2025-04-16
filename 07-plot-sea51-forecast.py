@@ -17,6 +17,7 @@ import logging
 import sys
 import geopandas as gp 
 from matplotlib.colors import ListedColormap, BoundaryNorm
+    
 
 from climpred import HindcastEnsemble
 
@@ -88,7 +89,7 @@ def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, mo
     ds.attrs['region_id'] = params.region_id
     
     # Construct the filename
-    filename = f"seas51_spi3_{params.sc_season_str}_eprob_{year}_{month:02d}.nc"
+    filename = f"kmj_seas51_spi3_{params.sc_season_str}_eprob_{year}_{month:02d}.nc"
     output_path = os.path.join(output_dir, filename)
     
     # Create output directory if it doesn't exist
@@ -98,7 +99,7 @@ def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, mo
     ds.to_netcdf(output_path)
     
     logger.info(f"Saved forecast probabilities to {output_path}")
-    return output_path
+    return output_path, ds
 
 
 def create_classified_colormap(vmin, vmax, cmap_name='Blues'):
@@ -134,32 +135,30 @@ def create_classified_colormap(vmin, vmax, cmap_name='Blues'):
 def create_binary_trigger_map(forecast_prob, trigger_value):
     """
     Create a binary map based on whether forecast probability exceeds trigger value
-    
-    Args:
-        forecast_prob: Forecast probability xarray DataArray
-        trigger_value: Threshold value to compare against
-        
-    Returns:
-        xarray DataArray with binary values (1 where forecast exceeds trigger, 0 otherwise)
     """
     # Create a copy of the input
     binary_map = forecast_prob.copy()
     
-    # Convert to binary values - carefully handling the comparison to maintain NaN values
-    # First create a mask of valid (non-NaN) values
-    valid_mask = ~np.isnan(binary_map)
+    # Create a mask for zero values - treat them as NaN
+    zero_mask = forecast_prob == 0
     
-    # Now set all valid values to 0 initially
-    binary_map = binary_map.where(~valid_mask, 0)
+    # Create a mask for existing NaN values
+    nan_mask = np.isnan(forecast_prob)
     
-    # Then set values >= trigger_value to 1
-    exceeds_trigger = (forecast_prob >= trigger_value) & valid_mask
-    binary_map = binary_map.where(~exceeds_trigger, 1)
+    # Create a combined mask for all values to be treated as NaN
+    combined_mask = zero_mask | nan_mask
     
-    # Preserve attributes
-    if hasattr(forecast_prob, 'attrs'):
-        binary_map.attrs = forecast_prob.attrs.copy()
-    binary_map.attrs['description'] = f'Binary trigger map (threshold: {trigger_value})'
+    # Create a mask for values that exceed the trigger (must be both > 0 and >= trigger)
+    exceeds_trigger = (forecast_prob > 0) & (forecast_prob >= trigger_value)
+    
+    # Initialize all values as NaN
+    binary_map = xr.full_like(forecast_prob, np.nan)
+    
+    # Set non-NaN and non-zero values that don't exceed trigger to 0
+    binary_map = xr.where((~combined_mask) & (~exceeds_trigger), 0, binary_map)
+    
+    # Then set values that exceed the trigger to 1
+    binary_map = xr.where(exceeds_trigger, 1, binary_map)
     
     return binary_map
 
@@ -269,9 +268,9 @@ def forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,td_mod, td_sev, t
         seas51tree["fct_mod"] = xr.DataTree(name="fct_mod", dataset=fct_mod)
         seas51tree["fct_sev"] = xr.DataTree(name="fct_sev", dataset=fct_sev)
         seas51tree["fct_ext"] = xr.DataTree(name="fct_ext", dataset=fct_ext)
-        seas51tree["td_mod"] = xr.DataTree(name="td_mod", dataset=fct_mod)
-        seas51tree["td_sev"] = xr.DataTree(name="td_sev", dataset=fct_sev)
-        seas51tree["td_ext"] = xr.DataTree(name="td_ext", dataset=fct_ext)
+        seas51tree["td_mod"] = xr.DataTree(name="td_mod", dataset=td_mod.to_dataset(name="mod_te"))
+        seas51tree["td_sev"] = xr.DataTree(name="td_sev", dataset=td_sev.to_dataset(name="sev_te"))
+        seas51tree["td_ext"] = xr.DataTree(name="td_ext", dataset=td_ext.to_dataset(name="ext_te"))
         logger.info(f"made the combined_data as xarray datatree {seas51tree}")
         logger.info("helper_stamp_plot function completed successfully")
         return seas51tree
@@ -285,7 +284,6 @@ def forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,td_mod, td_sev, t
     except Exception as e:
         logger.error(f"Unexpected error in helper_stamp_plot: {str(e)}")
         raise
-
 
 def get_2d_data(data_array):
     """Extract a 2D slice from a potentially multi-dimensional array"""
@@ -471,27 +469,45 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
                     )
             # For binary trigger maps with imshow
             elif key.startswith("td_"):
-                plot_data = dstree[key].ds[params.spi_prod_name].values[-1, :, :]
+                # Get the dataset from the DataTree
+                td_dataset = dstree[key].ds
+                
+                # Get the first variable name if params.spi_prod_name doesn't exist
+                if params.spi_prod_name in td_dataset:
+                    var_name = params.spi_prod_name
+                else:
+                    # Use the first available data variable
+                    var_name = list(td_dataset.data_vars)[0]
+                
+                # Get the raw data array
+                raw_data = td_dataset[var_name].values
+                
+                # Properly squeeze dimensions to get a 2D array for plotting
+                plot_data = np.squeeze(raw_data)
+                
+                # Log the shape for debugging
+                print(f"Binary map shape for {key}: {raw_data.shape} → {plot_data.shape}")
                 
                 # Create discrete colormap for binary data
-                from matplotlib.colors import ListedColormap
-                binary_cmap = ListedColormap(['red', 'green'])
+                binary_cmap = ListedColormap(['green', 'red'])
                 
                 # Set background color for NaN values to white with transparency
-                binary_cmap.set_bad('white', alpha=0)
+                binary_cmap.set_bad('white', alpha=0.6)
+                
+                binary_norm = BoundaryNorm([0, 0.5, 1.0001], binary_cmap.N)
                 
                 # Use imshow with explicit extent
                 lat_min, lat_max = lats.min(), lats.max()
                 lon_min, lon_max = lons.min(), lons.max()
                 
-                pcm = ax.imshow(
-                    plot_data,
+                # Plot using the properly squeezed data
+                pcm = ax.pcolormesh(
+                    lons, lats, plot_data,
                     cmap=binary_cmap,
-                    vmin=0, vmax=1,
-                    extent=[lon_min, lon_max, lat_min, lat_max],
+                    norm=binary_norm,
                     transform=ccrs.PlateCarree(),
-                    origin='upper'
-                )
+                    shading='auto'
+                )           
             else:
                 # Other data types use specified range or default
                 plot_data = dstree[key].ds[params.spi_prod_name].values[-1, :, :]
@@ -537,7 +553,7 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
     cbar2.set_label("Drought probability")    
     # Binary trigger colorbar with discrete values
     cbar_ax3 = fig.add_axes([0.92, 0.1, 0.02, 0.2])
-    binary_cmap = ListedColormap(['red', 'green'])
+    binary_cmap = ListedColormap(['green', 'red'])
     binary_norm = BoundaryNorm([0, 0.5, 1.0001], binary_cmap.N)
     cbar3 = plt.colorbar(
         plt.cm.ScalarMappable(norm=binary_norm, cmap=binary_cmap),
@@ -545,7 +561,7 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
     )
     cbar3.set_label("Trigger exceeded (0=No, 1=Yes)")
     cbar3.set_ticks([0.25, 0.75])  # Center the ticks in each section
-    cbar3.set_ticklabels(["Yes (1)", "No (0)"])  # Add descriptive labels
+    cbar3.set_ticklabels(["No (0)", "Yes (1)"])  # Add descriptive labels
     
     # Add main title with latest init and valid dates
     region_name = params.region_name_dict[params.region_id]
@@ -621,7 +637,7 @@ def main():
     dm_fct_ext = fct_ext.sel(init=(fct_ext.init.dt.year == year) & (fct_ext.init.dt.month == month))
 
     # Save forecast data to NetCDF
-    netcdf_path = save_forecast_to_netcdf(
+    netcdf_path,epds = save_forecast_to_netcdf(
         dm_fct_mod, dm_fct_sev, dm_fct_ext, 
         params, year, month, 
         output_dir=args.output_dir or params.output_path
@@ -631,11 +647,12 @@ def main():
     params.output_path='output/'
 
     td,df=generate_trigger_dict(params)
-    tdfm=create_binary_trigger_map(dm_fct_mod, td['mod']/100)
-    tdfs=create_binary_trigger_map(dm_fct_sev, td['sev']/100)
-    tdfe=create_binary_trigger_map(dm_fct_ext, td['ext']/100)
+    print(td)
+    tdfm=create_binary_trigger_map(epds['mod_prob'], td['mod']/100)
+    tdfs=create_binary_trigger_map(epds['sev_prob'], td['sev']/100)
+    tdfe=create_binary_trigger_map(epds['ext_prob'], td['ext']/100)
     fct_dt=forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,tdfm, tdfs, tdfe)
-    
+     
     if args.use_shpfile:
         if args.shapefile_path:
             shapefile_df = gp.read_file(args.shapefile_path)
@@ -643,7 +660,8 @@ def main():
             shapefile_df = gp.read_file('../../data/kmj_polygon.shp')  # Default path
     else:
         pass 
-
+    print(f"the decided triggers {td['mod']/100}")
+    print(tdfm.values)
     output_dir=params.output_path
     mdplot_single_row(fct_dt, params, shapefile_df, output_dir)
 
