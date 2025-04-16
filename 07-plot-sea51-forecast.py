@@ -35,6 +35,81 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, month, output_dir="./"):
+    """
+    Save forecast probability data to a NetCDF file
+    
+    Args:
+        dm_fct_mod (xarray.DataArray): Moderate drought forecast probability
+        dm_fct_sev (xarray.DataArray): Severe drought forecast probability
+        dm_fct_ext (xarray.DataArray): Extreme drought forecast probability
+        params (BinCreateParams): Parameters object
+        year (int): Year of the forecast initialization
+        month (int): Month of the forecast initialization
+        output_dir (str): Directory to save the output file
+        
+    Returns:
+        str: Path to the saved NetCDF file
+    """
+    # Create a dataset to hold all three variables
+    ds = xr.Dataset()
+    
+    # Add variables to the dataset with appropriate names
+    ds['mod_prob'] = dm_fct_mod
+    ds['sev_prob'] = dm_fct_sev
+    ds['ext_prob'] = dm_fct_ext
+    
+    # Add useful metadata
+    ds.attrs['description'] = f'SEAS51 SPI3 empirical probabilities for {params.sc_season_str.upper()}'
+    ds.attrs['creation_date'] = datetime.now().strftime('%Y-%m-%d')
+    ds.attrs['year'] = year
+    ds.attrs['month'] = month
+    ds.attrs['lead_time'] = params.lead_int
+    ds.attrs['region_id'] = params.region_id
+    
+    # Construct the filename
+    filename = f"seas51_spi3_{params.sc_season_str}_eprob_{year}_{month:02d}.nc"
+    output_path = os.path.join(output_dir, filename)
+    
+    # Save the dataset to a NetCDF file
+    ds.to_netcdf(output_path)
+    
+    logger.info(f"Saved forecast probabilities to {output_path}")
+    return output_path 
+
+
+def create_classified_colormap(vmin, vmax, cmap_name='Blues'):
+    """
+    Create a classified colormap with 5 classes between vmin and vmax
+    
+    Args:
+        vmin (float): Minimum value for the colormap
+        vmax (float): Maximum value for the colormap
+        cmap_name (str): Base colormap name
+        
+    Returns:
+        tuple: (cmap, norm) - the colormap and normalization objects
+    """
+    # Create 5 equally spaced class boundaries
+    bounds = np.linspace(vmin, vmax, 6)
+    
+    # Get the base colormap
+    base_cmap = plt.cm.get_cmap(cmap_name)
+    
+    # Sample 5 colors from the base colormap
+    colors = [base_cmap(i) for i in np.linspace(0, 1, 5)]
+    
+    # Create a new colormap with these 5 colors
+    cmap = ListedColormap(colors)
+    
+    # Create a normalization to map values to colormap indices
+    norm = BoundaryNorm(bounds, cmap.N)
+    
+    return cmap, norm, bounds 
+
+
+
 def create_binary_trigger_map(forecast_prob, trigger_value):
     """
     Create a binary map based on whether forecast probability exceeds trigger value
@@ -361,12 +436,18 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
                 # Set dynamic range for forecast probability data
                 plot_data = dstree[key].ds[params.spi_prod_name].values[-1, :, :]
                 actual_vrange = (forecast_min, forecast_max)
+
+                 # Create classified colormap with 5 classes
+                classified_cmap, classified_norm, class_bounds = create_classified_colormap(
+                    actual_vrange[0], actual_vrange[1], cmap_name=cmap
+                )
                 # Use continuous colormap
                 pcm = ax.pcolormesh(
                     lons, lats, plot_data,
-                    cmap=cmap, transform=ccrs.PlateCarree(),
-                    vmin=actual_vrange[0], vmax=actual_vrange[1]
-                )
+                    cmap=classified_cmap, 
+                    norm=classified_norm,
+                    transform=ccrs.PlateCarree(),
+                    )
             # For binary trigger maps with imshow
             elif key.startswith("td_"):
                 plot_data = dstree[key].ds[params.spi_prod_name].values[-1, :, :]
@@ -426,12 +507,13 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
     
     # Forecast probability colorbar with dynamic range
     cbar_ax2 = fig.add_axes([0.92, 0.4, 0.02, 0.2])
+    forecast_cmap, forecast_norm, forecast_bounds = create_classified_colormap( forecast_min, forecast_max, cmap_name="Blues")
     cbar2 = plt.colorbar(
-        plt.cm.ScalarMappable(norm=plt.Normalize(vmin=forecast_min, vmax=forecast_max), cmap="Blues"),
-        cax=cbar_ax2
+        plt.cm.ScalarMappable(norm=forecast_norm, cmap=forecast_cmap),
+        cax=cbar_ax2,
+        ticks=forecast_bounds
     )
-    cbar2.set_label("Drought probability")
-    
+    cbar2.set_label("Drought probability")    
     # Binary trigger colorbar with discrete values
     cbar_ax3 = fig.add_axes([0.92, 0.1, 0.02, 0.2])
     binary_cmap = ListedColormap(['red', 'green'])
@@ -516,6 +598,14 @@ def main():
     dm_fct_mod = fct_mod.sel(init=(fct_mod.init.dt.year == year) & (fct_mod.init.dt.month == month))
     dm_fct_sev = fct_sev.sel(init=(fct_sev.init.dt.year == year) & (fct_sev.init.dt.month == month))
     dm_fct_ext = fct_ext.sel(init=(fct_ext.init.dt.year == year) & (fct_ext.init.dt.month == month))
+
+    # Save forecast data to NetCDF
+    netcdf_path = save_forecast_to_netcdf(
+        dm_fct_mod, dm_fct_sev, dm_fct_ext, 
+        params, year, month, 
+        output_dir=args.output_dir or params.output_path
+    )
+    print(f"Saved forecast data to {netcdf_path}")
 
     params.output_path='output/'
 

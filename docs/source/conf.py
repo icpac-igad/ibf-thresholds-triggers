@@ -7,7 +7,7 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'Drought Triggers Training Document'
-copyright = '2025, Nishadh Kalladath, Eunice Koech, Anthony Mwanthi'
+#copyright = '2025, Nishadh Kalladath, Eunice Koech, Anthony Mwanthi'
 #author = 'Nishadh Kalladath, Eunice Koech, Anthony Mwanthi'
 author ='-'
 release = 'v0.1'
