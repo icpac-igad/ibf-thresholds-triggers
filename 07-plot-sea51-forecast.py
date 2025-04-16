@@ -41,9 +41,9 @@ def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, mo
     Save forecast probability data to a NetCDF file
     
     Args:
-        dm_fct_mod (xarray.DataArray): Moderate drought forecast probability
-        dm_fct_sev (xarray.DataArray): Severe drought forecast probability
-        dm_fct_ext (xarray.DataArray): Extreme drought forecast probability
+        dm_fct_mod (xarray.DataArray/Dataset): Moderate drought forecast probability
+        dm_fct_sev (xarray.DataArray/Dataset): Severe drought forecast probability
+        dm_fct_ext (xarray.DataArray/Dataset): Extreme drought forecast probability
         params (BinCreateParams): Parameters object
         year (int): Year of the forecast initialization
         month (int): Month of the forecast initialization
@@ -55,10 +55,29 @@ def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, mo
     # Create a dataset to hold all three variables
     ds = xr.Dataset()
     
+    # Extract DataArrays if we have Datasets
+    # For moderate drought probability
+    if isinstance(dm_fct_mod, xr.Dataset) and params.spi_prod_name in dm_fct_mod:
+        mod_array = dm_fct_mod[params.spi_prod_name]
+    else:
+        mod_array = dm_fct_mod
+        
+    # For severe drought probability
+    if isinstance(dm_fct_sev, xr.Dataset) and params.spi_prod_name in dm_fct_sev:
+        sev_array = dm_fct_sev[params.spi_prod_name]
+    else:
+        sev_array = dm_fct_sev
+        
+    # For extreme drought probability
+    if isinstance(dm_fct_ext, xr.Dataset) and params.spi_prod_name in dm_fct_ext:
+        ext_array = dm_fct_ext[params.spi_prod_name]
+    else:
+        ext_array = dm_fct_ext
+    
     # Add variables to the dataset with appropriate names
-    ds['mod_prob'] = dm_fct_mod
-    ds['sev_prob'] = dm_fct_sev
-    ds['ext_prob'] = dm_fct_ext
+    ds['mod_prob'] = mod_array
+    ds['sev_prob'] = sev_array  
+    ds['ext_prob'] = ext_array
     
     # Add useful metadata
     ds.attrs['description'] = f'SEAS51 SPI3 empirical probabilities for {params.sc_season_str.upper()}'
@@ -72,11 +91,14 @@ def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, mo
     filename = f"seas51_spi3_{params.sc_season_str}_eprob_{year}_{month:02d}.nc"
     output_path = os.path.join(output_dir, filename)
     
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    
     # Save the dataset to a NetCDF file
     ds.to_netcdf(output_path)
     
     logger.info(f"Saved forecast probabilities to {output_path}")
-    return output_path 
+    return output_path
 
 
 def create_classified_colormap(vmin, vmax, cmap_name='Blues'):
@@ -89,13 +111,13 @@ def create_classified_colormap(vmin, vmax, cmap_name='Blues'):
         cmap_name (str): Base colormap name
         
     Returns:
-        tuple: (cmap, norm) - the colormap and normalization objects
+        tuple: (cmap, norm, bounds) - the colormap, normalization objects, and boundary values
     """
     # Create 5 equally spaced class boundaries
     bounds = np.linspace(vmin, vmax, 6)
     
-    # Get the base colormap
-    base_cmap = plt.cm.get_cmap(cmap_name)
+    # Get the base colormap using the recommended approach
+    base_cmap = plt.colormaps[cmap_name]
     
     # Sample 5 colors from the base colormap
     colors = [base_cmap(i) for i in np.linspace(0, 1, 5)]
@@ -106,8 +128,7 @@ def create_classified_colormap(vmin, vmax, cmap_name='Blues'):
     # Create a normalization to map values to colormap indices
     norm = BoundaryNorm(bounds, cmap.N)
     
-    return cmap, norm, bounds 
-
+    return cmap, norm, bounds
 
 
 def create_binary_trigger_map(forecast_prob, trigger_value):
