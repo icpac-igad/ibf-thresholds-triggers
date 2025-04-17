@@ -13,11 +13,11 @@ sys.path.insert(0, os.path.abspath('../..'))
 # Add output directory to static paths
 html_static_path = ['_static', '../../output']
 
-project = 'Drought Triggers Training Document'
+project = 'Karamoja Drought Triggers for JJA SPI forecast'
 #copyright = '2025, Nishadh Kalladath, Eunice Koech, Anthony Mwanthi'
 #author = 'Nishadh Kalladath, Eunice Koech, Anthony Mwanthi'
 author ='-'
-release = 'v0.1'
+release = 'v1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

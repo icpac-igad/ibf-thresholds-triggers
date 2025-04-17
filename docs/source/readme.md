@@ -87,6 +87,10 @@ For PDF, use Sphinx's built-in PDF builders:
 1. **Install rinohtype**:
    ```bash
    pip install rinohtype
+   pip install rinohtype[pdfimport]
+   micromamba install -c conda-forge sphinx 
+   micromamba install -c conda-forge sphinx-rtd-theme sphinxcontrib-napoleon sphinx-autodoc-typehints
+   micromamba install -c conda-forge rinohtype
    ```
 
 2. **Add the extension to your Sphinx configuration**:
