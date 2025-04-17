@@ -226,6 +226,9 @@ def process_chirps_data(region_id, credentials, extent, chirps_file=None, output
     )
     
     a_s3 = spi_3.compute()
+    # Clamp SPI values to the range [-4.0, 4.0]
+    a_s3 = xr.where(a_s3 < -4.0, -4.0, a_s3)
+    a_s3 = xr.where(a_s3 > 4.0, 4.0, a_s3)
     ch_spi = a_s3.to_dataset(name='spi3')
     
     # Save to NetCDF
@@ -587,6 +590,9 @@ def vt_apply_spi3_with_parameter_transfer(cont_db, lead_val):
             
             # Compute the SPI result
             a_s3 = spi_3.compute()
+            # Clamp SPI values to the range [-4.0, 4.0]
+            a_s3 = xr.where(a_s3 < -4.0, -4.0, a_s3)
+            a_s3 = xr.where(a_s3 > 4.0, 4.0, a_s3)
             
             # Check output validity
             spi_nan_count = np.isnan(a_s3.values).sum()
