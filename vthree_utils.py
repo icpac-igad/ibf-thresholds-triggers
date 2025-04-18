@@ -733,55 +733,44 @@ def empirical_probability(ens_data, threshold_dict):
         raise
 
 
+
 def seas51_patch_empirical_probability(ens_data, threshold_dict):
     """
-    Calculate empirical probabilities for SEAS5.1 forecast system, handling the transition from 25(1981-2017) to 51(2017-current) members.
-
+    Calculate empirical probabilities using only members 0-24 for consistency across all time periods.
+    
     Args:
         ens_data (xarray.DataArray): Ensemble data containing drought index values.
         threshold_dict (dict): Dictionary containing threshold values for moderate, severe, and extreme drought.
-
+        
     Returns:
         tuple: Three xarray.DataArrays containing empirical probabilities for moderate, severe, and extreme drought.
-
-    Raises:
-        ValueError: If ens_data is not an xarray.DataArray or doesn't have required dimensions.
     """
     try:
         if not isinstance(ens_data, xr.Dataset):
             raise ValueError("ens_data must be an xarray.DataArray")
-
+            
         if "init" not in ens_data.dims or "member" not in ens_data.dims:
             raise ValueError("ens_data must have 'init' and 'member' dimensions")
-
-        m26_ens_data = ens_data.sel(init=slice("1981", "2016"))
-        m26_ens_data1 = m26_ens_data.isel(member=slice(0, 25))
-        m26_fct_mod, m26_fct_sev, m26_fct_ext = empirical_probability(
-            m26_ens_data1, threshold_dict
-        )
-
-        m51_ens_data = ens_data.sel(init=slice("2017", None))
-        m51_fct_mod, m51_fct_sev, m51_fct_ext = empirical_probability(
-            m51_ens_data, threshold_dict
-        )
-
-        fct_mod = xr.concat(
-            [m26_fct_mod, m51_fct_mod], dim="init", coords="minimal", compat="override"
-        )
-        fct_sev = xr.concat(
-            [m26_fct_sev, m51_fct_sev], dim="init", coords="minimal", compat="override"
-        )
-        fct_ext = xr.concat(
-            [m26_fct_ext, m51_fct_ext], dim="init", coords="minimal", compat="override"
-        )
-
-        logger.info("SEAS5.1 patch empirical probabilities calculated successfully")
+            
+        # Filter to only use members 0-24 for all time periods
+        filtered_ens_data = ens_data.isel(member=slice(0, 25))
+        
+        # Calculate empirical probabilities for the entire period using only members 0-24
+        mod_thr = threshold_dict["mod"]
+        fct_mod = (filtered_ens_data <= mod_thr).mean(dim="member")
+        
+        sev_thr = threshold_dict["sev"]
+        fct_sev = (filtered_ens_data <= sev_thr).mean(dim="member")
+        
+        ext_thr = threshold_dict["ext"]
+        fct_ext = (filtered_ens_data <= ext_thr).mean(dim="member")
+            
+        logger.info("Empirical probabilities calculated successfully using only members 0-24")
         return fct_mod, fct_sev, fct_ext
-
+            
     except Exception as e:
         logger.error(f"Error in seas51_patch_empirical_probability: {str(e)}")
         raise
-
 
 def print_data_stats(obs_data, ens_prob_data, params):
     try:

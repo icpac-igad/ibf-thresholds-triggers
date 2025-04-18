@@ -528,9 +528,7 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=N
 
 def vt_apply_spi3_with_parameter_transfer(cont_db, lead_val):
     """
-    Calculates SPI-3 for all ensemble members:
-    - Members 0-24: Calculate normally using their own historical data
-    - Members 25-51: Apply parameters derived from a reference member (e.g., member 0)
+    Calculates SPI-3 for ensemble members, but only processes members 0-24
     
     Args:
         cont_db (xarray.Dataset): The SEAS51 dataset
@@ -547,8 +545,13 @@ def vt_apply_spi3_with_parameter_transfer(cont_db, lead_val):
     if 'number' not in lt1_db.dims:
         logger.error("No 'number' dimension found in dataset")
         return cont_spi
-    # Process all members
-    for nsl in lt1_db.number.values:
+    
+    # Only process members 0-24, filter out higher member numbers
+    member_numbers = lt1_db.number.values
+    filtered_members = [num for num in member_numbers if num < 25]
+    
+    # Process only the filtered members
+    for nsl in filtered_members:
         try:
             logger.info(f"Processing ensemble member {nsl}")
             lt1_db2 = lt1_db.sel(number=nsl)
@@ -563,30 +566,17 @@ def vt_apply_spi3_with_parameter_transfer(cont_db, lead_val):
                     logger.warning(f"Skipping member {nsl} due to excessive NaNs in input")
                     continue
             
-            if nsl < 25:
-                # For members 0-24, calculate SPI normally with their own historical data
-                spi_3 = standardized_precipitation_index(
-                    aa,
-                    freq="MS",
-                    window=3,
-                    dist="gamma",
-                    method="APP",
-                    cal_start='1991-01-01',
-                    cal_end='2018-01-01',
-                    fitkwargs={"floc": 0}
-                )
-            else:
-                # Fall back to normal calculation
-                spi_3 = standardized_precipitation_index(
-                        aa,
-                        freq="MS",
-                        window=3,
-                        dist="gamma",
-                        method="APP",
-                        cal_start='2017-01-01',
-                        cal_end='2024-01-01',
-                        fitkwargs={"floc": 0}
-                )
+            # Calculate SPI normally with their own historical data
+            spi_3 = standardized_precipitation_index(
+                aa,
+                freq="MS",
+                window=3,
+                dist="gamma",
+                method="APP",
+                cal_start='1991-01-01',
+                cal_end='2018-01-01',
+                fitkwargs={"floc": 0}
+            )
             
             # Compute the SPI result
             a_s3 = spi_3.compute()
@@ -619,8 +609,8 @@ def vt_apply_spi3_with_parameter_transfer(cont_db, lead_val):
             logger.error(f"Error processing ensemble member {nsl}: {e}")
             continue
     
-    logger.info(f"Processed {len(cont_spi)} out of {len(lt1_db.number)} members for lead time {lead_val}")
-    return cont_spi# Example usage
+    logger.info(f"Processed {len(cont_spi)} out of {len(filtered_members)} members for lead time {lead_val}")
+    return cont_spi
 
 def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_size=0.25, 
                               output_forecast_path='masked_forecast.nc', 
