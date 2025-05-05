@@ -569,7 +569,7 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
     
     fig.suptitle(
         f"{region_name} SEAS51 SPI Forecast ({season_str})\n"
-        f"Init: {latest_init.strftime('%Y-%m-%d')}, Valid: {latest_valid.strftime('%Y-%m-%d')}, Lead: {params.lead_int} months",
+        f"Init: {latest_init.strftime('%Y-%m-%d')}, Valid: {latest_valid.strftime('%Y-%m')}, Lead: {params.lead_int} months, \n Triggers values mod:0.323, sev:0.242, ext: 0.162 ",
         fontsize=16,
         weight="bold",
         y=0.98
@@ -648,9 +648,9 @@ def main():
 
     td,df=generate_trigger_dict(params)
     print(td)
-    tdfm=create_binary_trigger_map(epds['mod_prob'], td['mod']/100)
-    tdfs=create_binary_trigger_map(epds['sev_prob'], td['sev']/100)
-    tdfe=create_binary_trigger_map(epds['ext_prob'], td['ext']/100)
+    tdfm=create_binary_trigger_map(epds['mod_prob'], 0.323)
+    tdfs=create_binary_trigger_map(epds['sev_prob'], 0.242)
+    tdfe=create_binary_trigger_map(epds['ext_prob'], 0.162)
     fct_dt=forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,tdfm, tdfs, tdfe)
      
     if args.use_shpfile:
