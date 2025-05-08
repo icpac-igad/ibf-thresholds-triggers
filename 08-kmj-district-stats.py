@@ -218,7 +218,7 @@ def calculate_district_averages(regridded_ds, district_mask, districts_gdf, dist
         
         # Loop through each district
         for district_idx in range(len(districts_gdf)):
-            district_name = dd.iloc[district_idx][district_name_col]
+            district_name = districts_gdf.iloc[district_idx][district_name_col]
             
             # Create mask for this specific district (where mask equals the district index)
             district_bool_mask = (district_mask == district_idx)
@@ -299,7 +299,7 @@ def main():
     
     try:
         # Ensure output directory exists
-        os.makedirs(args.output_dir, exist_ok=True)
+        #os.makedirs(args.output_dir, exist_ok=True)
         epds=load_netcdf_forecast(args.input_netcdf)
         regridded_ds = regrid_to_1km(epds, target_res=0.01)
 
@@ -308,14 +308,19 @@ def main():
         district_mask = create_district_mask(districts_gdf, regridded_ds)
         dd_dict={'Karenga': 'District_7', 'Kaabong': 'District_6', 'Kotido': 'District_3', 'Abim': 'District_0', 'Napak': 'District_1', 'Moroto': 'District_4', 'Nabilatuk': 'District_2', 'Nakapiripirit': 'District_5', 'Amudat': 'District_8'}
         # Calculate district averages with mapping
+        dd=districts_gdf.reset_index()
         results_df = calculate_district_averages(
             regridded_ds,
             district_mask,
-            districts_gdf, 
+            dd, 
             district_name_col,
             district_map=dd_dict
         )
-        results_df.to_csv(f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv")
+        #results_df.to_csv(f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv")
+        #import ipdb; ipdb.set_trace()
+        results_df_formatted = (results_df * 100).round(1)
+        results_df_formatted.to_csv(f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv")
+
 
     except Exception as e:
         logger.error(f"Error in main execution: {e}")
