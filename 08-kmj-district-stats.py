@@ -118,7 +118,7 @@ def regrid_to_1km(ds, target_res=0.01, method='conservative'):
 
 
 
-def load_district_shapefile(shapefile_path):
+def load_district_shapefile(shapefile_path,admin_level='admin2'):
     """
     Load district boundaries from a shapefile.
     
@@ -133,17 +133,21 @@ def load_district_shapefile(shapefile_path):
         gdf = gpd.read_file(shapefile_path)
         
         # Check if there's a district name column
-        district_name_col = None
-        for col in ['name', 'district', 'NAME', 'DISTRICT', 'District']:
-            if col in gdf.columns:
-                district_name_col = col
-                break
+        if admin_level=='admin2':
+            district_name_col = 'admin2Name'
+        else:
+            district_name_col = 'admin4Name'
+
+        #for col in ['name', 'district', 'NAME', 'DISTRICT', 'District']:
+        #    if col in gdf.columns:
+        #        district_name_col = col
+        #        break
         
         # If no district name column found, create one with sequential IDs
-        if district_name_col is None:
-            logger.warning("No district name column found. Creating one with sequential IDs.")
-            gdf['district_name'] = [f'District_{i}' for i in range(len(gdf))]
-            district_name_col = 'district_name'
+        #if district_name_col is None:
+        #    logger.warning("No district name column found. Creating one with sequential IDs.")
+        #    gdf['district_name'] = [f'District_{i}' for i in range(len(gdf))]
+        #    district_name_col = 'district_name'
         
         logger.info(f"Loaded {len(gdf)} districts. Using '{district_name_col}' as district name column.")
         
@@ -293,6 +297,7 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Calculate district-level drought risk from SEAS51 forecasts")
     parser.add_argument("--input_netcdf", required=True, help="Path to forecast emprical probablity netcdf file")
+    parser.add_argument("--admin_level", required=True, help="Admin level of shape file is it admin2 or admin 4")
     parser.add_argument("--district_shapefile", required=True, help="Path to district shapefile")
        
     args = parser.parse_args()
@@ -303,7 +308,7 @@ def main():
         epds=load_netcdf_forecast(args.input_netcdf)
         regridded_ds = regrid_to_1km(epds, target_res=0.01)
 
-        districts_gdf, district_name_col = load_district_shapefile(args.district_shapefile)
+        districts_gdf, district_name_col = load_district_shapefile(args.district_shapefile,args.admin_level)
 
         district_mask = create_district_mask(districts_gdf, regridded_ds)
         dd_dict={'Karenga': 'District_7', 'Kaabong': 'District_6', 'Kotido': 'District_3', 'Abim': 'District_0', 'Napak': 'District_1', 'Moroto': 'District_4', 'Nabilatuk': 'District_2', 'Nakapiripirit': 'District_5', 'Amudat': 'District_8'}
@@ -314,7 +319,7 @@ def main():
             district_mask,
             dd, 
             district_name_col,
-            district_map=dd_dict
+            district_map=None
         )
         #results_df.to_csv(f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv")
         #import ipdb; ipdb.set_trace()
