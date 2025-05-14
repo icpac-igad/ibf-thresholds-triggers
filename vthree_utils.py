@@ -97,8 +97,7 @@ class BinCreateParams:
     def _create_directories(self):
         """Create necessary directories if they don't exist."""
         directories = [self.output_path]
-        for directory in directories:
-            os.makedirs(directory, exist_ok=True)
+        for directory in directories: os.makedirs(directory, exist_ok=True)
         print(f"Directories created/checked: {', '.join(directories)}")
 
 
@@ -198,8 +197,7 @@ def apply_spii_mem(cont_db, lead_val, spi_name_int):
             window=spi_name_int,
             dist="gamma",
             method="APP",
-            cal_start="2017-01-01",
-            cal_end="2023-12-01",
+            cal_start="2017-01-01", cal_end="2023-12-01",
         )
         a_s3 = spi_3.compute()
         cont_spi.append(a_s3)
@@ -1083,9 +1081,11 @@ def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
 def run_xhist2d(params):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
     obs_data, ens_data = make_obs_fct_dataset(params)
+    import ipdb; ipdb.set_trace()
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
         ens_data, threshold_dict
     )
+    import ipdb; ipdb.set_trace()
     #################
     params.level = "mod"
     df = xhist_metrics_2d(obs_data, fct_mod, params, calculate_auroc=True)
@@ -1813,3 +1813,372 @@ def run_data_table_latex(params):
         "w",
     ) as f:
         f.write(latex_table)
+
+
+def area_xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str, params):
+    ds = xr.Dataset.from_dataframe(pdb)
+    obs_ext = ds[f"{params.spi_prod_name}_{cat_str}"]
+    fct_ext = ds[f"ep_{cat_str}"]
+    obs_event = obs_ext <= threshold_dict[cat_str]
+    fct_event = fct_ext >= trigger_value
+    obs_event_int = obs_event.astype(int)
+    fct_event_int = fct_event.astype(int)
+    contingency_table = xhist.histogram(
+        obs_event_int, fct_event_int, bins=[2, 2], density=False
+    )
+    contingency_table = contingency_table.data
+    correct_negatives = contingency_table[0, 0]
+    false_alarms = contingency_table[0, 1]
+    misses = contingency_table[1, 0]
+    hits = contingency_table[1, 1]
+    total = hits + false_alarms + misses + correct_negatives
+    hit_rates = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+    false_alarm_ratios = (
+        false_alarms / (false_alarms + hits) if (false_alarms + hits) > 0 else np.nan
+    )
+    # false_alarm_ratios[i] = false_alarms / (false_alarms + correct_negatives) if (false_alarms + correct_negatives) > 0 else np.nan
+    bias_scores = (
+        (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+    )
+    n_hit_rates = np.mean(hits.astype(int))  # Calculate hit rate as mean of hits
+    n_false_alarm_ratios = np.mean(false_alarm_ratios.astype(int))
+    hanssen_kuipers_scores = n_hit_rates - n_false_alarm_ratios
+    heidke_skill_scores = (hits * correct_negatives - misses * false_alarms) / total
+
+    fct_ext_pb = fct_ext / 100
+    tv_pb = trigger_value / 100
+    o1 = block_bootstrap(
+        obs_event_int,
+        blocks={"index": 1},
+        n_iteration=1000,
+        circular=True,
+    )
+    f1 = block_bootstrap(
+        fct_ext_pb,
+        blocks={"index": 1},
+        n_iteration=1000,
+        circular=True,
+    )
+    fpr, tpr, auroc_bootstrap_scores = xs.roc(
+        o1,
+        f1,
+        bin_edges=[0, tv_pb, 1],
+        dim=["index"],
+        return_results="all_as_metric_dim",
+    )
+    auroc_scores = np.mean(auroc_bootstrap_scores)
+    auroc_lb, auroc_ub = np.percentile(auroc_bootstrap_scores, [2.5, 97.5])
+    df = pd.DataFrame(
+        {
+            "#dry-seas": len(obs_ext.index.values),
+            "hits": [hits],
+            "misses": [misses],
+            "FA": [false_alarms],
+            "CN": [correct_negatives],
+            "hit_rates": [hit_rates],
+            "false_alarm_ratios": [false_alarm_ratios],
+            "bias_scores": [bias_scores],
+            "hanssen_kuipers_scores": [hanssen_kuipers_scores],
+            "heidke_skill_scores": [heidke_skill_scores],
+            "auroc_scores": auroc_scores.values,
+            "auroc_lb": auroc_lb,
+            "auroc_ub": auroc_ub,
+        }
+    )
+    df.insert(0, "threshold", threshold_dict[cat_str])
+    df.insert(0, "trigger_values", trigger_value)
+    return df
+
+def calculate_area_contingency(obs_slice, fct_slice, threshold_value, trigger_value, area_threshold, spi_var_name="spi3"):
+    """
+    Calculate contingency table based on the percentage area exceeding drought thresholds using xhist.
+    """
+    import xhistogram.xarray as xhist
+    import numpy as np
+    
+    # Ensure we're working with DataArrays, not Datasets
+    if hasattr(obs_slice, 'data_vars'):  # Check if it's a Dataset
+        obs_slice = obs_slice[spi_var_name]  # Extract the specific variable as DataArray
+    
+    if hasattr(fct_slice, 'data_vars'):  # Check if it's a Dataset
+        # For forecast data, we may need to select the appropriate variable
+        # Assuming the main variable is the first one if not specified
+        forecast_var = list(fct_slice.data_vars)[0]
+        fct_slice = fct_slice[forecast_var]
+    
+    # Identify drought pixels in observations and forecasts
+    obs_drought = obs_slice <= threshold_value
+    fcst_drought = fct_slice >= trigger_value
+    
+    # Calculate percentage area in drought for observations
+    # Use sum().values.item() to safely extract scalar values
+    total_pixels_obs = obs_drought.count().values.item() if hasattr(obs_drought, 'count') else np.sum(~np.isnan(obs_drought.values))
+    drought_pixels_obs = obs_drought.sum().values.item() if hasattr(obs_drought, 'sum') else np.sum(obs_drought.values)
+    pct_area_drought_obs = drought_pixels_obs / total_pixels_obs if total_pixels_obs > 0 else 0
+    
+    # Calculate percentage area in drought for forecasts
+    total_pixels_fcst = fcst_drought.count().values.item() if hasattr(fcst_drought, 'count') else np.sum(~np.isnan(fcst_drought.values))
+    drought_pixels_fcst = fcst_drought.sum().values.item() if hasattr(fcst_drought, 'sum') else np.sum(fcst_drought.values)
+    pct_area_drought_fcst = drought_pixels_fcst / total_pixels_fcst if total_pixels_fcst > 0 else 0
+    
+    # Define binary events based on area threshold
+    observed_event = pct_area_drought_obs >= area_threshold
+    forecast_event = pct_area_drought_fcst >= area_threshold
+    
+    # Convert to integer (0/1) format for xhist
+    obs_event_int = int(observed_event)  # Convert bool to int
+    fct_event_int = int(forecast_event)  # Convert bool to int
+    
+    # Create simple 2x2 contingency table using the binary events
+    # Since we're dealing with single area-integrated events, we manually create the table
+    if observed_event and forecast_event:
+        # Hit
+        hits = 1
+        misses = 0
+        false_alarms = 0
+        correct_negatives = 0
+    elif observed_event and not forecast_event:
+        # Miss
+        hits = 0
+        misses = 1
+        false_alarms = 0
+        correct_negatives = 0
+    elif not observed_event and forecast_event:
+        # False alarm
+        hits = 0
+        misses = 0
+        false_alarms = 1
+        correct_negatives = 0
+    else:
+        # Correct negative
+        hits = 0
+        misses = 0
+        false_alarms = 0
+        correct_negatives = 1
+    
+    # Calculate hit percentage
+    total_observed = hits + misses
+    hit_percentage = (hits / total_observed * 100) if total_observed > 0 else np.nan
+    
+    # Convert area_threshold to a non-decimal number
+    area_threshold_int = int(area_threshold * 100)
+    
+    return {
+        f"hits_{area_threshold_int}": hits,
+        f"misses_{area_threshold_int}": misses,
+        f"false_alarms_{area_threshold_int}": false_alarms,
+        f"correct_negatives_{area_threshold_int}": correct_negatives,
+        f"obs_area_pct_{area_threshold_int}": pct_area_drought_obs * 100,
+        f"fct_area_pct_{area_threshold_int}": pct_area_drought_fcst * 100,
+        f"observed_event_{area_threshold_int}": int(observed_event),
+        f"forecast_event_{area_threshold_int}": int(forecast_event),
+        f"hit_percentage_{area_threshold_int}": hit_percentage
+    }
+
+
+def area_xhist_1d(params, area_thresholds=None):
+    """
+    Perform area-based verification of drought forecasts using multiple area thresholds.
+    
+    This function evaluates forecast performance based on the percentage of area exceeding 
+    drought thresholds, rather than spatial averaging. It processes multiple drought categories
+    and area thresholds, applying verification metrics to each combination.
+    
+    Parameters:
+    -----------
+    params : BinCreateParams
+        Parameter object containing region, season, lead time information
+    area_thresholds : list, optional
+        List of area percentage thresholds (0-1) to evaluate. Default [0.1, 0.2, 0.3, 0.4, 0.6]
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        DataFrame containing area-based verification metrics for all combinations
+    """
+   
+    if area_thresholds is None:
+        area_thresholds = [0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0]
+    
+    logger.info(f"Starting area-based verification for region {params.region_id}, season {params.season_str}, lead time {params.lead_int}")
+    
+    # Get threshold dictionary for the region and season
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    logger.info(f"Using drought thresholds: {threshold_dict}")
+    
+    # Load observational and forecast data
+    try:
+        obs_data, ens_data = make_obs_fct_dataset(params)
+        logger.info(f"Successfully loaded observation and forecast datasets")
+    except Exception as e:
+        logger.error(f"Failed to load datasets: {e}")
+        raise
+    
+    # Calculate empirical probabilities
+    try:
+        fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(ens_data, threshold_dict)
+        logger.info(f"Calculated empirical probabilities for all drought categories")
+    except Exception as e:
+        logger.error(f"Failed to calculate empirical probabilities: {e}")
+        raise
+    
+    # Create a mapping of category names to forecast data and thresholds
+    category_mapping = {
+        'mod': {'forecast': fct_mod, 'threshold': threshold_dict['mod']},
+        'sev': {'forecast': fct_sev, 'threshold': threshold_dict['sev']},
+        'ext': {'forecast': fct_ext, 'threshold': threshold_dict['ext']}
+    }
+    
+    # Load existing 2D verification results
+    try:
+        metrix2d = pd.read_csv(f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}.csv")
+        logger.info(f"Loaded 2D verification results with {len(metrix2d)} rows")
+    except Exception as e:
+        logger.error(f"Failed to load 2D verification results: {e}")
+        raise
+    #import ipdb; ipdb.set_trace()    
+    # Initialize results container
+    all_results = []
+    
+    # Process each drought category
+    for category in ['mod', 'sev', 'ext']:
+        logger.info(f"Processing {category} drought category")
+        
+        # Filter the 2D metrics for this category
+        category_metrics = metrix2d[metrix2d['x2d_level'] == category]
+        if len(category_metrics) == 0:
+            logger.warning(f"No 2D metrics found for category {category}, skipping")
+            continue
+        
+        # Get forecast data and threshold for this category
+        forecast_data = category_mapping[category]['forecast']
+        spi_threshold = category_mapping[category]['threshold']
+        
+        # Process each row (time step and trigger value combination)
+        for idx, row in category_metrics.iterrows():
+            if idx % 10 == 0:
+                logger.info(f"Processing row {idx} of {len(category_metrics)}")
+            
+            time_step = int(row['time_step'])
+            trigger_value = row['trigger_value']
+            
+            # Skip invalid time steps
+            if time_step >= len(obs_data.time) or time_step >= len(forecast_data.init):
+                logger.warning(f"Time step {time_step} out of range, skipping")
+                continue
+            
+            # Extract the specific time slices
+            try:
+                obs_slice = obs_data.isel(time=time_step)
+                fct_slice = forecast_data.isel(init=time_step)
+            except Exception as e:
+                logger.error(f"Failed to extract time slice {time_step}: {e}")
+                continue
+
+            result_row = {
+            'region_id': params.region_id,
+            'season': params.sc_season_str,
+            'lead_time': params.lead_int,
+            'category': category,
+            'time_step': time_step,
+            'trigger_value': trigger_value,
+            'spi_threshold': spi_threshold
+            }
+            valid_metrics_found = False            
+            # Process each area threshold
+            for area_threshold in area_thresholds:
+                # Calculate contingency table and metrics
+                try:
+                    contingency_metrics = calculate_area_contingency(
+                        obs_slice, 
+                        fct_slice, 
+                        spi_threshold, 
+                        trigger_value,
+                        area_threshold,
+                        params.spi_prod_name
+                    )
+                    
+                    # Add metadata to results
+                    if contingency_metrics:
+                        result_row.update(contingency_metrics)
+                        valid_metrics_found = True
+                    #all_results.append(result_row)
+                except Exception as e:
+                    logger.error(f"Error calculating contingency for time_step={time_step}, area={area_threshold}: {e}")
+            # Only append result_row if at least one valid set of metrics was found
+            if valid_metrics_found:
+                all_results.append(result_row)
+            else:
+                logger.warning(f"No valid metrics found for time_step={time_step}, skipping")
+    
+    # Combine results into a DataFrame
+    if not all_results:
+        logger.warning("No valid results were generated")
+        return pd.DataFrame()
+    
+    results_df = pd.DataFrame(all_results)
+    
+    # Calculate additional metrics for the raw results
+    if not results_df.empty:
+        # Calculate hit percentage
+        results_df['hit_percentage'] = np.nan
+        #mask = (results_df['hits'] + results_df['misses']) > 0
+        #results_df.loc[mask, 'hit_percentage'] = (results_df.loc[mask, 'hits'] / 
+        #(results_df.loc[mask, 'hits'] + results_df.loc[mask, 'misses'])) * 100
+    
+    # Save results
+    output_file = f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_area_based.csv"
+    results_df.to_csv(output_file, index=False)
+    logger.info(f"Saved area-based verification results to {output_file}")
+    
+    if not results_df.empty:
+        summary_data = []
+        
+        # Create a summary for each category and area threshold
+        for category in results_df['category'].unique():
+            for area_threshold in area_thresholds:
+                area_threshold_int = int(area_threshold * 100)
+                
+                # Column names with area threshold included
+                hits_col = f"hits_{area_threshold_int}"
+                misses_col = f"misses_{area_threshold_int}"
+                fa_col = f"false_alarms_{area_threshold_int}"
+                cn_col = f"correct_negatives_{area_threshold_int}"
+                hp_col = f"hit_percentage_{area_threshold_int}"
+                
+                # Filter data for this category
+                cat_data = results_df[results_df['category'] == category]
+                
+                # Skip if these columns don't exist
+                if not all(col in cat_data.columns for col in [hits_col, misses_col, fa_col, cn_col]):
+                    continue
+                    
+                # Calculate summary
+                summary_row = {
+                    'category': category,
+                    'area_threshold': area_threshold,
+                    'hits': cat_data[hits_col].sum(),
+                    'misses': cat_data[misses_col].sum(),
+                    'false_alarms': cat_data[fa_col].sum(),
+                    'correct_negatives': cat_data[cn_col].sum()
+                }
+                
+                # Calculate hit percentage
+                total_observed = summary_row['hits'] + summary_row['misses']
+                summary_row['hit_percentage'] = (summary_row['hits'] / total_observed * 100) if total_observed > 0 else np.nan
+                
+                summary_data.append(summary_row)
+        
+        summary_df = pd.DataFrame(summary_data) if summary_data else pd.DataFrame()
+    else:
+        summary_df = pd.DataFrame()    # Save summary
+    summary_file = f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_area_based_summary.csv"
+    summary_df.to_csv(summary_file, index=False)
+    logger.info(f"Saved area-based verification summary to {summary_file}")
+    
+    return results_df, summary_df
+
+
+
+
+
