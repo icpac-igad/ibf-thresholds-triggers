@@ -17,7 +17,8 @@ import logging
 import sys
 import geopandas as gp 
 from matplotlib.colors import ListedColormap, BoundaryNorm
-    
+from io import StringIO
+   
 
 from climpred import HindcastEnsemble
 
@@ -35,6 +36,25 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+def get_kmj_trigger_values(season: str, lead_time: int, cat: str = None):
+    """
+    Retrieves trigger values based on season, lead_time, and optional category.
+    If `cat` is None, returns all matching trigger values for the season and lead_time.
+    """
+    filtered = trigger_df[
+        (trigger_df['season'] == season.lower()) & 
+        (trigger_df['lead_time'] == lead_time)
+    ]
+    
+    if cat:
+        filtered = filtered[filtered['cat'] == cat.lower()]
+    
+    if filtered.empty:
+        return None
+    
+    return filtered['Trigger'].tolist() if cat is None else filtered['Trigger'].iloc[0]
 
 
 def save_forecast_to_netcdf(dm_fct_mod, dm_fct_sev, dm_fct_ext, params, year, month, output_dir="./"):
@@ -646,11 +666,25 @@ def main():
 
     params.output_path='output/'
 
-    td,df=generate_trigger_dict(params)
-    print(td)
-    tdfm=create_binary_trigger_map(epds['mod_prob'], 0.323)
-    tdfs=create_binary_trigger_map(epds['sev_prob'], 0.242)
-    tdfe=create_binary_trigger_map(epds['ext_prob'], 0.162)
+    #td,df=generate_trigger_dict(params)
+    #print(td)
+    data = {
+    'lead_time': [2, 2, 2, 3, 3, 3, 4, 4, 4] * 2,
+    'Trigger': [20.2, 16.16, 15.15, 21.21, 15.15, 11.11, 25.25, 15.15, 12.12,
+                35.35, 23.23, 15.15, 32.32, 24.24, 16.16, 31.31, 24.24, 19.19],
+    'cat': ['mod', 'sev', 'ext'] * 6,
+    'season': ['mam'] * 9 + ['jja'] * 9}
+    trigger_df = pd.DataFrame(data)
+    trigger_df['Trigger'] = trigger_df['Trigger'] / 100
+
+    kmj_tr_mod=get_kmj_trigger_values(params.sc_season_str, params.lead_int, 'mod')
+    kmj_tr_sev=get_kmj_trigger_values(params.sc_season_str, params.lead_int, 'sev')
+    kmj_tr_ext=get_kmj_trigger_values(params.sc_season_str, params.lead_int, 'ext')
+
+
+    tdfm=create_binary_trigger_map(epds['mod_prob'], kmj_tr_mod)
+    tdfs=create_binary_trigger_map(epds['sev_prob'], kmj_tr_sev)
+    tdfe=create_binary_trigger_map(epds['ext_prob'], kmj_tr_ext)
     fct_dt=forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,tdfm, tdfs, tdfe)
      
     if args.use_shpfile:
@@ -660,7 +694,7 @@ def main():
             shapefile_df = gp.read_file('../../data/kmj_polygon.shp')  # Default path
     else:
         pass 
-    print(f"the decided triggers {td['mod']/100}")
+    print(f'triggers {kmj_tr_mod}, {kmj_tr_sev}, {kmj_tr_ext}') 
     print(tdfm.values)
     output_dir=params.output_path
     mdplot_single_row(fct_dt, params, shapefile_df, output_dir)
