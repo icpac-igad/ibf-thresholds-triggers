@@ -7,11 +7,9 @@ overlays them with district boundary shapefiles, and calculates average probabil
 for each district. The results are saved as CSV files and visualized with maps.
 
 Usage:
-     python 08-kmj-district-stats.py --input_netcdf kmj_seas51_spi3_jja_eprob_2025_04.nc  
-                                         --district_shapefile ../../data/Karamoja_Admin2.shp
-                                         --output_dir ./output
-Author: [Your Name]
-Date: [Current Date]
+     python 08-kmj-district-stats.py --input_netcdf kmj_seas51_spi3_jja_eprob_2025_04.nc 
+                              --district_shapefile ../../data/Karamoja_Admin2.shp                               
+                            --output_dir ./output
 """
 
 import os
@@ -296,9 +294,9 @@ def main():
     """
     # Parse command line arguments
     parser = argparse.ArgumentParser(description="Calculate district-level drought risk from SEAS51 forecasts")
-    parser.add_argument("--input_netcdf", required=True, help="Path to forecast emprical probablity netcdf file")
-    parser.add_argument("--admin_level", required=True, help="Admin level of shape file is it admin2 or admin 4")
-    parser.add_argument("--district_shapefile", required=True, help="Path to district shapefile")
+    parser.add_argument("--input-netcdf", required=True, help="Path to forecast emprical probablity netcdf file")
+    parser.add_argument("--admin-level", required=True, help="Admin level of shape file is it admin2 or admin 4")
+    parser.add_argument("--district-shapefile", required=True, help="Path to district shapefile")
        
     args = parser.parse_args()
     

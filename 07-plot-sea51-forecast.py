@@ -38,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_kmj_trigger_values(season: str, lead_time: int, cat: str = None):
+def get_kmj_trigger_values(trigger_df, season: str, lead_time: int, cat: str = None):
     """
     Retrieves trigger values based on season, lead_time, and optional category.
     If `cat` is None, returns all matching trigger values for the season and lead_time.
@@ -335,7 +335,7 @@ def get_2d_data(data_array):
     return values
 
 
-def mdplot_single_row(dstree, params, shapefile_df, output_dir):
+def mdplot_single_row(dstree, params, trigger_kmj, shapefile_df, output_dir):
     """
     Create a single row plot with ensemble members, empirical probabilities, and binary trigger maps
     
@@ -587,9 +587,11 @@ def mdplot_single_row(dstree, params, shapefile_df, output_dir):
     region_name = params.region_name_dict[params.region_id]
     season_str = params.sc_season_str.upper()
     
+    
     fig.suptitle(
         f"{region_name} SEAS51 SPI Forecast ({season_str})\n"
-        f"Init: {latest_init.strftime('%Y-%m-%d')}, Valid: {latest_valid.strftime('%Y-%m')}, Lead: {params.lead_int} months, \n Triggers values mod:0.323, sev:0.242, ext: 0.162 ",
+        f"Init: {latest_init.strftime('%Y-%m-%d')}, Valid: {latest_valid.strftime('%Y-%m')}, Lead: {params.lead_int} months,\n"
+        f"Triggers values mod: {trigger_kmj['kmj_tr_mod']:.2f}, sev: {trigger_kmj['kmj_tr_sev']:.2f}, ext: {trigger_kmj['kmj_tr_ext']:.2f}",
         fontsize=16,
         weight="bold",
         y=0.98
@@ -641,14 +643,12 @@ def main():
     
     # Set season string
     params.sc_season_str = args.season.lower()
-    
     # Run the plot generation
     ens_data = get_forecast_data_only(params)
     # Get thresholds (you might need to adjust this if threshold values are normally derived from observations)
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
     # Calculate empirical probabilities
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(ens_data, threshold_dict)
-
     month=args.month
     year=args.year
     dm_ens_data=ens_data.sel(init=(ens_data.init.dt.year == year) & (ens_data.init.dt.month == month))
@@ -677,14 +677,14 @@ def main():
     trigger_df = pd.DataFrame(data)
     trigger_df['Trigger'] = trigger_df['Trigger'] / 100
 
-    kmj_tr_mod=get_kmj_trigger_values(params.sc_season_str, params.lead_int, 'mod')
-    kmj_tr_sev=get_kmj_trigger_values(params.sc_season_str, params.lead_int, 'sev')
-    kmj_tr_ext=get_kmj_trigger_values(params.sc_season_str, params.lead_int, 'ext')
+    trigger_kmj = {
+    "kmj_tr_mod": get_kmj_trigger_values(trigger_df, params.sc_season_str, params.lead_int, "mod"),
+    "kmj_tr_sev": get_kmj_trigger_values(trigger_df, params.sc_season_str, params.lead_int, "sev"),
+    "kmj_tr_ext": get_kmj_trigger_values(trigger_df, params.sc_season_str, params.lead_int, "ext"),}
 
-
-    tdfm=create_binary_trigger_map(epds['mod_prob'], kmj_tr_mod)
-    tdfs=create_binary_trigger_map(epds['sev_prob'], kmj_tr_sev)
-    tdfe=create_binary_trigger_map(epds['ext_prob'], kmj_tr_ext)
+    tdfm=create_binary_trigger_map(epds['mod_prob'], trigger_kmj["kmj_tr_mod"])
+    tdfs=create_binary_trigger_map(epds['sev_prob'], trigger_kmj["kmj_tr_sev"])
+    tdfe=create_binary_trigger_map(epds['ext_prob'], trigger_kmj["kmj_tr_ext"])
     fct_dt=forecast_plot_datatree(ens_data, fct_mod, fct_sev, fct_ext,tdfm, tdfs, tdfe)
      
     if args.use_shpfile:
@@ -694,10 +694,10 @@ def main():
             shapefile_df = gp.read_file('../../data/kmj_polygon.shp')  # Default path
     else:
         pass 
-    print(f'triggers {kmj_tr_mod}, {kmj_tr_sev}, {kmj_tr_ext}') 
+    print(f'triggers {trigger_kmj["kmj_tr_mod"]}, {trigger_kmj["kmj_tr_sev"]}, {trigger_kmj["kmj_tr_ext"]}') 
     print(tdfm.values)
     output_dir=params.output_path
-    mdplot_single_row(fct_dt, params, shapefile_df, output_dir)
+    mdplot_single_row(fct_dt, params, trigger_kmj, shapefile_df, output_dir)
 
 
 
