@@ -1,0 +1,252 @@
+=======================================================
+Mode 2: Monthly Operational Forecasting
+=======================================================
+
+Once trigger values have been established through the forecast verification process (Mode 1), the system transitions to monthly operational forecasting mode. This workflow is designed for regular monthly production of drought forecasts using pre-determined trigger values to support anticipatory action decisions.
+
+This chapter details the operational workflow process, focusing on the scripts, their inputs, and outputs within the monthly forecast production cycle.
+
+Overview
+--------
+
+The operational forecasting workflow consists of four main steps:
+
+1. **Data Acquisition**: Download the latest ECMWF SEAS5 data for specified months
+2. **SPI Processing**: Process the forecast data to calculate SPI values
+3. **Visualization**: Generate forecast maps and trigger exceedance visualizations
+4. **District-Level Analysis**: Calculate district-level statistics for targeted decision-making
+
+This streamlined workflow enables routine production of decision-relevant forecasts without repeating the extensive verification process each month.
+
+Step 1: Download Required Data
+-----------------------------
+
+The first step involves downloading the latest seasonal forecast data from ECMWF using the `00-download-data.py` script.
+
+**Script Overview**:
+
+The script connects to the Copernicus Climate Data Store (CDS) API to retrieve ECMWF SEAS5 seasonal forecast data for specific months and years. In operational mode, it focuses on downloading only the most recent initialization data needed for current forecasts, rather than the complete historical dataset required for verification.
+
+**Key Parameters**:
+
+* `--output-dir`: Directory where downloaded files will be saved
+* `--seas5-only`: Flag to download only SEAS5 data (no CHIRPS observations)
+* `--only-current-month-seas5`: Month(s) to download (3-4 means March-April)
+* `--year`: Year for the forecast data (2025 in this example)
+
+**Command Example**:
+
+```bash
+python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 3-4 --year 2025
+```
+
+**Output Files**:
+
+* SEAS5 GRIB file: `seas5_precipitation_YYYYMMDD_year2025_months_03_04.grib`
+  - Includes total precipitation forecasts for specified months
+  - Named with current date and requested month range
+  - Stored in the specified output directory
+
+**Configuration Notes**:
+
+The script requires a configured CDS API key in the user's home directory (`~/.cdsapirc`). The API configuration should contain:
+
+```
+url: https://cds.climate.copernicus.eu/api/v2
+key: <your-user-id>:<your-api-key>
+verify: 0
+```
+
+SEAS5 data is organized by initialization months and includes forecasts for up to 6 months ahead. For operational forecasting, only the most recent initialization months are typically needed.
+
+Step 2: Process SPI for SEAS5 Forecasts
+--------------------------------------
+
+The second step involves processing the downloaded SEAS5 data to calculate Standardized Precipitation Index (SPI) values using the `01-run-process-spi.py` script.
+
+**Script Overview**:
+
+This script processes SEAS5 forecast data to calculate SPI-3 values for a specific region. In operational mode (`--mode seas51`), it skips the processing of CHIRPS observation data and focuses only on the forecast component, using a pre-existing observation file for regridding purposes only.
+
+**Key Parameters**:
+
+* `--region-id`: Region identifier (e.g., 'kmj' for Karamoja)
+* `--output-dir`: Directory for output files
+* `--mode`: Set to 'seas51' for forecast-only operational mode
+* `--use-local`: Flag to use local shapefile instead of cloud data
+* `--obs-file`: Path to existing observation file for regridding reference
+* `--local-shapefile`: Path to region boundary shapefile
+* `--seas51-main-file`: Path to main SEAS5 GRIB file
+* `--seas51-additional-files`: Additional SEAS5 files to include
+* `--apply-mask`: Flag to apply geographic mask based on shapefile
+* `--mask-buffer`: Buffer size in degrees around masked region (0.25°)
+
+**Note on Observation File Requirement**:
+
+Even in operational mode, an observation file (`--obs-file`) is still required as a reference for regridding the forecast data to the correct spatial resolution and grid alignment. This file should be taken from the Mode 1 verification process and remains static during operational forecasting - you don't need to update it each month. The script uses this file only to determine the target grid structure, not for verification purposes.
+
+**Command Example**:
+
+```bash
+python 01-run-process-spi.py --region-id kmj --output-dir output --mode seas51 --use-local --obs-file kmj_obs_spi3.nc --local-shapefile ../../data/kmj_polygon.shp --seas51-main-file ../../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../../data/seas5_precipitation_20250514_year2025_months_03_04_05.grib --apply-mask --mask-buffer 0.25
+```
+
+**Output Files**:
+
+* Raw SPI NetCDF: `{region_id}_raw_seas51_spi3.nc`
+  - Contains raw SPI-3 values for each ensemble member
+  - Organized by initialization date and lead time
+  
+* Regridded SPI NetCDF: `{region_id}_rgr_seas51_spi3.nc`
+  - SPI-3 values regridded to match observation grid spacing
+  - Used for visualization and further analysis
+  
+* Masked SPI NetCDF: `{region_id}_rgr_seas51_spi3_masked.nc`
+  - Final SPI-3 values with region mask applied
+  - This is the primary output used for subsequent steps
+
+**Processing Steps**:
+
+1. Load SEAS5 forecast data from local GRIB files
+2. Subset data to the region of interest
+3. Calculate SPI-3 for each ensemble member and lead time
+4. Regrid to match observation dataset resolution
+5. Apply region mask using shapefile boundary
+6. Save processed data to NetCDF files
+
+Step 3: Plot SEAS51 Forecasts
+----------------------------
+
+The third step involves creating visualization maps of the forecast probabilities and trigger exceedance using the `07-plot-sea51-forecast.py` script.
+
+**Script Overview**:
+
+This script creates comprehensive visualization maps showing ensemble forecasts, empirical probabilities for different drought categories (moderate, severe, extreme), and binary trigger exceedance maps. It uses pre-determined trigger values (from Mode 1 verification) to indicate where forecasted probabilities exceed decision thresholds.
+
+**Key Parameters**:
+
+* `--region_id`: Region identifier (e.g., 'kmj')
+* `--season`: Target season for analysis (e.g., 'JJA' for June-July-August)
+* `--lead_time`: Forecast lead time in months
+* `--year`: Forecast initialization year
+* `--month`: Forecast initialization month
+* `--use_shpfile`: Flag to use local shapefile for region boundaries
+* `--shapefile_path`: Path to region boundary shapefile
+* `--output_dir`: Directory for output visualizations
+
+**Command Examples**:
+
+For April 2025 initialization (3-month lead time to JJA):
+```bash
+python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+```
+
+For May 2025 initialization (2-month lead time to JJA):
+```bash
+python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 2 --year 2025 --month 5 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+```
+
+**Output Files**:
+
+* Empirical Probability NetCDF: `kmj_seas51_spi3_{season}_eprob_{year}_{month}.nc`
+  - Contains ensemble probability forecasts for each drought category
+  - Used for district-level analysis in next step
+  
+* Combined Visualization Map: `{region_id}_{season}_lt{lead_time}.png`
+  - Multi-panel visualization showing:
+    * Ensemble member SPI values (all 51 members)
+    * Empirical drought probabilities for moderate, severe, and extreme categories
+    * Binary trigger exceedance maps for each drought category
+    * Colorbar legends and forecast metadata
+
+**Visualization Components**:
+
+1. **Ensemble Members**: Individual SPI maps for all ensemble members
+2. **Empirical Probabilities**:
+   - Percentage of ensemble members exceeding threshold for each category
+   - Shown with classified color scales
+3. **Trigger Maps**:
+   - Binary maps (Yes/No) showing areas where probabilities exceed trigger values
+   - Color-coded with green (below trigger) and red (exceeds trigger)
+4. **Metadata**:
+   - Initialization date, valid period, lead time
+   - Trigger values used for each drought category
+   - Region and dataset identification
+
+Step 4: District-Level Statistics
+-------------------------------
+
+The final step calculates district-level statistics to support targeted decision-making using the `08-kmj-district-stats.py` script.
+
+**Script Overview**:
+
+This script regrides forecasts to higher resolution (1km), overlays with administrative boundaries, and calculates district-level average probabilities. This enables decision-makers to identify specific districts at risk and allocate resources accordingly.
+
+**Key Parameters**:
+
+* `--input-netcdf`: Path to empirical probability NetCDF file from step 3
+* `--admin-level`: Administrative level to use (e.g., 'admin2' for districts)
+* `--district-shapefile`: Path to district boundary shapefile
+
+**Command Example**:
+
+```bash
+python 08-kmj-district-stats.py --input-netcdf kmj_seas51_spi3_jja_eprob_2025_05.nc --admin-level admin2 --district-shapefile ../../data/Karamoja_9_districts.shp
+```
+
+**Output Files**:
+
+* District Statistics CSV: `{input_filename}_district_averages.csv`
+  - Contains district-level average probabilities for each drought category
+  - Formatted with one row per district
+  - Values presented as percentages (0-100%)
+
+**Processing Steps**:
+
+1. Load empirical probability forecast from NetCDF
+2. Regrid data to 1km resolution using bilinear interpolation
+3. Load district boundaries from shapefile
+4. Create spatial mask for each district
+5. Calculate average probability values for each district and category
+6. Format and save results to CSV file
+
+**Example Output Structure**:
+
+```
+District,mod_prob,sev_prob,ext_prob
+Abim,35.2,12.5,5.2 
+Amudat,42.1,18.7,7.3    
+Kaabong,28.4,9.8,3.5   
+Kotido,31.5,11.2,4.1
+Moroto,45.3,21.4,9.2
+Nabilatuk,38.7,15.6,6.4
+Nakapiripirit,33.9,13.1,5.8
+Napak,29.8,10.5,3.9
+```
+
+Operational Implementation
+------------------------
+
+The operational forecasting workflow is typically executed monthly when new SEAS5 forecasts become available. The process follows these general guidelines:
+
+1. **Timing**:
+   - Run at the beginning of each month after new SEAS5 forecasts are published
+   - Process multiple lead times to establish forecast consistency
+
+2. **Decision Support Products**:
+   - Map visualizations for technical audience and decision-makers
+   - District-level statistics for targeted resource allocation
+   - Binary trigger information for clear "act or don't act" decisions
+
+3. **Interpretation Guidelines**:
+   - Compare forecasts from consecutive months for consistency
+   - Consider forecasts in context of verified skill for that season/lead time
+   - Focus on highest-skill months and lead times as determined in Mode 1
+
+4. **Technical Requirements**:
+   - Python environment with required libraries (xarray, xesmf, matplotlib, etc.)
+   - Access to ECMWF's CDS API (configured with valid credentials)
+   - Administrative boundary shapefiles for target region
+   - Pre-determined trigger values from verification process
+
+By following this streamlined operational workflow, the system produces regular, consistent forecast products that support anticipatory action against droughts without requiring the extensive verification process to be repeated.

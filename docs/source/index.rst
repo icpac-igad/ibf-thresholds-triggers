@@ -12,6 +12,7 @@ ibf-thresholds-triggers training documentation
    :caption: Contents:
 
    0
+   0b
    1
    2a
    3a

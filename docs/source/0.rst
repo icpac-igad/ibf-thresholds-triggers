@@ -41,13 +41,19 @@ Once trigger values have been established, use the following steps for operation
 .. code-block:: bash
 
    # Step 1: Download required data
-   python 00-download-data.py --output-dir './' --seas5-only --only-current-month-seas5 4 --year 2025
+   python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 3-5 --year 2025
 
    # Step 2: Process SPI for SEAS5 forecasts only
-   python 01-run-process-spi.py --region-id kmj --mode forecast --use-local --local-shapefile ../data/kmj_polygon.shp --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --apply-mask --mask-buffer 0.25
+   # For May 2025 
+   python 01-run-process-spi.py --region-id kmj --output-dir output --mode seas51 --use-local --obs-file kmj_obs_spi3.nc --local-shapefile ../../data/kmj_polygon.shp --seas51-main-file ../../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../../data/seas5_precipitation_20250514_year2025_months_03_04_05.grib --apply-mask --mask-buffer 0.25
 
    # Step 3: Plot SEAS51 forecasts
    python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+   # For May 2025
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 2 --year 2025 --month 5 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+   # Step 4: KMJ admin district level statistics
+   python 08-kmj-district-stats.py --input-netcdf kmj_seas51_spi3_jja_eprob_2025_05.nc --admin-level admin2 --district-shapefile ../../data/Karamoja_9_districts.shp
 
 Detailed Guide
 -------------
@@ -138,12 +144,6 @@ Step 1: Download ECMWF SEAS5 and CHIRPS Data
 .. note::
    This script automatically names files with date stamps (e.g., ``seas5_precipitation_20250402.grib``) and CHIRPS data is only downloaded if it doesn't already exist.
 
-.. figure:: images/download_data.png
-   :width: 600
-   :alt: Downloading Data
-   
-   Running the data download script
-
 Step 2: Process SPI (Standardized Precipitation Index)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -174,10 +174,7 @@ For monthly operational forecasting:
 
 **Output:** This script generates netCDF files with calculated SPI values.
 
-.. figure:: images/process_spi.png
-   :width: 600
-   :alt: Processing SPI
-   
+ 
    Processing SPI values from forecast and observation data
 
 Step 3: Run Forecast Verification (Hindcast Mode Only)
@@ -197,12 +194,6 @@ This script runs the forecast verification process without requiring additional 
 .. note::
    This step is only used in the hindcast verification mode, not in the monthly operational mode.
 
-.. figure:: images/forecast_verification.png
-   :width: 600
-   :alt: Forecast Verification
-   
-   Running the forecast verification process
-
 Step 4: Generate Bar Plots (Hindcast Mode Only)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -219,11 +210,6 @@ This script creates bar plot visualizations comparing:
 .. note::
    This step is only used in the hindcast verification mode, not in the monthly operational mode.
 
-.. figure:: images/bar_plots.png
-   :width: 600
-   :alt: Generate Bar Plots
-   
-   Generating bar plot visualizations
 
 Step 5: Create Heatmap Visualizations (Hindcast Mode Only)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -240,12 +226,6 @@ This script generates heatmap visualizations showing:
 
 .. note::
    This step is only used in the hindcast verification mode, not in the monthly operational mode.
-
-.. figure:: images/heatmap.png
-   :width: 600
-   :alt: Heatmap Visualization
-   
-   Creating heatmap visualizations
 
 Step 6/3: Plot SEAS51 Forecasts (Both Modes)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -269,8 +249,4 @@ Step 6/3: Plot SEAS51 Forecasts (Both Modes)
 .. note::
    This step is used in both the hindcast verification mode and the monthly operational mode.
 
-.. figure:: images/plot_forecast.png
-   :width: 600
-   :alt: Plot SEAS51 Forecasts
-   
-   Plotting SEAS51 forecast visualizations
+
