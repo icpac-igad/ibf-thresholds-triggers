@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 import logging
 from pathlib import Path
+from google.oauth2 import service_account
 
 import climpred
 import xarray as xr
@@ -96,9 +97,17 @@ class BinCreateParams:
     def _create_directories(self):
         """Create necessary directories if they don't exist."""
         directories = [self.output_path]
-        for directory in directories:
-            os.makedirs(directory, exist_ok=True)
+        for directory in directories: os.makedirs(directory, exist_ok=True)
         print(f"Directories created/checked: {', '.join(directories)}")
+
+
+def get_credentials(service_account_json):
+    """Create and return Google Cloud credentials."""
+    credentials = service_account.Credentials.from_service_account_file(
+        service_account_json,
+        scopes=["https://www.googleapis.com/auth/devstorage.read_only"],
+    )
+    return credentials
 
 
 def transform_data(data_at_time):
@@ -188,8 +197,7 @@ def apply_spii_mem(cont_db, lead_val, spi_name_int):
             window=spi_name_int,
             dist="gamma",
             method="APP",
-            cal_start="2017-01-01",
-            cal_end="2023-12-01",
+            cal_start="2017-01-01", cal_end="2023-12-01",
         )
         a_s3 = spi_3.compute()
         cont_spi.append(a_s3)
@@ -259,6 +267,80 @@ def ken_mask_creator(data_path):
     except Exception as e:
         logger.error(f"An error occurred in ken_mask_creator: {e}")
         raise
+
+
+def get_region_bounds(region_id, credentials=None, buffer=0.5, use_local=False, local_shapefile_path='../kmj_polygon.shp'):
+    """
+    Get geographic bounds for a specific region with buffer, supporting both local and GCS data sources.
+    
+    Args:
+        region_id (str): The region identifier to filter by
+        credentials: Google Cloud credentials (required if use_local=False)
+        buffer (float): Buffer in degrees to add around the region extent
+        use_local (bool): Whether to use local shapefile (True) or GCS (False)
+        local_shapefile_path (str): Path to local shapefile if use_local=True
+        
+    Returns:
+        tuple: (gdf, extent) where:
+              - gdf is a GeoDataFrame containing the filtered region data
+              - extent is [lat_min, lat_max, lon_min, lon_max]
+    """
+   
+    if use_local:
+        # Read from local shapefile
+        try:
+            gdf = gp.read_file(local_shapefile_path)
+            
+            # Filter by region id (assuming column name is 'gbid', adjust if different)
+            if 'gbid' in gdf.columns:
+                gdf = gdf[gdf['gbid'].str.contains(region_id)]
+            else:
+                # If 'gbid' column doesn't exist, try to find a suitable ID column
+                id_columns = [col for col in gdf.columns if 'id' in col.lower()]
+                if id_columns:
+                    gdf = gdf[gdf[id_columns[0]].astype(str).str.contains(region_id)]
+                else:
+                    raise ValueError("No suitable ID column found in local shapefile")
+            
+            if len(gdf) == 0:
+                raise ValueError(f"No regions found with id containing '{region_id}' in local shapefile")
+                
+        except Exception as e:
+            raise ValueError(f"Error reading local shapefile: {str(e)}")
+    else:
+        # Read from GCS
+        if credentials is None:
+            raise ValueError("Credentials required when not using local shapefile")
+            
+        
+        gcs_file_url = 'gs://seas51/ea_admin0_2_custom_polygon_shapefile_v5.parquet'
+        ddf = daskdf.read_parquet(gcs_file_url, storage_options={'token': credentials}, engine='pyarrow')
+        
+        # Filter by region id
+        fdf = ddf[ddf['gbid'].str.contains(region_id)]
+        df1 = fdf.compute()
+        
+        if len(df1) == 0:
+            raise ValueError(f"No regions found with id containing '{region_id}' in GCS dataset")
+        
+        # Convert geometry from WKB to shapely geometry
+        df1['geometry'] = df1['geometry'].apply(wkb.loads)
+        gdf = gp.GeoDataFrame(df1, geometry='geometry')
+    
+     # Get bounds
+    bounds = gdf.bounds
+    lat_min = bounds['miny'].min() - buffer
+    lat_max = bounds['maxy'].max() + buffer
+    lon_min = bounds['minx'].min() - buffer
+    lon_max = bounds['maxx'].max() + buffer
+    extent = [lat_min, lat_max, lon_min, lon_max]
+    
+    return gdf, extent
+
+
+
+
+
 
 
 def gcs_paraquet_mask_creator(params):
@@ -452,8 +534,8 @@ def make_obs_fct_dataset(params):
         #)
 
         if len(params.season_str) == 3:
-            kn_obs = xr.open_dataset('./kmj-25km-chirps-v2.0.monthly.nc')
-            kn_fct = xr.open_dataset('./kn_fct_spi3.nc')
+            kn_obs = xr.open_dataset('./kmj_obs_spi3_masked.nc')
+            kn_fct = xr.open_dataset('./kmj_rgr_seas51_spi3_masked.nc')
             logger.info("Loaded SPI3 datasets")
         else:
             kn_fct = xr.open_dataset(os.path.join(params.data_path, params.fct_netcdf_file))
@@ -999,9 +1081,11 @@ def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
 def run_xhist2d(params):
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)
     obs_data, ens_data = make_obs_fct_dataset(params)
+    import ipdb; ipdb.set_trace()
     fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
         ens_data, threshold_dict
     )
+    import ipdb; ipdb.set_trace()
     #################
     params.level = "mod"
     df = xhist_metrics_2d(obs_data, fct_mod, params, calculate_auroc=True)
@@ -1729,3 +1813,284 @@ def run_data_table_latex(params):
         "w",
     ) as f:
         f.write(latex_table)
+
+
+def area_xhist_metrices_1d(pdb, trigger_value, threshold_dict, cat_str, params):
+    ds = xr.Dataset.from_dataframe(pdb)
+    obs_ext = ds[f"{params.spi_prod_name}_{cat_str}"]
+    fct_ext = ds[f"ep_{cat_str}"]
+    obs_event = obs_ext <= threshold_dict[cat_str]
+    fct_event = fct_ext >= trigger_value
+    obs_event_int = obs_event.astype(int)
+    fct_event_int = fct_event.astype(int)
+    contingency_table = xhist.histogram(
+        obs_event_int, fct_event_int, bins=[2, 2], density=False
+    )
+    contingency_table = contingency_table.data
+    correct_negatives = contingency_table[0, 0]
+    false_alarms = contingency_table[0, 1]
+    misses = contingency_table[1, 0]
+    hits = contingency_table[1, 1]
+    total = hits + false_alarms + misses + correct_negatives
+    hit_rates = hits / (hits + misses) if (hits + misses) > 0 else np.nan
+    false_alarm_ratios = (
+        false_alarms / (false_alarms + hits) if (false_alarms + hits) > 0 else np.nan
+    )
+    # false_alarm_ratios[i] = false_alarms / (false_alarms + correct_negatives) if (false_alarms + correct_negatives) > 0 else np.nan
+    bias_scores = (
+        (hits + false_alarms) / (hits + misses) if (hits + misses) > 0 else np.nan
+    )
+    n_hit_rates = np.mean(hits.astype(int))  # Calculate hit rate as mean of hits
+    n_false_alarm_ratios = np.mean(false_alarm_ratios.astype(int))
+    hanssen_kuipers_scores = n_hit_rates - n_false_alarm_ratios
+    heidke_skill_scores = (hits * correct_negatives - misses * false_alarms) / total
+
+    fct_ext_pb = fct_ext / 100
+    tv_pb = trigger_value / 100
+    o1 = block_bootstrap(
+        obs_event_int,
+        blocks={"index": 1},
+        n_iteration=1000,
+        circular=True,
+    )
+    f1 = block_bootstrap(
+        fct_ext_pb,
+        blocks={"index": 1},
+        n_iteration=1000,
+        circular=True,
+    )
+    fpr, tpr, auroc_bootstrap_scores = xs.roc(
+        o1,
+        f1,
+        bin_edges=[0, tv_pb, 1],
+        dim=["index"],
+        return_results="all_as_metric_dim",
+    )
+    auroc_scores = np.mean(auroc_bootstrap_scores)
+    auroc_lb, auroc_ub = np.percentile(auroc_bootstrap_scores, [2.5, 97.5])
+    df = pd.DataFrame(
+        {
+            "#dry-seas": len(obs_ext.index.values),
+            "hits": [hits],
+            "misses": [misses],
+            "FA": [false_alarms],
+            "CN": [correct_negatives],
+            "hit_rates": [hit_rates],
+            "false_alarm_ratios": [false_alarm_ratios],
+            "bias_scores": [bias_scores],
+            "hanssen_kuipers_scores": [hanssen_kuipers_scores],
+            "heidke_skill_scores": [heidke_skill_scores],
+            "auroc_scores": auroc_scores.values,
+            "auroc_lb": auroc_lb,
+            "auroc_ub": auroc_ub,
+        }
+    )
+    df.insert(0, "threshold", threshold_dict[cat_str])
+    df.insert(0, "trigger_values", trigger_value)
+    return df
+
+def area_xhist_1d(params, area_thresholds=None):
+    """
+    Perform area-based verification of drought forecasts using multiple area thresholds,
+    treating each year/time step as a single event.
+    
+    Parameters:
+    -----------
+    params : BinCreateParams
+        Parameter object containing region, season, lead time information
+    area_thresholds : list, optional
+        List of area percentage thresholds (0-1) to evaluate
+        
+    Returns:
+    --------
+    DataFrame: Summary of verification metrics
+    """
+    if area_thresholds is None:
+        area_thresholds = [0.1, 0.2, 0.3, 0.4, 0.6, 0.8, 1.0]
+    
+    logger.info(f"Starting area-based verification for region {params.region_id}, season {params.sc_season_str}, lead time {params.lead_int}")
+    
+    # Get threshold dictionary for the region and season
+    threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+    logger.info(f"Using drought thresholds: {threshold_dict}")
+    
+    # Load observational and forecast data
+    try:
+        obs_data, ens_data = make_obs_fct_dataset(params)
+        logger.info(f"Successfully loaded observation and forecast datasets with {len(obs_data.time)} time steps")
+    except Exception as e:
+        logger.error(f"Failed to load datasets: {e}")
+        raise
+    
+    # Calculate empirical probabilities
+    try:
+        fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(ens_data, threshold_dict)
+        logger.info(f"Calculated empirical probabilities for all drought categories")
+    except Exception as e:
+        logger.error(f"Failed to calculate empirical probabilities: {e}")
+        raise
+    
+    # Create a mapping of category names to forecast data and thresholds
+    category_mapping = {
+        'mod': {'forecast': fct_mod, 'threshold': threshold_dict['mod']},
+        'sev': {'forecast': fct_sev, 'threshold': threshold_dict['sev']},
+        'ext': {'forecast': fct_ext, 'threshold': threshold_dict['ext']}
+    }
+    
+    # Load existing 2D verification results to get trigger values
+    try:
+        metrix2d = pd.read_csv(f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}.csv")
+        logger.info(f"Loaded 2D verification results with {len(metrix2d)} rows")
+    except Exception as e:
+        logger.error(f"Failed to load 2D verification results: {e}")
+        raise
+    
+    # Initialize results list
+    summary_data = []
+    
+    # Process each drought category
+    for category in ['mod', 'sev', 'ext']:
+        logger.info(f"Processing {category} drought category")
+        
+        # Filter the 2D metrics for this category
+        category_metrics = metrix2d[metrix2d['x2d_level'] == category]
+        if len(category_metrics) == 0:
+            logger.warning(f"No 2D metrics found for category {category}, skipping")
+            continue
+        
+        # Get unique trigger values 
+        unique_trigger_values = category_metrics['trigger_value'].unique()
+        logger.info(f"Found {len(unique_trigger_values)} unique trigger values for {category}")
+        
+        # Get forecast data and threshold for this category
+        forecast_data = category_mapping[category]['forecast']
+        spi_threshold = category_mapping[category]['threshold']
+        
+        # Extract SPI variable from observations
+        if isinstance(obs_data, xr.Dataset):
+            obs_var = obs_data[params.spi_prod_name]
+        else:
+            obs_var = obs_data
+        
+        # For each trigger value
+        for trigger_value in unique_trigger_values:
+            logger.info(f"Processing trigger value: {trigger_value}")
+            
+            # Extract the main variable from forecast data
+            if isinstance(forecast_data, xr.Dataset):
+                forecast_var = forecast_data[params.spi_prod_name] if params.spi_prod_name in forecast_data else forecast_data[list(forecast_data.data_vars)[0]]
+            else:
+                forecast_var = forecast_data
+            
+            # Calculate area-based drought events for each time step
+            
+            # Create observation masks where SPI <= threshold for each time step
+            obs_drought_by_time = []
+            for t in range(len(obs_var.time)):
+                # Get the observation slice for this time step
+                obs_slice = obs_var.isel(time=t)
+                
+                # Calculate drought mask (True where SPI <= threshold)
+                obs_drought_mask = obs_slice <= spi_threshold
+                
+                # Calculate percentage of area in drought
+                total_cells = obs_drought_mask.count().item()
+                drought_cells = obs_drought_mask.sum().item()
+                pct_area_drought = (drought_cells / total_cells * 100) if total_cells > 0 else 0
+                
+                obs_drought_by_time.append(pct_area_drought)
+            
+            # Create forecast masks where probability >= trigger_value for each time step
+            fct_drought_by_time = []
+            for t in range(len(forecast_var.init)):
+                # Get the forecast slice for this time step
+                fct_slice = forecast_var.isel(init=t)
+                
+                # Calculate drought mask (True where probability >= trigger)
+                fct_drought_mask = fct_slice >= trigger_value
+                
+                # Calculate percentage of area in drought
+                total_cells = fct_drought_mask.count().item()
+                drought_cells = fct_drought_mask.sum().item()
+                pct_area_drought = (drought_cells / total_cells * 100) if total_cells > 0 else 0
+                
+                fct_drought_by_time.append(pct_area_drought)
+            
+            # For each area threshold
+            for area_threshold in area_thresholds:
+                area_threshold_pct = area_threshold * 100  # Convert to percentage
+                logger.info(f"Processing area threshold: {area_threshold_pct}%")
+                
+                # Initialize contingency table counts
+                hits = 0
+                misses = 0
+                false_alarms = 0
+                correct_negatives = 0
+                
+                # Compute contingency table by comparing each time step
+                for t in range(min(len(obs_drought_by_time), len(fct_drought_by_time))):
+                    # Determine observed and forecast event status
+                    obs_event = obs_drought_by_time[t] >= area_threshold_pct
+                    fct_event = fct_drought_by_time[t] >= area_threshold_pct
+                    
+                    # Update contingency table
+                    if obs_event and fct_event:
+                        hits += 1
+                    elif obs_event and not fct_event:
+                        misses += 1
+                    elif not obs_event and fct_event:
+                        false_alarms += 1
+                    else:  # not obs_event and not fct_event
+                        correct_negatives += 1
+                
+                # Calculate verification metrics
+                total_observed = hits + misses
+                total_forecast = hits + false_alarms
+                total = hits + misses + false_alarms + correct_negatives
+                
+                # Basic metrics
+                hit_rate = hits / total_observed if total_observed > 0 else np.nan
+                false_alarm_ratio = false_alarms / total_forecast if total_forecast > 0 else np.nan
+                hit_percentage = (hits / total_observed * 100) if total_observed > 0 else np.nan
+                
+                # Additional metrics
+                bias_score = total_forecast / total_observed if total_observed > 0 else np.nan
+                false_alarm_rate = false_alarms / (false_alarms + correct_negatives) if (false_alarms + correct_negatives) > 0 else np.nan
+                hanssen_kuipers_score = hit_rate - false_alarm_rate if not np.isnan(hit_rate) and not np.isnan(false_alarm_rate) else np.nan
+                csi = hits / (hits + misses + false_alarms) if (hits + misses + false_alarms) > 0 else np.nan
+                
+                # Create summary row
+                summary_row = {
+                    'region_id': params.region_id,
+                    'season': params.sc_season_str,
+                    'lead_time': params.lead_int,
+                    'category': category,
+                    'trigger_value': trigger_value,
+                    'area_threshold': area_threshold,
+                    'spi_threshold': spi_threshold,
+                    'hits': hits,
+                    'misses': misses,
+                    'false_alarms': false_alarms,
+                    'correct_negatives': correct_negatives,
+                    'hit_rate': hit_rate,
+                    'false_alarm_ratio': false_alarm_ratio,
+                    'bias_score': bias_score,
+                    'hanssen_kuipers_score': hanssen_kuipers_score,
+                    'csi': csi,
+                    'hit_percentage': hit_percentage,
+                    'total_events': total
+                }
+                
+                # Add to summary data
+                summary_data.append(summary_row)
+    
+    # Create summary DataFrame
+    summary_df = pd.DataFrame(summary_data) if summary_data else pd.DataFrame()
+   
+    # Save summary
+    if not summary_df.empty:
+        summary_file = f"{params.output_path}{params.region_id}_{params.sc_season_str}_{params.lead_int}_area_based_summary.csv"
+        summary_df.to_csv(summary_file, index=False)
+        logger.info(f"Saved area-based verification summary to {summary_file}")
+    
+    return summary_df

@@ -1,0 +1,252 @@
+=============================================
+Drought Anticipatory Action System: Quick Start Guide
+=============================================
+
+The Drought Anticipatory Action system operates in two modes:
+
+1. **Hindcast Forecast Verification and Trigger Selection**: Used to verify forecast skill against historical observations and determine optimal trigger values for anticipatory action.
+
+2. **Monthly Operational Forecasting**: Used for regular monthly forecasting once trigger values have been established.
+
+Mode 1: Hindcast Forecast Verification & Trigger Selection
+-------------------------------------------------------
+
+Run these commands in sequence to validate forecast quality and establish optimal trigger values:
+
+.. code-block:: bash
+
+   # Step 1: Download required data
+   python 00-download-data.py --output-dir './' --keep-all-seas5 --only-current-month-seas5 4 --year 2025
+
+   # Step 2: Process SPI for SEAS5 forecasts and CHIRPS observations 
+   python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
+
+   # Step 3: Run forecast verification
+   python 02-run-fv-kmj.py
+
+   # Step 4: Generate bar plots
+   python 04-run-bar-plot.py
+
+   # Step 5: Create heatmap visualizations
+   python 05-run-heatmap.py
+
+   # Step 6: Plot SEAS51 forecasts
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+Mode 2: Monthly Operational Forecasting
+------------------------------------
+
+Once trigger values have been established, use the following steps for operational monthly forecasting:
+
+.. code-block:: bash
+
+   # Step 1: Download required data
+   python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 3-5 --year 2025
+
+   # Step 2: Process SPI for SEAS5 forecasts only
+   # For May 2025 
+   python 01-run-process-spi.py --region-id kmj --output-dir output --mode seas51 --use-local --obs-file kmj_obs_spi3.nc --local-shapefile ../../data/kmj_polygon.shp --seas51-main-file ../../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../../data/seas5_precipitation_20250514_year2025_months_03_04_05.grib --apply-mask --mask-buffer 0.25
+
+   # Step 3: Plot SEAS51 forecasts
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+   # For May 2025
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 2 --year 2025 --month 5 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+   # Step 4: KMJ admin district level statistics
+   python 08-kmj-district-stats.py --input-netcdf kmj_seas51_spi3_jja_eprob_2025_05.nc --admin-level admin2 --district-shapefile ../../data/Karamoja_9_districts.shp
+
+Detailed Guide
+-------------
+
+Connecting to the Remote Server and Preparing the Environment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before running any of the scripts, you need to connect to the remote server and set up your environment:
+
+1. **Open a terminal application**
+
+   Open XMoTerm or another terminal application on your local machine.
+
+   .. figure:: images/terminal_open.png
+      :width: 600
+      :alt: Opening XMoTerm
+      
+      Opening XMoTerm on your local machine
+
+2. **Connect to the remote server with SSH**
+
+   Use SSH to connect to the remote server with X forwarding enabled:
+
+   .. code-block:: bash
+
+      ssh -X uganda@197.254.1.14
+
+   You'll be prompted for a password.
+
+   .. figure:: images/ssh_login.png
+      :width: 600
+      :alt: SSH Login
+      
+      SSH login to the remote server
+
+3. **Activate the conda environment**
+
+   Once connected, activate the specialized Python environment using micromamba:
+
+   .. code-block:: bash
+
+      micromamba activate drought_env
+
+   Your prompt should change to indicate the environment is active.
+
+   .. figure:: images/activate_env.png
+      :width: 600
+      :alt: Activating Environment
+      
+      Activating the drought_env environment
+
+4. **Navigate to the working directory**
+
+   Change to the directory containing the drought anticipatory action scripts:
+
+   .. code-block:: bash
+
+      cd /path/to/drought_scripts
+
+   Now you're ready to run the scripts in either mode.
+
+   .. figure:: images/working_directory.png
+      :width: 600
+      :alt: Working Directory
+      
+      Navigating to the working directory
+
+Step 1: Download ECMWF SEAS5 and CHIRPS Data
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 00-download-data.py --output-dir './' --keep-all-seas5 --only-current-month-seas5 4 --year 2025
+
+**Parameters explained:**
+
+* ``--output-dir './'``: Specifies the directory where downloaded data will be saved
+* ``--keep-all-seas5``: Keeps all previously downloaded SEAS5 files instead of deleting older ones
+* ``--only-current-month-seas5 4``: Downloads SEAS5 data only for April (month 4)
+* ``--year 2025``: Specifies the year for the SEAS5 data
+* ``--seas5-only``: Download only SEAS5 data (no CHIRPS) - use for monthly operational mode
+
+**Additional options:**
+
+* ``--chirps-only``: Download only CHIRPS data (no SEAS5)
+* ``--only-current-month-seas5 {1-12}``: Specify which month's data to download
+
+.. note::
+   This script automatically names files with date stamps (e.g., ``seas5_precipitation_20250402.grib``) and CHIRPS data is only downloaded if it doesn't already exist.
+
+Step 2: Process SPI (Standardized Precipitation Index)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For hindcast verification mode:
+
+.. code-block:: bash
+
+   python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
+
+For monthly operational forecasting:
+
+.. code-block:: bash
+
+   python 01-run-process-spi.py --region-id kmj --mode forecast --use-local --local-shapefile ../data/kmj_polygon.shp --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --apply-mask --mask-buffer 0.25
+
+**Parameters explained:**
+
+* ``--region-id kmj``: Specifies the region identifier (Karamoja in this case)
+* ``--mode both``: Processes both forecast and observation data (use for hindcast verification)
+* ``--mode forecast``: Processes only forecast data (use for monthly operational forecasting)
+* ``--use-local``: Uses local files instead of cloud storage
+* ``--local-shapefile ../data/kmj_polygon.shp``: Path to the shapefile defining the region
+* ``--chirps-file``: Path to CHIRPS observation data (only needed for hindcast verification)
+* ``--seas51-main-file``: Path to main SEAS51 forecast file
+* ``--seas51-additional-files``: Path to additional SEAS51 files (if needed)
+* ``--apply-mask``: Applies a spatial mask based on the shapefile
+* ``--mask-buffer 0.25``: Adds a 0.25-degree buffer around the masked region
+
+**Output:** This script generates netCDF files with calculated SPI values.
+
+ 
+   Processing SPI values from forecast and observation data
+
+Step 3: Run Forecast Verification (Hindcast Mode Only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 02-run-fv-kmj.py
+
+This script runs the forecast verification process without requiring additional parameters. It:
+
+* Calculates 2D and 1D forecast verification metrics
+* Uses bootstrapping to calculate AUROC scores
+* Generates CSV files containing verification statistics
+* Subsets and saves trigger data for subsequent visualization
+
+.. note::
+   This step is only used in the hindcast verification mode, not in the monthly operational mode.
+
+Step 4: Generate Bar Plots (Hindcast Mode Only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 04-run-bar-plot.py
+
+This script creates bar plot visualizations comparing:
+
+* Observed SPI values from CHIRPS data
+* Forecast SPI values from SEAS5 data
+* Decision tables with trigger performance metrics
+
+.. note::
+   This step is only used in the hindcast verification mode, not in the monthly operational mode.
+
+
+Step 5: Create Heatmap Visualizations (Hindcast Mode Only)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 05-run-heatmap.py
+
+This script generates heatmap visualizations showing:
+
+* Hit rates and false alarm ratios across different drought categories
+* Trigger values for different lead times and regions
+* Performance metrics for mild, moderate, and severe drought categories
+
+.. note::
+   This step is only used in the hindcast verification mode, not in the monthly operational mode.
+
+Step 6/3: Plot SEAS51 Forecasts (Both Modes)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python 07-plot-sea51-forecast.py --region_id kmj --season JJA --lead_time 3 --year 2025 --month 4 --use_shpfile --shapefile_path '../../data/kmj_polygon.shp' --output_dir './'
+
+**Parameters explained:**
+
+* ``--region_id kmj``: Defines the region (Karamoja)
+* ``--season JJA``: Sets the season to analyze (June-July-August)
+* ``--lead_time 3``: Sets the forecast lead time in months
+* ``--year 2025`` and ``--month 4``: Sets the forecast initialization date
+* ``--use_shpfile``: Uses a shapefile to define the region boundaries
+* ``--shapefile_path``: Path to the shapefile
+* ``--output_dir './'``: Directory where output plots will be saved
+
+**Output:** This script generates visualization maps showing ensemble forecasts, observations, and probabilistic forecasts for the selected region and season.
+
+.. note::
+   This step is used in both the hindcast verification mode and the monthly operational mode.
+
+

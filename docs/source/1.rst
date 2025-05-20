@@ -1,0 +1,88 @@
+Anticipatory Action for Drought Early Warning
+=============================================
+
+Concept of Anticipatory Action (AA)
+----------------------------------
+
+Anticipatory Action (AA) represents a paradigm shift in humanitarian response, where actions are taken before a disaster occurs based on forecasts rather than after impacts materialize. In drought contexts, AA leverages the slow-onset nature of droughts to implement interventions during the critical "window of opportunity" between a reliable forecast and the onset of drought impacts.
+
+According to Guimarães Nobre et al. (2023), AA enables the implementation of predefined actions triggered by forecasts that exceed specific thresholds, facilitating early risk reduction. This approach links seasonal forecasting information with predetermined contingency plans, actors, and funding—often referred to as Forecast-based Financing (FbF). Unlike traditional humanitarian responses that mobilize after a crisis, AA systems preposition resources and initiate interventions when forecast indicators reach trigger values, potentially reducing losses to livelihoods and infrastructure while providing more dignified support to communities.
+
+Ensemble Prediction Systems
+--------------------------
+
+Ensemble Prediction Systems (EPS) form the backbone of modern seasonal forecasting, addressing inherent uncertainties in weather and climate prediction. These systems generate multiple forecasts (ensemble members) by varying initial conditions, model physics, or both. The European Centre for Medium-Range Weather Forecasts' SEAS5 system, for instance, provides 25-51 ensemble members with lead times up to 7 months.
+
+As described by Guimarães Nobre et al. (2024), ensemble forecasts allow for probabilistic interpretation of potential outcomes, crucial for risk-based decision-making. Each ensemble member represents an equally likely future scenario, collectively providing information about forecast uncertainty and the range of possible outcomes. This probabilistic approach is essential for AA systems where decisions involve significant resource allocation under uncertainty.
+
+Empirical Probability Calculation
+-------------------------------
+
+For drought monitoring and forecasting, empirical probability calculations convert ensemble forecasts into decision-relevant metrics. The process involves:
+
+1. Calculating drought indicators (e.g., Standardized Precipitation Index) for each ensemble member
+2. Determining what proportion of ensemble members exceed predefined thresholds
+3. Deriving empirical probabilities that represent the likelihood of drought conditions
+
+These empirical probabilities become the basis for triggers in AA systems. According to Guimarães Nobre et al. (2023), the empirical probability approach enables quantitative assessment of forecast uncertainty, allowing decision-makers to balance the risks of action versus inaction.
+
+Role of Long-term Verification
+----------------------------
+
+Long-term verification forms the cornerstone of trust and justification for any AA system. By systematically comparing historical forecasts with observed outcomes over many years, verification:
+
+1. Quantifies forecast quality through metrics like hit rates and false alarm ratios
+2. Establishes appropriate trigger values based on performance statistics
+3. Builds confidence among stakeholders and donors in the AA approach
+4. Supports continuous improvement of the forecasting system
+
+As emphasized in both papers, verification analysis provides the evidence base needed to justify anticipatory investments. It ensures that actions are triggered at appropriate probability thresholds that balance the risks of missed events against false alarms—a critical consideration when resources are limited and each intervention must be carefully justified.
+
+AUROC: A Key Metric for Forecast Verification
+--------------------------------------------
+
+The Area Under the Receiver Operating Characteristic curve (AUROC) represents a fundamental metric in the verification of probabilistic forecasts for Anticipatory Action (AA) systems. This metric addresses a central question: does the forecasting system effectively discriminate between drought and non-drought events?
+
+AUROC Concept and Calculation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The AUROC score quantifies a forecast's ability to discriminate between binary outcomes (drought/no drought) across different probability thresholds. As described by Guimarães Nobre et al. (2023), the calculation involves setting a range of probability thresholds for converting forecasts into binary predictions, then evaluating how well these predictions match observations.
+
+The resulting curve plots the hit rate (proportion of observed droughts correctly forecast) against the false alarm rate (proportion of non-droughts incorrectly forecast as droughts) at various threshold levels. The area under this curve—the AUROC score—ranges from 0 to 1, where:
+
+- 0.5 indicates no skill (equivalent to random guessing)
+- 1.0 indicates perfect discrimination
+- Values below 0.5 suggest systematically incorrect forecasts
+
+Quality Threshold for Anticipatory Action
+-------------------------------------------
+
+In operational AA systems for drought, an AUROC score of 0.5 serves as a critical quality threshold. As implemented in the "Ready, Set & Go!" system (Guimarães Nobre et al., 2024), forecasts with AUROC scores below 0.5 are considered unsuitable for triggering anticipatory actions, as they provide no added value over random chance.
+
+This threshold represents a minimum standard for forecast quality—one that ensures actions are based on information with at least some predictive skill. When evaluating potential triggers for AA, only those derived from forecasts with AUROC > 0.5 are considered, creating a first-level quality control in the system design.
+
+Bootstrapping for Uncertainty Assessment
+----------------------------------------
+
+To account for sampling uncertainty in AUROC estimation, the verification process employs bootstrapping techniques. By repeatedly resampling the forecast-observation pairs with replacement (typically 1,000 iterations), a distribution of AUROC scores is generated, allowing for:
+
+1. Estimation of confidence intervals around the AUROC score
+2. Assessment of statistical significance of skill above the 0.5 threshold
+3. More robust decision-making about forecast quality
+
+This approach acknowledges that verification statistics based on limited historical records contain inherent uncertainty, particularly for rare events like severe droughts.
+
+Role in Trigger Selection
+-------------------------
+
+Beyond serving as a quality filter, AUROC scores influence the selection of optimal trigger values. Higher AUROC scores indicate greater potential for skillful discrimination, allowing for more confident selection of triggers based on other performance metrics like hit rates and false alarm ratios.
+
+In the context of long-term verification, AUROC provides a foundation for justifying AA initiatives to stakeholders and funders by demonstrating that the underlying forecasting system possesses genuine predictive skill, making it a suitable basis for humanitarian decision-making.
+
+
+References
+-----------
+
+1. Nobre, Gabriela Guimarães, et al. "Forecasting, thresholds, and triggers: towards developing a forecast-based financing system for droughts in Mozambique." Climate Services 30 (2023): 100344.
+
+2. Guimarães Nobre, Gabriela, et al. "Ready, Set & Go! An anticipatory action system against droughts." Natural Hazards and Earth System Sciences 24.12 (2024): 4661-4682.

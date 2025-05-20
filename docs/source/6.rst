@@ -1,0 +1,318 @@
+Forecast Verification with xhistogram
+====================================
+
+Multi-dimensional Contingency Analysis
+-------------------------------------
+
+Forecast verification forms the cornerstone of any anticipatory action system, providing evidence that the forecasting system can reliably detect drought events before they occur. The ``vthree_utils.py`` script implements comprehensive verification methodology using the ``xhistogram`` library (imported as ``xhist``), which enables efficient calculation of contingency tables and skill metrics across multiple dimensions.
+
+At the core of this verification approach is the ``xhist_metrics_2d`` function, which performs grid-based verification of forecast probabilities against binary drought observations:
+
+.. code-block:: python
+
+    def xhist_metrics_2d(obs_data, ens_prob_data, params, calculate_auroc=True):
+        """
+        Calculates verification metrics for ensemble drought forecasts using
+        multi-dimensional contingency tables.
+        """
+        # Get threshold for the specified region and season
+        threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+        threshold = threshold_dict[params.level]
+        
+        # Process trigger values and calculate metrics
+        df = process_trigger_values(
+            obs_data, ens_prob_data, params, threshold, calculate_auroc
+        )
+        
+        return df
+
+This approach leverages multi-dimensional histograms to efficiently calculate contingency tables across the entire spatial domain, without requiring explicit loops over each grid cell.
+
+Constructing Contingency Tables
+-----------------------------
+
+The key innovation in this verification framework is the use of xarray's histogram functionality to construct contingency tables directly. This is implemented in the ``calculate_contingency_table`` function:
+
+.. code-block:: python
+
+    def calculate_contingency_table(obs_event, forecast_event, params):
+        """Creates a 2x2 contingency table using xhistogram"""
+        obs_event1 = obs_event[params.spi_prod_name]
+        forecast_event1 = forecast_event[params.spi_prod_name]
+        
+        # Align forecast to observation time
+        forecast_event3 = forecast_event1.assign_coords(
+            init=forecast_event1.coords["valid_time"]
+        )
+        forecast_event3 = forecast_event3.rename({"init": "time"})
+        
+        # Histogram calculation produces the contingency table
+        contingency_table = xhist.histogram(
+            obs_event1, forecast_event3, bins=[2, 2], density=False, dim=["lat", "lon"]
+        )
+        
+        return contingency_table
+
+This function:
+
+1. Extracts the relevant SPI values from the observation and forecast datasets
+2. Aligns the temporal coordinates of forecasts with observations
+3. Computes a 2D histogram where each axis represents binary values (0=no drought, 1=drought)
+4. Returns a contingency table with dimensions [time, obs_event, forecast_event]
+
+The resulting contingency table has four elements representing the classic "hits", "misses", "false alarms", and "correct negatives" for each time step.
+
+Contingency Tables and Forecast Verification in Drought Anticipatory Action
+---------------------------------------------------------------------------
+
+Integrating Observation and Forecast Data
+-----------------------------------------
+
+In drought early warning systems, the process of combining observations and forecasts involves several key steps:
+
+1. **Data Preparation**: Both observed (CHIRPS) and forecasted (SEAS51) data are processed to calculate SPI (Standardized Precipitation Index) values.
+2. **Threshold Application**: A threshold (typically SPI ≤ -1 for severe drought) is applied to both datasets to create binary events.
+3. **Probability Extraction**: For forecasts, the percentage of ensemble members exceeding the threshold is calculated as the forecast probability.
+4. **Trigger Value Testing**: Different probability thresholds are tested to determine optimal trigger values for initiating anticipatory actions.
+
+Understanding Contingency Tables
+--------------------------------
+
+A contingency table is a 2×2 matrix that summarizes the relationship between observed events and forecasted events:
+
+.. table:: Contingency Table
+  :widths: auto
+
+  +-----------------+----------------+---------------+
+  |                 | Observed: Yes  | Observed: No  |
+  +=================+================+===============+
+  | Forecasted: Yes | a (Hit)        | b (False      |
+  |                 |                | Alarm)        |
+  +-----------------+----------------+---------------+
+  | Forecasted: No  | c (Miss)       | d (Correct    |
+  |                 |                | Rejection)    |
+  +-----------------+----------------+---------------+
+
+Where:
+
+- **a (Hit)**: Drought was forecasted and occurred
+- **b (False Alarm)**: Drought was forecasted but did not occur
+- **c (Miss)**: Drought was not forecasted but occurred
+- **d (Correct Rejection)**: Drought was not forecasted and did not occur
+
+In the code, this table is generated by comparing binary observations (observed SPI ≤ threshold) with binary forecasts (forecast probability ≥ trigger value).
+
+
+Verification Metrics Explained
+----------------------------
+
+From the contingency tables, a comprehensive set of verification metrics is calculated to assess different aspects of forecast quality:
+
+1. **Hit Rate (HR)**:
+   
+   .. math::
+   
+      HR = \frac{hits}{hits + misses}
+   
+   Measures the proportion of observed drought events that were correctly forecast. Also called Probability of Detection (POD). Ranges from 0 (worst) to 1 (perfect).
+
+2. **False Alarm Ratio (FAR)**:
+   
+   .. math::
+   
+      FAR = \frac{false\_alarms}{false\_alarms + hits}
+   
+   Measures the proportion of drought warnings that were false alarms. Ranges from 0 (perfect) to 1 (worst).
+
+3. **Bias Score (BS)**:
+   
+   .. math::
+   
+      BS = \frac{hits + false\_alarms}{hits + misses}
+   
+   Indicates whether the system tends to under-forecast (BS < 1) or over-forecast (BS > 1) drought events.
+
+4. **Hanssen-Kuipers Score (HK)**:
+   
+   .. math::
+   
+      HK = HR - \frac{false\_alarms}{false\_alarms + correct\_negatives}
+   
+   Also known as the True Skill Statistic (TSS), measures the ability to discriminate between drought and non-drought events. Ranges from -1 to 1.
+
+5. **Heidke Skill Score (HSS)**:
+   
+   .. math::
+   
+      HSS = \frac{2(hits \cdot correct\_negatives - misses \cdot false\_alarms)}{(hits + misses)(misses + correct\_negatives) + (hits + false\_alarms)(false\_alarms + correct\_negatives)}
+   
+   Measures the improvement of the forecast over random chance. Ranges from -∞ to 1.
+
+6. **Area Under ROC Curve (AUROC)**:
+   
+   Measures the forecast's ability to discriminate between drought and non-drought events across all possible threshold values. Ranges from 0 to 1, with 0.5 indicating no skill.
+
+AUROC and Bootstrapping
+---------------------
+
+The AUROC calculation with bootstrapping represents the most sophisticated element of the verification methodology:
+
+.. code-block:: python
+
+    def calculate_auroc_score(contingency_table, trigger_value, n_bootstrap=1000):
+        """
+        Calculates the Area Under the ROC curve with confidence intervals
+        using bootstrapping.
+        """
+        # Sum the contingency table across time
+        summed_table = contingency_table.sum(dim="time")
+        
+        # Extract counts
+        ct = summed_table.values.flatten()
+        correct_negatives, false_alarms, misses, hits = ct
+        total = hits + false_alarms + misses + correct_negatives
+        
+        # Perform bootstrapping
+        auroc_bootstrap_scores = []
+        for _ in range(n_bootstrap):
+            bootstrap_counts = np.random.multinomial(
+                total,
+                [
+                    hits / total,
+                    misses / total,
+                    false_alarms / total,
+                    correct_negatives / total,
+                ],
+                size=1,
+            )
+            
+            bootstrap_hits, bootstrap_misses, bootstrap_false_alarms, bootstrap_correct_negatives = bootstrap_counts[0]
+            
+            auroc_bootstrap_scores.append(
+                calculate_auroc(
+                    bootstrap_hits,
+                    bootstrap_misses,
+                    bootstrap_false_alarms,
+                    bootstrap_correct_negatives,
+                )
+            )
+        
+        # Calculate mean and confidence intervals
+        auroc_score = np.mean(auroc_bootstrap_scores)
+        auroc_lb, auroc_ub = np.percentile(auroc_bootstrap_scores, [2.5, 97.5])
+        
+        return {
+            "trigger_value": trigger_value,
+            "auroc_score": auroc_score,
+            "auroc_lb": auroc_lb,
+            "auroc_ub": auroc_ub,
+        }
+
+This bootstrap approach:
+
+1. Resamples from the original contingency table 1000 times
+2. Calculates the AUROC score for each resample
+3. Computes the mean AUROC score and 95% confidence intervals
+
+Bootstrapping is crucial for drought verification because:
+
+- Droughts are relatively rare events, leading to sampling uncertainty
+- Confidence intervals provide stakeholders with a measure of uncertainty
+- It helps identify whether skill scores are statistically significant
+
+2D vs 1D Verification Methods
+---------------------------
+
+The system implements two complementary verification approaches:
+
+1. **2D Verification (Grid-based)**:
+   
+   .. code-block:: python
+   
+      def run_xhist2d(params):
+          """Grid-based verification across the entire spatial domain"""
+          # ...
+          df = xhist_metrics_2d(obs_data, fct_mod, params, calculate_auroc=True)
+          # ...
+   
+   This approach calculates metrics at each grid point and then aggregates the results, preserving the spatial structure of forecast skill. It's useful for understanding regional variations in forecast quality.
+
+2. **1D Verification (Region-based)**:
+   
+   .. code-block:: python
+   
+      def run_xhist1d(params):
+          """Region-based verification using spatial means"""
+          # ...
+          obs_df = mean_obs_spi(obs_data, params.spi_prod_name)
+          fct_df = mean_emp_prob(fct_mod, fct_sev, fct_ext, params.spi_prod_name)
+          # ...
+   
+   This approach first calculates spatial means across the region and then performs verification on these mean values. It's useful for making operational decisions at the regional level.
+
+Both approaches are necessary because:
+
+- 2D verification captures the spatial heterogeneity of forecast skill
+- 1D verification aligns better with decision-making at administrative levels
+- Comparing both can identify issues with compensating errors in the forecasting system
+
+The comprehensive verification framework implemented in these scripts provides the statistical basis for selecting optimal trigger values for anticipatory action, balancing the desire for high hit rates against the need to minimize false alarms within operational constraints.
+
+CSV Output Structure
+--------------------
+
+The CSV output file contains verification metrics calculated from the contingency table. Here's an explanation of each column:
+
+.. list-table:: CSV Output Columns
+  :widths: 30 70
+  :header-rows: 1
+
+  * - Column Name
+    - Description
+  * - Unnamed: 0, index
+    - Row identifiers
+  * - x2d_region
+    - Region identifier (e.g., 0 for Karamoja)
+  * - x2d_leadtime
+    - Lead time in months (forecast horizon)
+  * - x2d_season
+    - Season being forecasted (e.g., "mam" for March-April-May)
+  * - x2d_level
+    - Drought severity level (mild, mod, sev/ext)
+  * - trigger_value
+    - Probability threshold value being tested (0-100%)
+  * - time_step
+    - Specific time step or window being analyzed
+  * - hit_rate
+    - Proportion of observed events that were correctly forecasted (a/(a+c))
+  * - false_alarm_ratio
+    - Proportion of false alarms in all forecasts (b/(a+b))
+  * - bias_score
+    - Ratio of forecasted to observed events ((a+b)/(a+c))
+  * - hanssen_kuipers_score
+    - Difference between hit rate and false alarm rate (a/(a+c) - b/(b+d))
+  * - heidke_skill_score
+    - Accuracy relative to random chance
+  * - total
+    - Total number of cases (a+b+c+d)
+  * - auroc_score
+    - Area Under ROC curve - measures discrimination ability
+  * - auroc_lb, auroc_ub
+    - Lower and upper confidence bounds for AUROC
+  * - cat
+    - Drought category (mild, mod, sev/ext)
+  * - obs_count
+    - Number of observed drought events
+  * - threshold
+    - SPI threshold value used for event definition
+  * - hits
+    - Number of hits (a)
+  * - misses
+    - Number of misses (c)
+  * - FA
+    - Number of false alarms (b)
+  * - CN
+    - Number of correct negatives (d)
+  * - hit_percentage
+    - Percentage of observed events that were correctly forecasted
+

@@ -1,0 +1,399 @@
+Map Visualization for Ensemble Forecasts and Observations
+========================================================
+
+This document explains how to create map visualizations from ensemble forecasts 
+and observational data for drought monitoring using Python GIS tools.
+
+Setting Up the Environment
+-------------------------
+
+First, import the necessary libraries:
+
+.. code-block:: python
+
+   import xarray as xr
+   import numpy as np
+   import matplotlib.pyplot as plt
+   import cartopy.crs as ccrs
+   import geopandas as gpd
+   import os
+   from PIL import Image
+   from shapely import wkb
+
+Data Organization with DataTree
+------------------------------
+
+DataTree provides a hierarchical structure for organizing ensemble data efficiently:
+
+.. code-block:: python
+
+   def helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext):
+       """
+       Helper function to organize data into a tree structure.
+       
+       Parameters:
+       ens_data (xarray.Dataset): Ensemble data
+       obs_data (xarray.Dataset): Observation data
+       fct_mod, fct_sev, fct_ext (xarray.Dataset): Forecast datasets
+       """
+       seas51tree = xr.DataTree()
+       
+       # Add ensemble members
+       for member in ens_data.member:
+           member_data = ens_data.sel(member=member)
+           seas51tree[f"ensemble/member_{int(member)}"] = xr.DataTree(
+               name=f"member_{int(member)}", 
+               dataset=member_data
+           )
+
+Add observation and forecast datasets to the DataTree:
+
+.. code-block:: python
+
+       # Add observation and forecast datasets
+       seas51tree["observation"] = xr.DataTree(
+           name="observation", 
+           dataset=obs_data
+       )
+       seas51tree["fct_mod"] = xr.DataTree(
+           name="fct_mod", 
+           dataset=fct_mod
+       )
+       seas51tree["fct_sev"] = xr.DataTree(
+           name="fct_sev", 
+           dataset=fct_sev
+       )
+       seas51tree["fct_ext"] = xr.DataTree(
+           name="fct_ext", 
+           dataset=fct_ext
+       )
+       
+       return seas51tree
+
+Creating Single-Row Time Series Plot
+----------------------------------
+
+The following function creates visualizations for a specific initialization date:
+
+.. code-block:: python
+
+   def create_single_row_plot(tree, init, params, region_geom):
+       """
+       Create a row of maps for a specific initialization date.
+       
+       Parameters:
+       tree (xarray.DataTree): Data organized in tree structure
+       init (datetime): Initialization date
+       params (object): Parameters for plotting
+       region_geom (geometry): Region geometry for overlay
+       """
+       members = list(tree["ensemble"].children.keys())
+       valid_times = tree["ensemble/member_0"].ds.valid_time.values
+       num_members = len(members)
+       num_additional_plots = 4  # Obs, mod, sev, ext
+       total_plots = num_members + num_additional_plots
+
+Set up the figure and define color scales:
+
+.. code-block:: python
+
+       # Create figure with map projections
+       fig, axs = plt.subplots(
+           1, total_plots, 
+           figsize=(2 * total_plots, 2),
+           subplot_kw={"projection": ccrs.PlateCarree()}
+       )
+       
+       # Define color scales
+       ensemble_cmap_range = (-4, 4)
+       fct_cmap_range = (0.0, 1.0)
+       
+       # Get valid time for this initialization
+       valid_time = valid_times[
+           np.where(tree["ensemble/member_0"].ds.init.values == init)[0][0]
+       ]
+
+Plot ensemble members and additional data:
+
+.. code-block:: python
+       
+       # Plot ensemble members
+       for j, member_key in enumerate(members):
+           _plot_ensemble_member(
+               tree, member_key, params.spi_prod_name, init, 
+               axs[j], ensemble_cmap_range, region_geom,
+               shape_overlay=(j == 0)  # Only show shapefile on first plot
+           )
+       
+       # Add observation and forecast plots
+       plot_titles = ["Obs", "mod", "sev", "ext"]
+       plot_keys = ["observation", "fct_mod", "fct_sev", "fct_ext"]
+       
+       for k, (title, key) in enumerate(zip(plot_titles, plot_keys)):
+           _plot_additional_data(
+               tree, key, params.spi_prod_name, init, valid_time,
+               axs[num_members + k], title,
+               ensemble_cmap_range if key == "observation" else fct_cmap_range
+           )
+       
+       return fig, axs, (2 * total_plots, 2)
+
+Plotting Map Elements
+-------------------
+
+The system uses helper functions to plot ensemble members:
+
+.. code-block:: python
+
+   def _plot_ensemble_member(tree, member_key, variable, init, ax, cmap_range, 
+                             geom, shape_overlay=False):
+       """Plot individual ensemble member."""
+       member_data = tree[f"ensemble/{member_key}"].ds[variable]
+       data = member_data.sel(init=init).values
+       time_np64 = np.array(str(init), dtype="datetime64[ns]")
+       year = pd.to_datetime(time_np64).year
+       
+       # Plot data
+       ax.pcolormesh(
+           tree["ensemble/member_0"].ds.lon.values,
+           tree["ensemble/member_0"].ds.lat.values,
+           data, cmap="RdBu", transform=ccrs.PlateCarree(),
+           vmin=cmap_range[0], vmax=cmap_range[1]
+       )
+
+Add title, formatting, and optional shapefile overlay:
+
+.. code-block:: python
+       
+       # Add title and formatting
+       ax.set_title(f'{year}m{member_key.split("_")[1]}', fontsize=6)
+       ax.set_xticks([])
+       ax.set_yticks([])
+       
+       # Overlay shapefile if requested
+       if shape_overlay:
+           ax.add_geometries(
+               [geom], crs=ccrs.PlateCarree(),
+               edgecolor="black", facecolor="none"
+           )
+
+Helper function to plot observation or forecast data:
+
+.. code-block:: python
+
+   def _plot_additional_data(tree, key, variable, init, valid_time, ax, 
+                            title, cmap_range):
+       """Plot observation or forecast data."""
+       dataset = tree[key].ds[variable]
+       
+       # Handle different coordinate naming conventions
+       coord_key = "time" if "time" in dataset.coords else "init"
+       obs_init = (
+           np.datetime64(valid_time.strftime("%Y-%m-%d %H:%M:%S"))
+           if coord_key == "time" else init
+       )
+       
+       # Extract data
+       obs_data = dataset.sel({coord_key: obs_init}).values
+
+Set appropriate colormap and plot data:
+
+.. code-block:: python
+       
+       # Set appropriate colormap
+       cmap = "RdBu" if key == "observation" else "Blues"
+       
+       # Plot data
+       ax.pcolormesh(
+           tree["ensemble/member_0"].ds.lon.values,
+           tree["ensemble/member_0"].ds.lat.values,
+           obs_data, cmap=cmap, transform=ccrs.PlateCarree(),
+           vmin=cmap_range[0], vmax=cmap_range[1]
+       )
+       
+       # Add title and formatting
+       ax.set_title(title, fontsize=6)
+       ax.set_xticks([])
+       ax.set_yticks([])
+
+Processing Multiple Initializations
+---------------------------------
+
+To create a complete visualization, the system processes multiple initialization dates:
+
+.. code-block:: python
+
+   def plot_allrows(seas51tree, shapefile_df, params):
+       """
+       Create plots for all initialization dates and combine them.
+       
+       Parameters:
+       seas51tree (xarray.DataTree): Data in tree structure
+       shapefile_df (GeoDataFrame): Shapefile data
+       params (object): Plot parameters
+       """
+       # Create output directory
+       output_dir = (f"{params.output_path}map_{params.region_id}_"
+                    f"{params.sc_season_str}_lt{params.lead_int}")
+       os.makedirs(output_dir, exist_ok=True)
+       
+       # Get region geometry
+       region_geom = shapefile_df["geometry"].values[0]
+       
+       # Get all initialization dates
+       inits = seas51tree["ensemble/member_0"].ds.init.values
+       plot_files = []
+
+Create plots for each initialization date:
+
+.. code-block:: python
+       
+       # Process each initialization date
+       for i, init in enumerate(inits):
+           fig, axs, figsize = create_single_row_plot(
+               seas51tree, init, params, region_geom
+           )
+           
+           # Save individual plot
+           output_file = f'{output_dir}/stamp_plot_{init.strftime("%Y%m%d")}.png'
+           plot_files.append(output_file)
+           fig.savefig(output_file, dpi=100, bbox_inches="tight")
+           plt.close(fig)
+       
+       # Add colorbar and title to the final figure
+       add_colorbar_and_title(figsize, params, output_dir)
+       
+       # Merge all plots into a single image
+       merge_png_files(
+           input_dir=output_dir,
+           output_file=(f"map_{params.region_id}_{params.sc_season_str}_"
+                       f"lt{params.lead_int}.pdf"),
+           delete_originals=False
+       )
+
+Merging Individual Plots
+----------------------
+
+The following function combines individual timestep plots into a single visualization:
+
+.. code-block:: python
+
+   def merge_png_files(input_dir, output_file, delete_originals=False):
+       """
+       Merge individual PNG files into a single image.
+       
+       Parameters:
+       input_dir (str): Directory containing PNG files
+       output_file (str): Name of output file
+       delete_originals (bool): Whether to delete original files
+       """
+       # Get all PNG files
+       png_files = sorted(Path(input_dir).glob("*.png"))
+       
+       # Open all images and get dimensions
+       images = []
+       max_width = 0
+       total_height = 0
+
+Process images and create a new composite:
+
+.. code-block:: python
+       
+       for png_file in png_files:
+           with Image.open(png_file) as img:
+               images.append(img.copy())
+               max_width = max(max_width, img.width)
+               total_height += img.height
+       
+       # Create new composite image
+       merged_image = Image.new("RGB", (max_width, total_height), (255, 255, 255))
+       
+       # Paste each image into the merged image
+       y_offset = 0
+       for img in images:
+           merged_image.paste(img, ((max_width - img.width) // 2, y_offset))
+           y_offset += img.height
+       
+       # Save merged image
+       output_path = os.path.join(input_dir, output_file)
+       merged_image.save(output_path, dpi=(300, 300))
+
+Optionally delete original files:
+
+.. code-block:: python
+       
+       # Optionally delete original files
+       if delete_originals:
+           for png_file in png_files:
+               os.remove(png_file)
+
+Example Usage
+-----------
+
+To run the map visualization process:
+
+.. code-block:: python
+
+   def run_map_plot(params, use_local=False):
+       """
+       Run the complete mapping process.
+       
+       Parameters:
+       params (object): Parameters for the run
+       use_local (bool): Whether to use local files
+       
+       Returns:
+       str: Status message
+       """
+       # Get thresholds for the region and season
+       threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+       
+       # Prepare datasets
+       obs_data, ens_data = make_obs_fct_dataset(params)
+
+Process data and create plots:
+
+.. code-block:: python
+       
+       # Calculate empirical probabilities
+       fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+           ens_data, threshold_dict
+       )
+       
+       # Create data tree
+       dstree = helper_stamp_plot(ens_data, obs_data, fct_mod, fct_sev, fct_ext)
+       
+       # Get region bounds
+       if use_local:
+           shapefile_df, extent = get_region_bounds(region_id, use_local=True)
+       else:
+           credentials = get_credentials('coiled-data.json')
+           shapefile_df, extent = get_region_bounds(
+               region_id, credentials, use_local=False, buffer=0.5
+           )
+       
+       # Create and merge plots
+       plot_allrows(dstree, shapefile_df, params)
+
+Create final merged PDF:
+
+.. code-block:: python
+       
+       # Create final merged PDF
+       merge_png_files(
+           input_dir=(f"{params.output_path}map_{params.region_id}_"
+                     f"{params.sc_season_str}_lt{params.lead_int}"),
+           output_file=(f"map_{params.region_id}_{params.sc_season_str}_"
+                       f"lt{params.lead_int}.pdf"),
+           delete_originals=False
+       )
+       
+       return "merge plot"
+
+Conclusion
+---------
+
+This approach allows for the effective visualization of both ensemble forecasts and 
+observed data on maps with region overlays. The plots are organized by initialization 
+date, allowing stakeholders to track forecast evolution over time and make informed 
+decisions about anticipatory actions for drought mitigation.

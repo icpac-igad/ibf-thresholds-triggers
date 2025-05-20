@@ -1,0 +1,193 @@
+The run script verification
+====================================
+
+The script ``02-run-fv-kmj.py`` implements a comprehensive drought forecast verification system following the methodology outlined in the works of Guimarães Nobre et al. The script systematically processes seasonal forecast data to identify reliable triggers for anticipatory action.
+
+Execution Flow
+--------------
+
+The script follows this sequence:
+
+.. code-block:: python
+
+    import os
+    from dotenv import load_dotenv
+    import numpy as np
+    import pandas as pd
+    import altair as alt
+    from io import StringIO
+    import xarray as xr
+    from sklearn.metrics import roc_auc_score
+    from xbootstrap import block_bootstrap
+    import xskillscore as xs
+
+    from dask.distributed import Client
+    from vthree_utils import get_threshold
+    from vthree_utils import BinCreateParams
+    from vthree_utils import run_xhist2d
+    from vthree_utils import run_xhist1d
+
+    # Load environment variables and create parameter object
+    params = BinCreateParams(
+        region_id=0,
+        season_str="MAM",  # March-April-May season
+        lead_int=2,  # Lead time in months
+        level="mod",  # Moderate drought category
+        region_name_dict={0: "Karamoja", 1: "Marsabit", 2: "Wajir"},
+        spi_prod_name="spi3",  # 3-month SPI
+        data_path=ea_input_path,
+        output_path=os.path.join(os.getcwd(), "output"),
+        spi4_data_path="",
+        obs_netcdf_file=os.path.join(ea_input_path, "kn_obs_spi3_20240717.nc"),
+        fct_netcdf_file=os.path.join(ea_input_path, "kn_fct_spi3_20240717.nc"),
+        service_account_json=sa_file,
+        gcs_file_url=polygon_pq_uri,
+        region_filter="kmj",
+    )
+
+    # First perform 2D verification for different lead times and drought levels
+    run_xhist2d(params)
+    run_xhist1d(params)
+
+    params.lead_int = 3
+    run_xhist2d(params)
+    run_xhist1d(params)
+
+    params.lead_int = 4
+    run_xhist2d(params)
+    run_xhist1d(params)
+
+    # Change season to JJA (June-July-August) and repeat
+    params.season_str = "JJA"
+    params.sc_season_str = "jja"
+    params.lead_int = 2
+    run_xhist2d(params)
+    run_xhist1d(params)
+    # And so on...
+
+2D Verification with run_xhist2d()
+----------------------------------
+
+The 2D verification examines the relationship between ensemble forecast probabilities and observed drought events across the spatial domain for each threshold category.
+
+.. code-block:: python
+
+    def run_xhist2d(params):
+        threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+        obs_data, ens_data = make_obs_fct_dataset(params)
+        fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+            ens_data, threshold_dict
+        )
+        
+* One dimension is observed drought events (True/False)
+* Second dimension is forecasted drought events (True/False)
+
+For each possible trigger value (probability threshold), it calculates:
+
+* Hit rate
+* False alarm ratio 
+* Bias score
+* Hanssen-Kuipers score
+* Heidke skill score
+* AUROC score (with bootstrapping for uncertainty estimation)
+
+1D Verification with run_xhist1d()
+----------------------------------
+
+After 2D analysis, the script performs 1D verification using the pre-filtered values from 2D verification:
+
+.. code-block:: python
+
+    def run_xhist1d(params):
+        threshold_dict = get_threshold(params.region_id, params.sc_season_str)
+        obs_data, ens_data = make_obs_fct_dataset(params)
+        fct_mod, fct_sev, fct_ext = seas51_patch_empirical_probability(
+            ens_data, threshold_dict
+        )
+
+This 1D verification focuses on area-averaged time series for both observations and forecasts, evaluating different trigger values for their performance in capturing drought events.
+
+Key Functions from vthree_utils.py
+----------------------------------
+
+The script relies on several critical functions from ``vthree_utils.py``:
+
+get_threshold()
+^^^^^^^^^^^^^^
+
+Retrieves predefined drought thresholds for each region and season
+
+make_obs_fct_dataset()
+^^^^^^^^^^^^^^^^^^^^^
+
+Aligns observational and forecast datasets with correct:
+
+* Region selection
+* Season filtering
+* Lead time selection
+* Time coordinate alignment
+
+seas51_patch_empirical_probability()
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Calculates empirical probabilities of exceeding thresholds from ensemble forecasts, handling the transition from 25 members (1981-2017) to 51 members (2017-present)
+
+xhist_metrics_2d()
+^^^^^^^^^^^^^^^^
+
+Creates 2D contingency tables and evaluates metrics for each possible trigger value
+
+chosen_triggers_metrix()
+^^^^^^^^^^^^^^^^^^^^^^
+
+Calculates 1D verification metrics for specific trigger values:
+
+* Hit rate and percentage
+* False alarm ratio
+* Bias score
+* AUROC score
+
+update_ctdb()
+^^^^^^^^^^^
+
+Updates the filtered contingency table database from 2D analysis with 1D analysis metrics
+
+trigger_decision_dict()
+^^^^^^^^^^^^^^^^^^^^^
+
+Selects optimal triggers based on hit rate, false alarm ratio, and other metrics
+
+Detailed Verification Process
+-----------------------------
+
+The verification process follows these steps:
+
+1. **Data Preparation**:
+
+   * Load observation data (CHIRPS)
+   * Load forecast data (SEAS5.1) for different lead times
+   * Calculate SPI (Standardized Precipitation Index)
+   * Apply thresholds to define drought events
+   * Calculate ensemble probabilities
+
+2. **2D Spatial Verification** (``run_xhist2d``):
+
+   * Create 2D contingency tables using ``xhistogram.xarray``
+   * Calculate verification metrics for each probability trigger
+   * Filter for triggers meeting quality criteria (AUROC > 0.5, hit rate > 0.65, FAR < 0.35)
+   * Save filtered results to CSV files
+
+3. **1D Time Series Verification** (``run_xhist1d``):
+
+   * Calculate area-mean SPI values
+   * Apply 1D verification to triggers identified in 2D analysis
+   * Update metrics with 1D performance statistics
+   * Generate final verification metrics
+
+4. **Decision Support**:
+
+   * Identify optimal triggers based on verification metrics
+   * Create visualizations and tables for decision-makers
+   * Document performance statistics for each selected trigger
+
+This systematic approach ensures comprehensive evaluation of forecast skill and reliable trigger identification for anticipatory action.

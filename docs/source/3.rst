@@ -1,0 +1,255 @@
+SPI Calculation using Python Libraries
+=========================================
+
+The Standardized Precipitation Index (SPI)
+-----------------------------------------
+
+The Standardized Precipitation Index (SPI) serves as a primary drought indicator in the anticipatory action system, quantifying rainfall anomalies across different timescales. Originally developed by McKee et al. (1993), SPI represents how current precipitation compares to historical conditions, expressed in standard deviation units.
+
+In the implementation found in ``run-process-spi.py``, SPI is calculated for 3-month accumulation periods (SPI-3), capturing seasonal-scale rainfall anomalies particularly relevant to agricultural drought:
+
+.. code-block:: python
+
+    spi_3 = standardized_precipitation_index(
+        aa,
+        freq="MS",
+        window=3,
+        dist="gamma",
+        method="APP",
+        cal_start='1991-01-01',
+        cal_end='2018-01-01',
+        fitkwargs={"floc": 0}
+    )
+
+SPI values typically range from -4 to +4, with negative values indicating precipitation deficits. The interpretation follows standard thresholds, where values below -1 represent severe drought conditions that occur approximately once every 6-7 years, making them suitable targets for anticipatory action.
+
+The xclim Library: Climate Indices Made Accessible
+------------------------------------------------
+
+The xclim library provides a robust framework for climate data analysis, with particular strengths in calculating standardized climate indices like SPI. Developed to work seamlessly with xarray data structures, xclim implements climate indices following scientific standards while addressing computational challenges associated with large climate datasets.
+The details of the method is avialable at(https://xclim.readthedocs.io/en/v0.39.0/xclim.indicators.atmos.html#xclim.indicators.atmos._precip.standardized_precipitation_index)
+For drought monitoring, xclim's ``standardized_precipitation_index`` function offers several critical features:
+
+1. **Distribution Selection**: While gamma distribution is the standard choice for SPI calculation (used in our implementation), xclim supports alternative distributions including Pearson Type III and empirical distributions.
+
+2. **Calculation Methods**: The library supports multiple calculation approaches:
+   - ``"APP"``: Approximation method (used in our implementation)
+   - ``"ML"``: Maximum likelihood estimation
+   - ``"PWM"``: Probability weighted moments
+
+3. **Calibration Period Control**: As seen in the implementation, the function allows for specific calibration periods (``cal_start`` and ``cal_end``), crucial for establishing a consistent reference climatology across both forecast and observation datasets.
+
+4. **Zero Precipitation Handling**: The ``fitkwargs={"floc": 0}`` parameter ensures that gamma distribution fitting properly handles zero precipitation values, which can be common in arid regions.
+
+The xarray Foundation: Multi-dimensional Data Structures
+------------------------------------------------------
+
+Underlying both the data processing and SPI calculation is the xarray library, which provides labeled multi-dimensional arrays designed specifically for scientific datasets. In the context of drought monitoring, xarray offers several advantages:
+
+1. **Self-describing Data**: Coordinates, dimensions, and metadata travel with the data, simplifying the tracking of spatial and temporal information.
+
+2. **Advanced Indexing**: The implementation leverages xarray's powerful selection capabilities (e.g., ``.sel(lead=fm)``, ``.sel(latitude=slice(lat_max, lat_min))``) for intuitive data subsetting.
+
+3. **Parallel Computing Integration**: Through dask integration, xarray enables scalable processing of large ensembles, evident in the ``.compute()`` calls throughout the processing pipeline.
+
+4. **Interoperability**: The seamless handling of different data formats (NetCDF, GRIB, Zarr) facilitates the integration of observation data (CHIRPS) with forecast data (SEAS5).
+
+In the SPI calculation for ensemble forecast data, the processing handles ensemble members differently based on their characteristics. For older members (0-24), SPI is calculated using the 1991-2018 calibration period, while newer operational members (25-51) use a 2017-2024 calibration period, addressing the challenge of maintaining consistent statistical properties across the full ensemble.
+
+The script ``01-run-process-spi.py`` performs four main operations:
+
+1. Calculates SPI on CHIRPS observation data
+2. Calculates SPI on SEAS51 forecast data
+3. Regrids both datasets to a common grid
+4. Applies a geographic mask to focus on a specific region
+
+1. SPI Calculation on CHIRPS Data
+----------------------------------
+
+The ``process_chirps_data()`` function handles the processing of CHIRPS observation data:
+
+.. code-block:: python
+
+    def process_chirps_data(region_id, credentials, extent, chirps_file=None, output_dir='.', res=0.25):
+        # Load CHIRPS data either from local file or GCS storage
+        if chirps_file:
+            logger.info(f"Using local CHIRPS file: {chirps_file}")
+            ds = xr.open_dataset(chirps_file)
+        else:
+            logger.info(f"Loading CHIRPS data from GCP")
+            uri = 'gs://seas51/ea_chirps_v3_monthly_20250312.zarr'
+            ds = xr.open_dataset(uri, engine='zarr', consolidated=False, storage_options={'token': credentials})
+        
+        # Subset to the region of interest
+        ds_subset = ds.sel(latitude=slice(lat_min, lat_max), longitude=slice(lon_min, lon_max))
+        
+        # Regrid to regular grid
+        ds1 = ds_subset_computed.rename({'longitude': 'lon', 'latitude': 'lat'})
+        dr = ds1["precip"]
+        
+        # Calculate SPI-3
+        spi_3 = standardized_precipitation_index(
+            aa,
+            freq="MS",
+            window=3,
+            dist="gamma",
+            method="APP",
+            cal_start='1991-01-01',
+            cal_end='2018-01-01',
+            fitkwargs={"floc": 0}
+        )
+
+**Key points:**
+
+* Uses xarray to handle climate data
+* Applies regional subsetting to focus on the area of interest
+* Calculates SPI-3 (3-month Standardized Precipitation Index) using gamma distribution
+* Uses a calibration period from 1991-2018
+
+2. SPI Calculation on SEAS51 Forecast Data
+-------------------------------------------
+
+The ``process_seas51_data()`` function processes forecast data from ECMWF SEAS51:
+
+.. code-block:: python
+
+    def process_seas51_data(region_id, obs_file, credentials, extent, seas51_file=None, output_dir='.'):
+        # Load SEAS51 data from file or GCS
+        if seas51_file:
+            logger.info(f"Using local SEAS51 file: {seas51_file}")
+            sds = xr.open_dataset(seas51_file, engine='cfgrib', backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+        else:
+            logger.info(f"Loading SEAS51 data from GCP")
+            suri = 'gs://seas51/ea_seas51_20250312_v3.zarr'
+            sds = xr.open_dataset(suri, engine='zarr', consolidated=False, storage_options={'token': credentials})
+        
+        # Subset to region
+        sds_subset = sds.sel(latitude=slice(lat_min, lat_max), longitude=slice(lon_min, lon_max))
+        
+        # Calculate SPI-3 for each lead time (1-6 months)
+        all_leads = []
+        for lead_val in range(1, 7):
+            # Process each lead time
+            cont_spi = vt_apply_spi3_with_parameter_transfer(sds_subset_computed, lead_val)
+            lead_data = xr.concat(cont_spi, dim='member')
+            all_leads.append(lead_data)
+
+**Key points:**
+
+* Processes multiple ensemble members (0-51) from the SEAS51 seasonal forecast
+* Handles different lead times (1-6 months) separately
+* Special handling for members 0-24 vs 25-51 with different calibration periods
+* Concatenates multiple ensemble members into a single dataset
+
+3. Regridding Operations
+-------------------------
+
+Both datasets need to be on the same grid for comparison. The script includes regridding operations:
+
+.. code-block:: python
+
+    # For CHIRPS data:
+    ds_out = xr.Dataset({
+        "lat": (["lat"], np.arange(lat_min, lat_max, res), {"units": "degrees_north"}),
+        "lon": (["lon"], np.arange(lon_min, lon_max, res), {"units": "degrees_east"}),
+    })
+    regridder = xe.Regridder(ds1, ds_out, "conservative")
+    dr_out = regridder(dr, keep_attrs=True)
+
+    # For SEAS51 data (to match CHIRPS grid):
+    ds_out = xr.Dataset({
+        "lat": (["lat"], kn_obs['lat'].values, {"units": "degrees_north"}),
+        "lon": (["lon"], kn_obs['lon'].values, {"units": "degrees_east"}),
+    })
+    regridder = xe.Regridder(gd2, ds_out, "bilinear", periodic=False)
+    dr_out = regridder(agd, keep_attrs=True)
+
+**Key points:**
+
+* Uses xESMF for regridding operations
+* CHIRPS data uses conservative regridding to a regular grid
+* SEAS51 forecast data is regridded to match the CHIRPS observations grid using bilinear interpolation
+* Regular grid uses the specified resolution (default 0.25°)
+
+4. Masking Operations
+---------------------
+
+The ``mask_netcdf_with_shapefile()`` function applies a geographic mask to both datasets:
+
+.. code-block:: python
+
+    def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_size=0.25, 
+                                  output_forecast_path='masked_forecast.nc', 
+                                  output_obs_path='masked_obs.nc'):
+        # Load datasets
+        forecast_ds = xr.open_dataset(forecast_path)
+        obs_ds = xr.open_dataset(obs_path)
+        
+        # Create buffered geometry if needed
+        buffered_gdf = gdf.copy()
+        if buffer_size > 0:
+            buffered_gdf['geometry'] = gdf.geometry.buffer(buffer_size)
+        
+        # Create mask from shapefile
+        f_mask = regionmask.mask_geopandas(buffered_gdf.geometry, f_lons, f_lats)
+        f_bool_mask = ~np.isnan(f_mask)
+        
+        # Expand mask to match dataset dimensions
+        f_expanded_mask = f_bool_mask.expand_dims({
+            "lead": forecast_ds.lead,
+            "member": forecast_ds.member,
+            "init": forecast_ds.init
+        })
+        
+        # Apply mask to set values outside region to NaN
+        masked_forecast = forecast_ds.copy(deep=True)
+        for var in forecast_ds.data_vars:
+            masked_forecast[var] = forecast_ds[var].where(f_expanded_mask, np.nan)
+
+**Key points:**
+
+* Uses regionmask to create masks from GeoDataFrame
+* Applies a buffer around the region to include border areas
+* Expands the 2D mask to match the dimensionality of each dataset
+* Sets values outside the mask region to NaN
+* Creates masked versions of both the observations and forecasts
+
+Main Execution Flow
+--------------------
+
+The script's main execution follows this sequence:
+
+.. code-block:: python
+
+    if __name__ == "__main__":
+        # Define region and get extent
+        region_id ='kmj' 
+        gdf, extent = get_region_bounds(region_id, use_local=True)
+        
+        # Process CHIRPS data
+        obs_file = process_chirps_data(
+            region_id, credentials, extent, chirps_file=chirps_file
+        )
+        
+        # Process SEAS51 data
+        fct_file = process_seas51_data(
+            region_id, obs_file, credentials, extent, seas51_file=seas51_file
+        )
+        
+        # Apply masking
+        masked_fct, masked_obs = mask_netcdf_with_shapefile(
+            forecast_path=fct_file, 
+            obs_path=obs_file, 
+            shapefile_df=shapefile_df,
+            buffer_size=0.25
+        )
+
+This comprehensive processing pipeline takes raw climate data and prepares it for drought forecasting analysis by:
+
+1. Loading and subsetting the data to the region of interest
+2. Computing SPI values for both observations and forecasts
+3. Ensuring both datasets are on the same spatial grid
+4. Applying geographic masks to focus only on the relevant area
+
+The resulting NetCDF files can then be used for further analysis and visualization of drought risks and forecasting skill assessment.
+

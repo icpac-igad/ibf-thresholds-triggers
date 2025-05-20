@@ -1,0 +1,160 @@
+Bar chart plots and Trigger visualizations
+==========================================
+
+This chapter describes the implementation of bar plot visualizations for drought forecast verification as used in the anticipatory action system. The system compares SEAS5 seasonal forecasts with CHIRPS observation data to evaluate forecast skill and identify appropriate trigger values for early action.
+
+Data Flow Overview
+-----------------
+
+The bar plot visualization process follows a multi-stage workflow:
+
+.. code-block::
+
+   NetCDF Files (CHIRPS, SEAS5)
+   → Verification metrics (run_xhist2d/1d)
+   → CSV files with metrics
+   → Bar plot generation (run_bar_plot)
+   → Combined visualization with decision table
+
+Components and Processing Steps
+------------------------------
+
+Data Sources and Processing
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The system processes two primary data sources:
+
+* Observation data (CHIRPS): Historical SPI values used as ground truth
+* Forecast data (SEAS5): Ensemble probability forecasts for different lead times
+
+These data are processed through verification routines that calculate metrics like hit rates, false alarm ratios, and AUROC scores for different trigger values and drought categories.
+
+CSV File Structure and Organization
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The verification metrics are stored in CSV files with naming convention ``{region_id}_{season_str}_{lead_time}_{category}.csv`` and combined into ``{region_id}_{season_str}_{lead_time}.csv`` for each lead time.
+
+Each combined CSV contains important columns:
+
+* ``trigger_value``: Probability threshold for triggering an alert
+* ``cat``: Drought category (mod, sev, ext - corresponding to mild, moderate, severe)
+* ``td``: Trigger decision flag (1 = selected as trigger)
+* ``hit_rate``: Percentage of drought events correctly forecasted
+* ``false_alarm_ratio``: Percentage of false alarms
+* ``hits``: Number of correctly forecasted events
+* ``misses``: Number of missed events
+* ``FA``: Number of false alarms
+* ``CN``: Number of correct negatives
+
+Example CSV content (simplified):
+
+.. code-block:: text
+
+   trigger_value,cat,td,hit_rate,false_alarm_ratio,hits,misses,FA,CN
+   20.2,mod,1,73.3,16.7,11,4,2,25
+   35.4,mild,1,66.7,8.7,10,5,3,24
+   15.2,sev,1,75.0,9.8,6,2,2,32
+
+Bar Plot Generation Process
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``run_bar_plot`` function in ``utils_plots.py`` orchestrates the bar plot generation. This function:
+
+1. Retrieves thresholds for the region and season 
+2. Gets observation and forecast data
+3. Processes lead times 2, 3, and 4 separately
+4. Creates visualizations for each lead time and observation data
+5. Combines all plots into a final visualization
+
+Key Subroutines
+^^^^^^^^^^^^^^
+
+Several functions work together to create the final visualization:
+
+* ``run_bar_plot_df()``: Retrieves and processes observation and forecast data
+* ``generate_trigger_dict()``: Extracts trigger values from verification CSV files
+* ``plot_obs_chart_with_triggers()``: Creates Altair visualizations with threshold lines
+* ``bar_stitch_plot()``: Combines individual plots into a comprehensive visualization
+
+Visualizing Different Lead Times
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Each lead time's data is processed separately and presented in a structured layout:
+
+.. code-block::
+
+   +---------------+---------------+
+   | Observations  | Lead Time 2   |
+   +---------------+---------------+
+   | Decision      | Lead Time 3   |
+   | Table         |               |
+   +---------------+---------------+
+   | Empty Space   | Lead Time 4   |
+   +---------------+---------------+
+
+The decision table combines information from all lead times, showing:
+
+* Selected trigger values for each drought category
+* Performance metrics for each trigger
+* Lead time information
+
+Visual Elements and Interpretation
+---------------------------------
+
+The visualization includes several key elements:
+
+* Observation plot: Shows historical SPI values with positive values in blue and negative in red
+* Forecast probability plots: Show ensemble probability forecasts with bars colored by drought category
+* Threshold lines: Horizontal lines indicating the selected trigger values
+* Decision table: Displays trigger values with their performance metrics across lead times
+
+Technical Implementation Details
+-------------------------------
+
+Trigger Selection and Extraction
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``generate_trigger_dict()`` function reads CSV files to extract chosen triggers. This function:
+
+1. Reads the CSV file for the current lead time
+2. Filters for selected triggers (where td == 1)
+3. Creates a trigger dictionary mapping drought levels to probability values
+4. Formats a decision dataframe for display
+5. Returns both the trigger dictionary and decision dataframe
+
+Plot Creation with Altair
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The system uses Altair to create interactive, layered visualizations through the ``plot_obs_chart_with_triggers()`` function, which:
+
+1. Creates different base charts for observations versus forecasts
+2. Adds threshold lines for each trigger value
+3. Combines the elements into layered visualizations
+4. Returns the final chart object
+
+Final Visualization Assembly
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``bar_stitch_plot()`` function combines all visualization components:
+
+1. Extracts individual plot components
+2. Creates a decision table from combined dataframes
+3. Assembles the final layout with observations, forecasts, and decision table
+4. Saves the visualization as a PNG file
+
+Practical Applications and Benefits
+----------------------------------
+
+The generated bar plot visualization serves several important functions:
+
+* Historical comparison: Shows how forecasts would have performed in past years
+* Lead time evaluation: Allows comparison of forecast skill at different lead times
+* Trigger assessment: Visualizes the performance of selected trigger values
+* Decision support: Provides a comprehensive view for stakeholder decision-making
+
+By combining observation data, forecast probabilities, and performance metrics in a single visualization, the system enables informed decisions about which trigger values to use for anticipatory action against droughts.
+
+Conclusion
+----------
+
+The bar plot visualization system is a critical component of the drought anticipatory action framework. It translates complex verification metrics into an intuitive visual format that facilitates stakeholder understanding and decision-making. By clearly showing when drought alerts would have been triggered historically and how accurate those alerts would have been, it builds confidence in the trigger system and supports effective early action to mitigate drought impacts.
