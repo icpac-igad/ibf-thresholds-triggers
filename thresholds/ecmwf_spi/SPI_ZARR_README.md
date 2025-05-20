@@ -1,6 +1,16 @@
 # SPI NetCDF to Zarr Conversion
 
-This repository contains scripts to convert Standardized Precipitation Index (SPI) NetCDF files to Zarr format for efficient cloud storage and access.
+This folder contains scripts to convert Standardized Precipitation Index (SPI) NetCDF files to Zarr format for efficient cloud storage and access.
+
+## ECMWF ERA5-Drought Dataset
+The SPI data used in this project comes from the ERA5-Drought dataset, a comprehensive collection of global drought indices based on ECMWF's 5th generation reanalysis system (ERA5). Released in 2025, this dataset provides long-term monitoring capabilities through standardized drought indices including the Standardized Precipitation Index (SPI) and Standardized Precipitation Evapotranspiration Index (SPEI).
+
+The dataset covers the full ERA5 climatology from 1940 to present, offering drought indices calculated over multiple accumulation periods ranging from 1 month to 4 years. This data is particularly valuable for environmental monitoring, water management, and agricultural applications. The dataset is accessible through the ECMWF Cross Data Store (XDS), though as of March 2025, the service remains in pre-operational status.
+
+sources:
+https://www.nature.com/articles/s41597-025-04896-y
+https://xds-preprod.ecmwf.int/datasets 
+https://xds-preprod.ecmwf.int/datasets/derived-drought-historical-monthly?tab=overview
 
 ## Overview
 
