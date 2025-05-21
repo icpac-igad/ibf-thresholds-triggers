@@ -91,6 +91,10 @@ return_level = parametric_quantile(params, q=non_exceedance_prob) + threshold
 - Return period calculation requires accounting for the exceedance rate
 - Threshold selection can significantly impact results
 
+## xclim and NOAA Atlas 14 Methodological Differences
+
+It is important to note that xclim's built-in frequency analysis functions are primarily based on the AMS approach, as evidenced by the `select_resample_op` function with `freq="YS"` parameter. In contrast, many official precipitation frequency estimates, such as those provided by NOAA's Precipitation Frequency Data Server (PFDS) available at https://hdsc.nws.noaa.gov/pfds/pfds_map_ak.html, are developed using the PDS approach. NOAA's Atlas 14 and similar precipitation frequency analyses typically employ PDS methods because they provide more robust estimates, particularly for shorter return periods that are critical for many design applications. The PDS approach used by NOAA involves selecting all peaks above a threshold, ensuring their independence, fitting appropriate statistical distributions, and applying specific procedures for frequency conversion. This methodological difference is significant when comparing results from xclim's default implementation versus official precipitation frequency estimates, and explains why manual implementation of PDS analysis (as shown in this document) may be necessary to produce results comparable to official standards.
+
 ## Key Implementation Differences
 
 ### 1. Event Selection
