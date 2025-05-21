@@ -590,8 +590,8 @@ def mdplot_single_row(dstree, params, trigger_kmj, shapefile_df, output_dir):
     
     fig.suptitle(
         f"{region_name} SEAS51 SPI Forecast ({season_str})\n"
-        f"Init: {latest_init.strftime('%Y-%m-%d')}, Valid: {latest_valid.strftime('%Y-%m')}, Lead: {params.lead_int} months,\n"
-        f"Triggers values mod: {trigger_kmj['kmj_tr_mod']:.2f}, sev: {trigger_kmj['kmj_tr_sev']:.2f}, ext: {trigger_kmj['kmj_tr_ext']:.2f}",
+        f"Init: {latest_init.strftime('%Y-%m-%d')}, Valid: {latest_valid.strftime('%Y-%m')}, Lead:1 months({params.lead_int}),\n"
+        f"Triggers values mild: {trigger_kmj['kmj_tr_mod']:.2f}, mod: {trigger_kmj['kmj_tr_sev']:.2f}, sev: {trigger_kmj['kmj_tr_ext']:.2f}",
         fontsize=16,
         weight="bold",
         y=0.98
@@ -643,7 +643,7 @@ def main():
     
     # Set season string
     params.sc_season_str = args.season.lower()
-    # Run the plot generation
+    # Run the plot generation 
     ens_data = get_forecast_data_only(params)
     # Get thresholds (you might need to adjust this if threshold values are normally derived from observations)
     threshold_dict = get_threshold(params.region_id, params.sc_season_str)

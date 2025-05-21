@@ -16,7 +16,6 @@ from vthree_utils import get_threshold
 from vthree_utils import BinCreateParams
 from vthree_utils import run_xhist2d
 from vthree_utils import run_xhist1d
-from vthree_utils import area_xhist_1d
 
 load_dotenv()
 
@@ -63,14 +62,14 @@ params.sc_season_str = "jja"
 params.spi_prod_name = "spi3"
 # params.data_path = params.spi4_data_path
 params.lead_int = 2
-#run_xhist2d(params)
-#run_xhist1d(params)
-area_xhist_1d(params)
+run_xhist2d(params)
+run_xhist1d(params)
 
-#params.lead_int = 3
-#run_xhist2d(params)
-#run_xhist1d(params)
 
-#params.lead_int = 4
-#run_xhist2d(params)
-#run_xhist1d(params)
+params.lead_int = 3
+run_xhist2d(params)
+run_xhist1d(params)
+
+params.lead_int = 4
+run_xhist2d(params)
+run_xhist1d(params)
