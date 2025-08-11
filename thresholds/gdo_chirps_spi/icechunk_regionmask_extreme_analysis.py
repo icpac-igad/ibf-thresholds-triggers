@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 """
-Enhanced Icechunk-based Regional Extreme Value Analysis with Logging and Cluster Management
-========================================================================================
+Enhanced Icechunk-based Regional Extreme Value Analysis v20250809
+================================================================
 
-This enhanced script integrates:
-1. Comprehensive logging system with file output
-2. Dask cluster reuse and failure recovery
-3. Icechunk data loading for SPI9 datasets
-4. Regionmask functionality for administrative regions
-5. Coiled Dask cluster management with persistence
-6. Extreme value analysis using xclim for each region
+WORKER CREDENTIALS FIX VERSION
 
-Features:
-- Session-based logging with unique log files
-- Cluster connection caching and reuse
-- Enhanced error handling and recovery
-- Progress tracking and performance metrics
-- Graceful cluster cleanup and disentanglement
+This enhanced script fixes the worker credentials issue by implementing:
+1. Worker-side credentials upload and verification
+2. Individual Icechunk connections per worker
+3. Region-specific data loading and processing
+4. Enhanced error handling and recovery
+
+Key improvements over the original:
+- Eliminates "No such file or directory" credential errors
+- Reduces data serialization overhead
+- Improves fault tolerance and scalability
+- Maintains analytical accuracy
+
+Based on the approach demonstrated in 21-icechunk-pass-index-worker-test.ipynb
 
 Usage:
-    python icechunk_regionmask_extreme_analysis_enhanced.py
+    python icechunk_regionmask_extreme_analysis_enhanced_v20250809.py
 """
 
 import icechunk
@@ -35,7 +36,7 @@ from xclim.indices.generic import select_resample_op
 from google.oauth2 import service_account
 import coiled
 import dask
-from dask.distributed import Client
+from dask.distributed import Client, get_worker
 from dask.diagnostics import ProgressBar
 import logging
 import json
@@ -66,50 +67,47 @@ def setup_logging(log_level=logging.INFO):
     """Setup comprehensive logging system with file and console output"""
     # Create log directory if it doesn't exist
     LOG_DIR.mkdir(exist_ok=True)
-    
+
     # Create unique session identifier
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = LOG_DIR / f"icechunk_analysis_{session_id}.log"
-    
+    log_file = LOG_DIR / f"icechunk_analysis_v20250809_{session_id}.log"
+
     # Configure root logger
     logger = logging.getLogger()
     logger.setLevel(log_level)
-    
+
     # Clear any existing handlers
     logger.handlers.clear()
-    
+
     # Create formatters
     detailed_formatter = logging.Formatter(
         '%(asctime)s | %(levelname)-8s | %(funcName)-25s | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    console_formatter = logging.Formatter(
-        '%(levelname)-8s | %(message)s'
-    )
-    
+        datefmt='%Y-%m-%d %H:%M:%S')
+
+    console_formatter = logging.Formatter('%(levelname)-8s | %(message)s')
+
     # File handler for detailed logging
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(detailed_formatter)
     logger.addHandler(file_handler)
-    
+
     # Console handler for user-friendly output
     console_handler = logging.StreamHandler()
     console_handler.setLevel(log_level)
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
-    
+
     logging.info(f"Logging initialized - Session ID: {session_id}")
     logging.info(f"Log file: {log_file}")
-    
+
     return session_id, log_file
 
 
 def save_cluster_info(cluster, client, session_id):
     """Save cluster connection information for reuse"""
     SESSION_DIR.mkdir(exist_ok=True)
-    
+
     cluster_info = {
         'session_id': session_id,
         'cluster_name': cluster.name,
@@ -118,9 +116,9 @@ def save_cluster_info(cluster, client, session_id):
         'created_at': datetime.now().isoformat(),
         'status': 'active'
     }
-    
+
     cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
-    
+
     try:
         with open(cache_file, 'wb') as f:
             pickle.dump(cluster_info, f)
@@ -132,25 +130,26 @@ def save_cluster_info(cluster, client, session_id):
 def load_cluster_info():
     """Load existing cluster connection information"""
     cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
-    
+
     if not cache_file.exists():
         return None
-    
+
     try:
         with open(cache_file, 'rb') as f:
             cluster_info = pickle.load(f)
-        
+
         # Check if cluster info is recent (within 4 hours)
         created_at = datetime.fromisoformat(cluster_info['created_at'])
         age_hours = (datetime.now() - created_at).total_seconds() / 3600
-        
+
         if age_hours > 4:
             logging.info(f"Cluster cache expired ({age_hours:.1f} hours old)")
             return None
-            
-        logging.info(f"Found cached cluster info: {cluster_info['cluster_name']}")
+
+        logging.info(
+            f"Found cached cluster info: {cluster_info['cluster_name']}")
         return cluster_info
-        
+
     except Exception as e:
         logging.warning(f"Failed to load cluster info: {e}")
         return None
@@ -161,46 +160,55 @@ def test_cluster_connection(client):
     try:
         worker_info = client.scheduler_info().get('workers', {})
         if len(worker_info) > 0:
-            logging.info(f"Cluster connection active with {len(worker_info)} workers")
+            logging.info(
+                f"Cluster connection active with {len(worker_info)} workers")
             return True
         else:
-            logging.warning("Cluster connection exists but no workers available")
+            logging.warning(
+                "Cluster connection exists but no workers available")
             return False
     except Exception as e:
         logging.warning(f"Cluster connection test failed: {e}")
         return False
 
 
-def setup_coiled_cluster(software_env="v3-geosfm-rm-x", n_workers=3, reuse_existing=True, session_id=None):
+def setup_coiled_cluster(software_env="v5-geosfm-rm-x",
+                         n_workers=1,
+                         reuse_existing=True,
+                         session_id=None):
     """Setup Coiled Dask cluster with reuse capability and error recovery"""
-    
+
     # Try to reuse existing cluster first
     if reuse_existing:
         cluster_info = load_cluster_info()
         if cluster_info:
             try:
-                logging.info(f"Attempting to reconnect to existing cluster: {cluster_info['cluster_name']}")
-                
+                logging.info(
+                    f"Attempting to reconnect to existing cluster: {cluster_info['cluster_name']}"
+                )
+
                 # Try to get existing cluster
                 cluster = coiled.Cluster(cluster_info['cluster_name'])
                 client = cluster.get_client()
-                
+
                 # Test connection
                 if test_cluster_connection(client):
-                    logging.info(f"✅ Reusing existing cluster: {client.dashboard_link}")
+                    logging.info(
+                        f"✅ Reusing existing cluster: {client.dashboard_link}")
                     return client, cluster
                 else:
-                    logging.info("Existing cluster not responsive, creating new one...")
+                    logging.info(
+                        "Existing cluster not responsive, creating new one...")
                     client.close()
                     cluster.close()
-                    
+
             except Exception as e:
                 logging.warning(f"Failed to reuse existing cluster: {e}")
-    
+
     logging.info(f"Creating new Coiled cluster with {n_workers} workers...")
-    
-    cluster_name = f"spi-extreme-analysis-{datetime.now().strftime('%m%d-%H%M')}"
-    
+
+    cluster_name = f"spi-extreme-analysis-v20250809-{datetime.now().strftime('%m%d-%H%M')}"
+
     try:
         cluster = coiled.Cluster(
             name=cluster_name,
@@ -211,30 +219,24 @@ def setup_coiled_cluster(software_env="v3-geosfm-rm-x", n_workers=3, reuse_exist
             region="us-east1",
             arm=False,
             compute_purchase_option="spot",
-            workspace='geosfm',
-            worker_options={
-                "security": {
-                    "key_path": SERVICE_ACCOUNT_FILE
-                }
-            }
-        )
+            workspace='geosfm')
 
         client = Client(cluster)
-        
+
         # Verify cluster is ready
         worker_info = client.scheduler_info().get('workers', {})
         actual_workers = len(worker_info)
-        
+
         logging.info(f"✅ New Coiled cluster ready: {client.dashboard_link}")
         logging.info(f"   Cluster name: {cluster_name}")
         logging.info(f"   Workers: {actual_workers}/{n_workers}")
         logging.info(f"   VM type: n2-standard-4")
         logging.info(f"   Region: us-east1")
-        
+
         # Save cluster info for reuse
         if session_id:
             save_cluster_info(cluster, client, session_id)
-        
+
         return client, cluster
 
     except Exception as e:
@@ -242,102 +244,67 @@ def setup_coiled_cluster(software_env="v3-geosfm-rm-x", n_workers=3, reuse_exist
         raise
 
 
-def cleanup_cluster(client, cluster, force=False):
-    """Gracefully cleanup Dask cluster with proper disentanglement"""
-    logging.info("Starting cluster cleanup...")
-    
+def upload_credentials_to_workers(client, service_account_file):
+    """Upload service account credentials to all workers with verification"""
+    logging.info("=" * 70)
+    logging.info("UPLOADING CREDENTIALS TO WORKERS")
+    logging.info("=" * 70)
+
+    if not Path(service_account_file).exists():
+        raise FileNotFoundError(f"Service account file not found: {service_account_file}")
+
     try:
-        if client:
-            # Cancel any running tasks
-            try:
-                client.cancel(client.futures, force=force)
-                logging.info("Cancelled running tasks")
-            except Exception as e:
-                logging.warning(f"Error cancelling tasks: {e}")
-            
-            # Close client connection
-            try:
-                client.close(timeout=10)
-                logging.info("Client connection closed")
-            except Exception as e:
-                logging.warning(f"Error closing client: {e}")
+        # Upload credentials file to all workers
+        logging.info(f"Uploading {service_account_file} to all workers...")
+        client.upload_file(service_account_file)
         
-        if cluster:
-            # Close cluster
-            try:
-                cluster.close()
-                logging.info("Cluster closed successfully")
-            except Exception as e:
-                logging.warning(f"Error closing cluster: {e}")
+        # Wait for upload to complete
+        time.sleep(10)
         
-        # Clear cluster cache
-        cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
-        if cache_file.exists():
+        # Verify upload on workers
+        def verify_credentials_on_worker(creds_filename):
+            """Verify that credentials file exists on worker"""
             try:
-                cache_file.unlink()
-                logging.info("Cluster cache cleared")
-            except Exception as e:
-                logging.warning(f"Error clearing cache: {e}")
+                worker = get_worker()
+                local_dir = worker.local_directory
+                creds_path = Path(local_dir) / creds_filename
                 
-    except Exception as e:
-        logging.error(f"Error during cluster cleanup: {e}")
-        if force:
-            logging.warning("Forcing cleanup despite errors")
-        else:
-            raise
+                return {
+                    'worker_id': worker.address,
+                    'local_dir': local_dir,
+                    'creds_path': str(creds_path),
+                    'file_exists': creds_path.exists(),
+                    'status': 'success' if creds_path.exists() else 'missing_file'
+                }
+            except Exception as e:
+                return {
+                    'worker_id': 'unknown',
+                    'error': str(e),
+                    'status': 'error'
+                }
 
+        # Test credential access on all workers
+        futures = client.map(verify_credentials_on_worker, [service_account_file] * len(client.scheduler_info()['workers']))
+        verification_results = client.gather(futures)
 
-def load_icechunk_spi_data():
-    """Load SPI9 data from Icechunk repository with enhanced logging"""
-    logging.info("=" * 70)
-    logging.info("LOADING SPI9 DATA FROM ICECHUNK")
-    logging.info("=" * 70)
+        # Check results
+        successful_workers = [r for r in verification_results if r['status'] == 'success']
+        failed_workers = [r for r in verification_results if r['status'] != 'success']
 
-    # Construct repository prefix for SPI9
-    repo_prefix = f"{BASE_PREFIX}_{SPI_TYPE}"
-
-    logging.info(f"Repository prefix: {repo_prefix}")
-    logging.info(f"Bucket: {BUCKET_NAME}")
-
-    start_time = time.time()
-    
-    try:
-        # Setup storage connection
-        logging.debug("Setting up GCS storage connection...")
-        storage = icechunk.gcs_storage(
-            bucket=BUCKET_NAME,
-            prefix=repo_prefix,
-            service_account_file=SERVICE_ACCOUNT_FILE)
-
-        # Open repository
-        logging.debug("Opening Icechunk repository...")
-        repo = icechunk.Repository.open(storage)
-        session = repo.readonly_session("main")
-
-        # Load data from specific Zarr group
-        group_name = f"{SPI_TYPE}_data"  # e.g., "spi9_data"
-        logging.debug(f"Loading data from group: {group_name}")
-        dataset = xr.open_zarr(session.store, group=group_name)
-
-        load_time = time.time() - start_time
-
-        logging.info(f"✅ Successfully loaded {SPI_TYPE.upper()} dataset in {load_time:.2f} seconds")
-        logging.info(f"   Shape: {dict(dataset.sizes)}")
-        logging.info(f"   Variables: {list(dataset.data_vars)}")
-        logging.info(f"   Time range: {dataset.time.min().values} to {dataset.time.max().values}")
+        logging.info(f"✅ Credentials verified on {len(successful_workers)} workers")
         
-        # Log memory usage if available
-        try:
-            memory_mb = dataset.nbytes / (1024 * 1024)
-            logging.info(f"   Dataset size: {memory_mb:.1f} MB")
-        except:
-            pass
+        if failed_workers:
+            logging.warning(f"❌ Credentials failed on {len(failed_workers)} workers")
+            for failed in failed_workers:
+                logging.warning(f"   Worker {failed.get('worker_id', 'unknown')}: {failed.get('error', 'missing file')}")
+        
+        if len(successful_workers) == 0:
+            raise RuntimeError("No workers have access to credentials")
 
-        return dataset
+        return True
 
     except Exception as e:
-        logging.error(f"❌ Failed to load Icechunk data: {e}")
-        logging.debug(traceback.format_exc())
+        logging.error(f"❌ Failed to upload credentials: {e}")
         raise
 
 
@@ -357,7 +324,9 @@ def load_administrative_regions():
 
         load_time = time.time() - start_time
 
-        logging.info(f"✅ Loaded {len(gdf)} administrative regions in {load_time:.2f} seconds")
+        logging.info(
+            f"✅ Loaded {len(gdf)} administrative regions in {load_time:.2f} seconds"
+        )
         logging.info(f"   Columns: {list(gdf.columns)}")
 
         # Check for the correct name column
@@ -374,7 +343,8 @@ def load_administrative_regions():
             start_fix = time.time()
             gdf.geometry = gdf.geometry.buffer(0)
             fix_time = time.time() - start_fix
-            logging.info(f"   Geometry fixes completed in {fix_time:.2f} seconds")
+            logging.info(
+                f"   Geometry fixes completed in {fix_time:.2f} seconds")
 
         # Create regionmask using the appropriate columns
         logging.debug("Creating regionmask...")
@@ -393,118 +363,144 @@ def load_administrative_regions():
         raise
 
 
-def create_region_mask(gdf, dataset):
-    """Create region mask for the dataset using regionmask.mask_geopandas with enhanced logging"""
+def get_region_metadata(gdf, regions):
+    """Extract region metadata for worker processing"""
     logging.info("=" * 70)
-    logging.info("CREATING REGION MASK")
+    logging.info("EXTRACTING REGION METADATA")
     logging.info("=" * 70)
 
-    start_time = time.time()
-
-    try:
-        # Extract coordinates
-        lons = dataset.lon.values
-        lats = dataset.lat.values
-
-        logging.info(f"   Dataset coordinates: {len(lons)} lons × {len(lats)} lats")
-        logging.info(f"   Coordinate ranges: lon [{lons.min():.2f}, {lons.max():.2f}], lat [{lats.min():.2f}, {lats.max():.2f}]")
-
-        # Create mask using regionmask.mask_geopandas
-        logging.debug("Attempting to create region mask...")
+    region_metadata = []
+    
+    for i, region in enumerate(regions):
         try:
-            mask = regionmask.mask_geopandas(gdf.geometry, lons, lats)
-        except ValueError as e:
-            if "overlapping regions" in str(e):
-                logging.warning("Detected overlapping regions, using overlap=False...")
-                mask = regionmask.mask_geopandas(gdf.geometry,
-                                                 lons,
-                                                 lats,
-                                                 overlap=False)
+            # Get region name from different possible columns
+            if 'shapeName' in gdf.columns:
+                region_name = gdf.iloc[i]['shapeName']
+            elif 'GID_1' in gdf.columns:
+                region_name = gdf.iloc[i]['GID_1']
             else:
-                raise
+                region_name = f"Region_{i}"
 
-        mask_time = time.time() - start_time
+            # Get region bounds
+            bounds = gdf.iloc[i].geometry.bounds
+            
+            metadata = {
+                'region_id': i,
+                'region_name': region_name,
+                'bounds': bounds,  # (minx, miny, maxx, maxy)
+                'geometry': gdf.iloc[i].geometry.__geo_interface__  # Serialize geometry
+            }
+            region_metadata.append(metadata)
+            
+        except Exception as e:
+            logging.warning(f"Failed to extract metadata for region {i}: {e}")
+            continue
 
-        logging.info(f"✅ Created region mask in {mask_time:.2f} seconds")
-        logging.info(f"   Mask shape: {mask.shape}")
-        
-        unique_regions = np.unique(mask.values[~np.isnan(mask.values)])
-        logging.info(f"   Unique regions in mask: {len(unique_regions)}")
-        logging.debug(f"   Region IDs: {unique_regions}")
-
-        return mask
-
-    except Exception as e:
-        logging.error(f"❌ Failed to create region mask: {e}")
-        logging.debug(traceback.format_exc())
-        raise
+    logging.info(f"✅ Extracted metadata for {len(region_metadata)} regions")
+    return region_metadata
 
 
-def extract_annual_extremes(spi_data):
-    """Extract annual extremes using xclim methods with enhanced logging"""
-    logging.info("=" * 70)
-    logging.info("EXTRACTING ANNUAL EXTREMES")
-    logging.info("=" * 70)
-
-    start_time = time.time()
-
+def process_region_with_worker_icechunk(region_metadata, bucket, prefix, group_name, 
+                                       creds_filename, return_periods, spi_var_name):
+    """
+    Process a single region with worker-side Icechunk connection
+    
+    This function runs on individual workers and:
+    1. Establishes its own Icechunk connection using uploaded credentials
+    2. Loads only the required data subset
+    3. Applies regionmask filtering
+    4. Performs extreme value analysis
+    5. Returns results to main process
+    """
     try:
-        # Use xclim's select_resample_op for annual minima (drought analysis)
-        logging.info("Extracting annual minima for drought analysis...")
-        
-        # Add units attribute for xclim compatibility (SPI is dimensionless)
-        spi_data.attrs['units'] = '1'
+        import icechunk
+        import xarray as xr
+        import numpy as np
+        import regionmask
+        from shapely.geometry import shape
+        from xclim.indices import stats
+        from xclim.indices.generic import select_resample_op
+        from dask.distributed import get_worker
+        from pathlib import Path
 
+        # Get worker information and credentials path
+        worker = get_worker()
+        worker_id = worker.address
+        local_dir = worker.local_directory
+        creds_path = Path(local_dir) / creds_filename
+
+        region_id = region_metadata['region_id']
+        region_name = region_metadata['region_name']
+        
+        # Verify credentials exist
+        if not creds_path.exists():
+            return {
+                'region_id': region_id,
+                'region_name': region_name,
+                'return_periods': return_periods,
+                'return_levels': [np.nan] * len(return_periods),
+                'status': f'error: credentials not found at {creds_path}',
+                'worker_id': worker_id,
+                'n_years': 0
+            }
+
+        # Initialize Icechunk connection on worker
+        storage = icechunk.gcs_storage(
+            bucket=bucket,
+            prefix=prefix,
+            service_account_file=str(creds_path)
+        )
+        
+        repo = icechunk.Repository.open(storage)
+        session = repo.readonly_session("main")
+        
+        # Load dataset on worker
+        dataset = xr.open_zarr(session.store, group=group_name, consolidated=False)
+        
+        # Get SPI data
+        if spi_var_name not in dataset.data_vars:
+            available_vars = list(dataset.data_vars)
+            for var in available_vars:
+                if 'spi' in var.lower() or 'spc' in var.lower():
+                    spi_var_name = var
+                    break
+        
+        spi_data = dataset[spi_var_name]
+        if 'band' in spi_data.dims:
+            spi_data = spi_data.squeeze('band')
+
+        # Create region geometry and mask on worker
+        region_geom = shape(region_metadata['geometry'])
+        
+        # Get coordinate arrays
+        lons = spi_data.lon.values
+        lats = spi_data.lat.values
+        
+        # Create mask for this specific region
+        region_gdf = gpd.GeoDataFrame([{'geometry': region_geom, 'region_id': region_id}])
+        region_mask = regionmask.mask_geopandas(region_gdf.geometry, lons, lats)
+        
+        # Extract annual extremes on worker
+        spi_data.attrs['units'] = '1'
         annual_minima = select_resample_op(
             spi_data,
             op='min',
-            freq='YS',  # Annual frequency starting in January
+            freq='YS'  # Annual frequency starting in January
         )
-
-        extraction_time = time.time() - start_time
         
-        logging.info(f"✅ Annual extremes extracted in {extraction_time:.2f} seconds")
-        logging.info(f"   Shape: {dict(annual_minima.sizes)}")
-        logging.info(f"   Time range: {annual_minima.time.min().values} to {annual_minima.time.max().values}")
+        # Apply regional mask
+        region_data = annual_minima.where(region_mask == 0)  # regionmask uses 0 for first region
         
-        # Log statistical summary
-        try:
-            min_val = float(annual_minima.min().values)
-            max_val = float(annual_minima.max().values)
-            mean_val = float(annual_minima.mean().values)
-            logging.info(f"   Value range: [{min_val:.3f}, {max_val:.3f}], mean: {mean_val:.3f}")
-        except:
-            pass
-
-        return annual_minima
-
-    except Exception as e:
-        logging.error(f"❌ Failed to extract annual extremes: {e}")
-        logging.debug(traceback.format_exc())
-        raise
-
-
-def process_region_for_return_periods(annual_minima, region_mask, region_id, region_name, return_periods):
-    """Process a single region for return period calculation - runs on worker with logging"""
-    import logging
-    
-    try:
-        # Extract regional data on the worker
-        region_data = annual_minima.where(region_mask == region_id)
+        # Compute regional time series
+        region_values = region_data.values
         
-        # Compute values on the worker (avoiding serialization issues)
-        region_values = region_data.values  # Get numpy array directly
-        
-        # Work with numpy array directly
         if isinstance(region_values, np.ndarray):
-            # Remove spatial dimensions and work with time series
             if region_values.ndim > 1:
                 # Take spatial mean over the region, ignoring NaNs
                 region_ts = np.nanmean(region_values, axis=tuple(range(1, region_values.ndim)))
             else:
                 region_ts = region_values
         else:
-            # Fallback
             region_ts = np.array(region_values).flatten()
 
         # Remove NaN values
@@ -517,6 +513,7 @@ def process_region_for_return_periods(annual_minima, region_mask, region_id, reg
                 'return_periods': return_periods,
                 'return_levels': [np.nan] * len(return_periods),
                 'status': 'insufficient_data',
+                'worker_id': worker_id,
                 'n_years': len(valid_data)
             }
 
@@ -524,10 +521,8 @@ def process_region_for_return_periods(annual_minima, region_mask, region_id, reg
         drought_data = -1 * valid_data
 
         # Convert to xarray for xclim compatibility
-        import xarray as xr
-        from xclim.indices import stats
         drought_xr = xr.DataArray(drought_data, dims=['time'])
-        
+
         # Calculate return levels using xclim's fa() function
         fa_result = stats.fa(drought_xr,
                              t=return_periods,
@@ -543,121 +538,90 @@ def process_region_for_return_periods(annual_minima, region_mask, region_id, reg
             'return_periods': return_periods,
             'return_levels': drought_return_levels.values.tolist(),
             'status': 'success',
+            'worker_id': worker_id,
             'n_years': len(valid_data)
         }
 
     except Exception as e:
+        import traceback
         return {
-            'region_id': region_id,
-            'region_name': region_name,
+            'region_id': region_metadata.get('region_id', -1),
+            'region_name': region_metadata.get('region_name', 'unknown'),
             'return_periods': return_periods,
             'return_levels': [np.nan] * len(return_periods),
             'status': f'error: {str(e)}',
-            'n_years': 0
+            'worker_id': getattr(get_worker(), 'address', 'unknown') if 'get_worker' in locals() else 'unknown',
+            'n_years': 0,
+            'traceback': traceback.format_exc()
         }
 
 
-def calculate_return_periods_per_region(annual_minima, region_mask, gdf, client, 
-                                        return_periods=[2, 5, 10, 25, 50, 100]):
-    """Calculate return periods for each administrative region using distributed computing with enhanced logging"""
+def calculate_return_periods_with_worker_connections(region_metadata, client, return_periods=[2, 5, 10, 25, 50, 100]):
+    """Calculate return periods using worker-side Icechunk connections"""
     logging.info("=" * 70)
-    logging.info("CALCULATING RETURN PERIODS PER REGION")
+    logging.info("CALCULATING RETURN PERIODS WITH WORKER CONNECTIONS")
     logging.info("=" * 70)
 
     logging.info(f"Return periods to calculate: {return_periods}")
-    logging.info(f"Using Dask client: {client}")
-    
-    # Ensure data is chunked for distributed processing
-    logging.debug(f"Data dimensions: {annual_minima.dims}")
-    logging.debug(f"Current chunks: {annual_minima.chunks}")
-    
-    # Determine coordinate names and rechunk appropriately
-    if 'latitude' in annual_minima.dims:
-        chunk_dict = {'time': -1, 'latitude': 50, 'longitude': 50}
-    elif 'lat' in annual_minima.dims:
-        chunk_dict = {'time': -1, 'lat': 50, 'lon': 50}
-    else:
-        chunk_dict = {'time': -1}
-    
-    logging.info(f"Rechunking with: {chunk_dict}")
-    annual_minima = annual_minima.chunk(chunk_dict)
-    logging.debug(f"New chunks: {annual_minima.chunks}")
-    
-    # Check cluster status
-    try:
-        worker_info = client.scheduler_info().get('workers', {})
-        logging.info(f"Cluster status: Connected with {len(worker_info)} workers")
-        
-        if len(worker_info) == 0:
-            logging.warning("No workers detected. Tasks may run on scheduler.")
-            
-    except Exception as e:
-        logging.error(f"Cluster connection issue: {e}")
-        raise
+    logging.info(f"Processing {len(region_metadata)} regions")
 
-    # Get unique region IDs from the mask
-    unique_regions = np.unique(region_mask.values[~np.isnan(region_mask.values)])
-    logging.info(f"Processing {len(unique_regions)} regions...")
+    # Configuration for worker tasks
+    bucket = BUCKET_NAME
+    prefix = f"{BASE_PREFIX}_{SPI_TYPE}"
+    group_name = f"{SPI_TYPE}_data"
+    creds_filename = SERVICE_ACCOUNT_FILE
+    spi_var_name = f"spc{SPI_TYPE[3:]}"  # Convert spi9 -> spc09
 
     start_time = time.time()
-    
-    # Prepare tasks for distributed computation
-    tasks = []
-    
-    for region_id in unique_regions:
-        region_id = int(region_id)
 
-        # Get region name from GeoDataFrame
-        try:
-            if 'shapeName' in gdf.columns:
-                region_name = gdf.iloc[region_id]['shapeName']
-            elif 'GID_1' in gdf.columns:
-                region_name = gdf.iloc[region_id]['GID_1']
-            else:
-                region_name = f"Region_{region_id}"
-        except:
-            region_name = f"Region_{region_id}"
-
-        # Submit the region processing as a delayed task
-        task = dask.delayed(process_region_for_return_periods)(
-            annual_minima, region_mask, region_id, region_name, return_periods
-        )
-        tasks.append(task)
-
-    # Compute all tasks in parallel using the client
-    logging.info(f"Computing {len(tasks)} return period tasks in parallel...")
-    
     try:
-        # Use client.compute to force execution on the cluster
-        futures = client.compute(tasks, sync=False)
+        # Submit tasks to workers
+        logging.info(f"Submitting {len(region_metadata)} tasks to workers...")
         
-        # Wait for completion with progress tracking
+        futures = []
+        for region_meta in region_metadata:
+            future = client.submit(
+                process_region_with_worker_icechunk,
+                region_meta,
+                bucket,
+                prefix,
+                group_name,
+                creds_filename,
+                return_periods,
+                spi_var_name
+            )
+            futures.append(future)
+
+        # Collect results with progress tracking
         results = []
         completed = 0
-        
+
         for i, future in enumerate(futures):
             try:
                 result = future.result()
                 results.append(result)
                 completed += 1
-                
+
                 if completed % 10 == 0 or completed == len(futures):
                     progress = (completed / len(futures)) * 100
-                    logging.info(f"Progress: {completed}/{len(futures)} regions ({progress:.1f}%)")
-                    
+                    logging.info(
+                        f"Progress: {completed}/{len(futures)} regions ({progress:.1f}%)"
+                    )
+
             except Exception as e:
                 logging.error(f"Task {i} failed: {e}")
                 results.append({
-                    'region_id': -1,
-                    'region_name': 'failed',
+                    'region_id': i,
+                    'region_name': f'failed_region_{i}',
                     'return_periods': return_periods,
                     'return_levels': [np.nan] * len(return_periods),
                     'status': f'error: {str(e)}',
+                    'worker_id': 'unknown',
                     'n_years': 0
                 })
 
     except Exception as e:
-        logging.error(f"Failed to compute tasks: {e}")
+        logging.error(f"Failed to process regions: {e}")
         raise
 
     computation_time = time.time() - start_time
@@ -666,15 +630,20 @@ def calculate_return_periods_per_region(annual_minima, region_mask, gdf, client,
     successful_regions = [r for r in results if r['status'] == 'success']
     failed_regions = [r for r in results if r['status'] != 'success']
 
-    logging.info(f"✅ Return period calculation completed in {computation_time:.2f} seconds")
+    logging.info(
+        f"✅ Return period calculation completed in {computation_time:.2f} seconds"
+    )
     logging.info(f"   Successful regions: {len(successful_regions)}")
     logging.info(f"   Failed regions: {len(failed_regions)}")
-    logging.info(f"   Processing rate: {len(unique_regions)/computation_time:.2f} regions/second")
+    logging.info(
+        f"   Processing rate: {len(region_metadata)/computation_time:.2f} regions/second"
+    )
 
     # Log failure details if any
     if failed_regions:
         for failed in failed_regions[:5]:  # Show first 5 failures
-            logging.warning(f"   Failed region {failed['region_id']}: {failed['status']}")
+            logging.warning(
+                f"   Failed region {failed['region_id']}: {failed['status']}")
 
     # Display sample results
     if successful_regions:
@@ -686,10 +655,55 @@ def calculate_return_periods_per_region(annual_minima, region_mask, gdf, client,
     return results
 
 
+def cleanup_cluster(client, cluster, force=False):
+    """Gracefully cleanup Dask cluster with proper disentanglement"""
+    logging.info("Starting cluster cleanup...")
+
+    try:
+        if client:
+            # Cancel any running tasks
+            try:
+                client.cancel(client.futures, force=force)
+                logging.info("Cancelled running tasks")
+            except Exception as e:
+                logging.warning(f"Error cancelling tasks: {e}")
+
+            # Close client connection
+            try:
+                client.close(timeout=10)
+                logging.info("Client connection closed")
+            except Exception as e:
+                logging.warning(f"Error closing client: {e}")
+
+        if cluster:
+            # Close cluster
+            try:
+                cluster.close()
+                logging.info("Cluster closed successfully")
+            except Exception as e:
+                logging.warning(f"Error closing cluster: {e}")
+
+        # Clear cluster cache
+        cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
+        if cache_file.exists():
+            try:
+                cache_file.unlink()
+                logging.info("Cluster cache cleared")
+            except Exception as e:
+                logging.warning(f"Error clearing cache: {e}")
+
+    except Exception as e:
+        logging.error(f"Error during cluster cleanup: {e}")
+        if force:
+            logging.warning("Forcing cleanup despite errors")
+        else:
+            raise
+
+
 def save_results(results, session_id, output_file=None):
     """Save results to JSON file with enhanced metadata"""
     if output_file is None:
-        output_file = f"extreme_value_analysis_results_{session_id}.json"
+        output_file = f"extreme_value_analysis_results_v20250809_{session_id}.json"
 
     logging.info("=" * 70)
     logging.info("SAVING RESULTS")
@@ -700,7 +714,7 @@ def save_results(results, session_id, output_file=None):
         metadata = {
             'session_id': session_id,
             'created_at': datetime.now().isoformat(),
-            'script_version': 'enhanced_v1.0',
+            'script_version': 'enhanced_v20250809',
             'configuration': {
                 'base_prefix': BASE_PREFIX,
                 'spi_type': SPI_TYPE,
@@ -708,23 +722,24 @@ def save_results(results, session_id, output_file=None):
                 'geojson_file': GEOJSON_FILE
             },
             'summary': {
-                'total_regions': len(results),
-                'successful_regions': len([r for r in results if r['status'] == 'success']),
-                'failed_regions': len([r for r in results if r['status'] != 'success'])
+                'total_regions':
+                len(results),
+                'successful_regions':
+                len([r for r in results if r['status'] == 'success']),
+                'failed_regions':
+                len([r for r in results if r['status'] != 'success'])
             }
         }
-        
-        output_data = {
-            'metadata': metadata,
-            'results': results
-        }
+
+        output_data = {'metadata': metadata, 'results': results}
 
         with open(output_file, 'w') as f:
             json.dump(output_data, f, indent=2, default=str)
 
         logging.info(f"✅ Results saved to {output_file}")
         logging.info(f"   Total regions processed: {len(results)}")
-        logging.info(f"   Successful: {metadata['summary']['successful_regions']}")
+        logging.info(
+            f"   Successful: {metadata['summary']['successful_regions']}")
         logging.info(f"   Failed: {metadata['summary']['failed_regions']}")
 
     except Exception as e:
@@ -734,12 +749,13 @@ def save_results(results, session_id, output_file=None):
 
 def main():
     """Main execution function with enhanced logging and error recovery"""
-    
+
     # Initialize logging system
     session_id, log_file = setup_logging()
-    
+
     logging.info("=" * 70)
-    logging.info("ICECHUNK REGIONMASK EXTREME VALUE ANALYSIS - ENHANCED VERSION")
+    logging.info(
+        "ICECHUNK REGIONMASK EXTREME VALUE ANALYSIS - ENHANCED v20250809")
     logging.info("=" * 70)
     logging.info(f"Session ID: {session_id}")
 
@@ -752,50 +768,27 @@ def main():
         logging.info("STEP 1: Setting up Dask cluster")
         client, cluster = setup_coiled_cluster(session_id=session_id)
 
-        # Step 2: Load SPI9 data from Icechunk
-        logging.info("STEP 2: Loading SPI data from Icechunk")
-        dataset = load_icechunk_spi_data()
-
-        # Get the SPI variable (adjust variable name as needed)
-        spi_var = None
-        for var in dataset.data_vars:
-            if 'spi' in var.lower() or 'spc' in var.lower():
-                spi_var = var
-                break
-
-        if spi_var is None:
-            raise ValueError(f"No SPI variable found. Available variables: {list(dataset.data_vars)}")
-
-        spi_data = dataset[spi_var]
-        if 'band' in spi_data.dims:
-            spi_data = spi_data.squeeze('band')
-
-        logging.info(f"Using SPI variable: {spi_var}")
+        # Step 2: Upload credentials to workers
+        logging.info("STEP 2: Uploading credentials to workers")
+        upload_credentials_to_workers(client, SERVICE_ACCOUNT_FILE)
 
         # Step 3: Load administrative regions
         logging.info("STEP 3: Loading administrative regions")
         gdf, regions = load_administrative_regions()
 
-        # Step 4: Create region mask
-        logging.info("STEP 4: Creating region mask")
-        region_mask = create_region_mask(gdf, dataset)
+        # Step 4: Extract region metadata for workers
+        logging.info("STEP 4: Extracting region metadata")
+        region_metadata = get_region_metadata(gdf, regions)
 
-        # Step 5: Extract annual extremes
-        logging.info("STEP 5: Extracting annual extremes")
-        annual_minima = extract_annual_extremes(spi_data)
-
-        # Step 6: Calculate return periods per region
-        logging.info("STEP 6: Calculating return periods per region")
-        results = calculate_return_periods_per_region(
-            annual_minima,
-            region_mask,
-            gdf,
+        # Step 5: Calculate return periods using worker connections
+        logging.info("STEP 5: Calculating return periods with worker connections")
+        results = calculate_return_periods_with_worker_connections(
+            region_metadata,
             client,
-            return_periods=[2, 5, 10, 25, 50, 100]
-        )
+            return_periods=[2, 5, 10, 25, 50, 100])
 
-        # Step 7: Save results
-        logging.info("STEP 7: Saving results")
+        # Step 6: Save results
+        logging.info("STEP 6: Saving results")
         save_results(results, session_id)
 
         # Summary
@@ -804,17 +797,18 @@ def main():
         logging.info("=" * 70)
 
         successful_regions = [r for r in results if r['status'] == 'success']
-        logging.info(f"✅ Processed {len(successful_regions)} regions successfully")
+        logging.info(
+            f"✅ Processed {len(successful_regions)} regions successfully")
         logging.info(f"✅ Results saved for extreme value analysis")
         logging.info(f"✅ Log file: {log_file}")
         logging.info(f"✅ Session ID: {session_id}")
-        
+
         success = True
 
     except KeyboardInterrupt:
         logging.warning("Analysis interrupted by user")
         success = False
-        
+
     except Exception as e:
         logging.error(f"❌ Analysis failed: {e}")
         logging.debug(traceback.format_exc())
@@ -827,9 +821,9 @@ def main():
             cleanup_cluster(client, cluster, force=not success)
         except Exception as e:
             logging.error(f"Error during cleanup: {e}")
-        
+
         logging.info(f"Analysis session {session_id} completed")
-        
+
         if success:
             logging.info("✅ Session completed successfully")
         else:
