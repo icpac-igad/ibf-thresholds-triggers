@@ -71,6 +71,11 @@ SESSION_DIR = Path("sessions")
 CLUSTER_CACHE_FILE = "cluster_cache.pkl"
 
 
+def get_worker_creds_path(dask_worker, creds_filename):
+    """Get the credential file path for a specific worker"""
+    return str(Path(dask_worker.local_directory) / creds_filename)
+
+
 def parse_arguments():
     """Parse command line arguments for variable selection and worker configuration"""
     parser = argparse.ArgumentParser(description='Multi-variable SPI extreme value analysis')
@@ -270,8 +275,8 @@ def setup_coiled_cluster(software_env="v5-geosfm-rm-x",
             name=cluster_name,
             software=software_env,
             n_workers=n_workers,
-            scheduler_vm_types=["n2-standard-4"],
-            worker_vm_types="n2-standard-4",
+            scheduler_vm_types=["n2-highmem-4"],
+            worker_vm_types="n2-highmem-4",
             region="us-east1",
             arm=False,
             compute_purchase_option="spot",
@@ -301,7 +306,7 @@ def setup_coiled_cluster(software_env="v5-geosfm-rm-x",
 
 
 def upload_credentials_to_workers(client, service_account_file):
-    """Upload service account credentials to all workers with verification"""
+    """Upload service account credentials to all workers with enhanced verification"""
     logging.info("=" * 70)
     logging.info("UPLOADING CREDENTIALS TO WORKERS")
     logging.info("=" * 70)
@@ -310,27 +315,53 @@ def upload_credentials_to_workers(client, service_account_file):
         raise FileNotFoundError(f"Service account file not found: {service_account_file}")
 
     try:
+        # Get list of workers before upload
+        workers = list(client.scheduler_info()['workers'].keys())
+        logging.info(f"Found {len(workers)} workers: {workers}")
+        
         # Upload credentials file to all workers
         logging.info(f"Uploading {service_account_file} to all workers...")
         client.upload_file(service_account_file)
         
-        # Wait for upload to complete
-        time.sleep(10)
+        # Wait longer for upload to complete on all workers
+        logging.info("Waiting for upload to complete on all workers...")
+        time.sleep(15)
         
-        # Verify upload on workers
+        # Verify upload on workers with enhanced checking
         def verify_credentials_on_worker(creds_filename):
-            """Verify that credentials file exists on worker"""
+            """Verify that credentials file exists on worker with detailed logging"""
             try:
+                from pathlib import Path
+                from dask.distributed import get_worker
+                
                 worker = get_worker()
-                local_dir = worker.local_directory
-                creds_path = Path(local_dir) / creds_filename
+                worker_address = worker.address
+                
+                # Use dynamic path function
+                worker_creds_path = get_worker_creds_path(worker, creds_filename)
+                creds_path = Path(worker_creds_path)
+                
+                # Try to read the file to ensure it's actually accessible
+                file_accessible = False
+                file_size = 0
+                if creds_path.exists():
+                    try:
+                        with open(creds_path, 'r') as f:
+                            content = f.read(100)  # Read first 100 chars to verify
+                            if '"type"' in content and '"project_id"' in content:
+                                file_accessible = True
+                                file_size = creds_path.stat().st_size
+                    except Exception as e:
+                        pass
                 
                 return {
-                    'worker_id': worker.address,
-                    'local_dir': local_dir,
-                    'creds_path': str(creds_path),
+                    'worker_id': worker_address,
+                    'local_dir': worker.local_directory,
+                    'creds_path': worker_creds_path,
                     'file_exists': creds_path.exists(),
-                    'status': 'success' if creds_path.exists() else 'missing_file'
+                    'file_accessible': file_accessible,
+                    'file_size': file_size,
+                    'status': 'success' if file_accessible else 'file_not_accessible'
                 }
             except Exception as e:
                 return {
@@ -339,24 +370,47 @@ def upload_credentials_to_workers(client, service_account_file):
                     'status': 'error'
                 }
 
-        # Test credential access on all workers
-        futures = client.map(verify_credentials_on_worker, [service_account_file] * len(client.scheduler_info()['workers']))
-        verification_results = client.gather(futures)
-
-        # Check results
-        successful_workers = [r for r in verification_results if r['status'] == 'success']
-        failed_workers = [r for r in verification_results if r['status'] != 'success']
-
-        logging.info(f"✅ Credentials verified on {len(successful_workers)} workers")
+        # Test credential access on all workers multiple times
+        max_retries = 3
+        successful_workers = []
         
-        if failed_workers:
-            logging.warning(f"❌ Credentials failed on {len(failed_workers)} workers")
-            for failed in failed_workers:
-                logging.warning(f"   Worker {failed.get('worker_id', 'unknown')}: {failed.get('error', 'missing file')}")
+        for attempt in range(max_retries):
+            logging.info(f"Verification attempt {attempt + 1}/{max_retries}")
+            
+            futures = client.map(verify_credentials_on_worker, [service_account_file] * len(workers))
+            verification_results = client.gather(futures)
+            
+            successful_workers = [r for r in verification_results if r['status'] == 'success']
+            failed_workers = [r for r in verification_results if r['status'] != 'success']
+            
+            logging.info(f"   Attempt {attempt + 1}: {len(successful_workers)}/{len(workers)} workers successful")
+            
+            # Show detailed results for each worker
+            for result in verification_results:
+                worker_id = result.get('worker_id', 'unknown')
+                status = result.get('status', 'unknown')
+                if status == 'success':
+                    logging.info(f"   ✅ Worker {worker_id}: File accessible ({result.get('file_size', 0)} bytes)")
+                else:
+                    logging.warning(f"   ❌ Worker {worker_id}: {status} - {result.get('error', 'file not accessible')}")
+                    logging.warning(f"      Path checked: {result.get('creds_path', 'unknown')}")
+            
+            if len(successful_workers) == len(workers):
+                logging.info(f"✅ All {len(workers)} workers have accessible credentials")
+                break
+            elif attempt < max_retries - 1:
+                logging.warning(f"Retrying credential upload in 10 seconds...")
+                time.sleep(10)
+                # Re-upload if not all workers successful
+                client.upload_file(service_account_file)
+                time.sleep(10)
         
         if len(successful_workers) == 0:
-            raise RuntimeError("No workers have access to credentials")
+            raise RuntimeError("No workers have access to credentials after all attempts")
+        elif len(successful_workers) < len(workers):
+            raise RuntimeError(f"Only {len(successful_workers)}/{len(workers)} workers have accessible credentials")
 
+        logging.info(f"✅ Credential upload successful: {len(successful_workers)} workers ready")
         return True
 
     except Exception as e:
@@ -459,6 +513,14 @@ def get_region_metadata(gdf, regions):
 def validate_spi_variable_availability(bucket, prefix, spi_type):
     """Check if a specific SPI variable is available in the Icechunk repository"""
     try:
+        # Check if service account file exists locally first
+        if not Path(SERVICE_ACCOUNT_FILE).exists():
+            logging.warning(f"⚠️  Service account file not found locally, skipping validation for {spi_type.upper()}")
+            logging.info(f"   Will attempt to process {spi_type.upper()} - validation will occur on workers")
+            # Return True and let worker-side validation handle it
+            expected_var = f"spc{spi_type[3:]:0>2}"  # e.g., spi3 -> spc03
+            return True, expected_var
+            
         storage = icechunk.gcs_storage(
             bucket=bucket,
             prefix=prefix,
@@ -483,9 +545,15 @@ def validate_spi_variable_availability(bucket, prefix, spi_type):
             logging.warning(f"❌ {spi_type.upper()} data not found - available vars: {available_vars}")
             return False, None
             
+    except FileNotFoundError as e:
+        logging.warning(f"⚠️  Credentials not accessible for validation, will attempt processing {spi_type.upper()} on workers")
+        expected_var = f"spc{spi_type[3:]:0>2}"
+        return True, expected_var
     except Exception as e:
         logging.warning(f"❌ Failed to validate {spi_type.upper()} availability: {e}")
-        return False, None
+        logging.info(f"   Will attempt to process {spi_type.upper()} - validation will occur on workers")
+        expected_var = f"spc{spi_type[3:]:0>2}"
+        return True, expected_var
 
 
 def process_region_with_worker_icechunk(region_metadata, bucket, prefix, group_name, 
@@ -504,6 +572,7 @@ def process_region_with_worker_icechunk(region_metadata, bucket, prefix, group_n
         import icechunk
         import xarray as xr
         import numpy as np
+        import geopandas as gpd
         import regionmask
         from shapely.geometry import shape
         from xclim.indices import stats
@@ -511,11 +580,11 @@ def process_region_with_worker_icechunk(region_metadata, bucket, prefix, group_n
         from dask.distributed import get_worker
         from pathlib import Path
 
-        # Get worker information and credentials path
+        # Get worker information and dynamic credentials path
         worker = get_worker()
         worker_id = worker.address
-        local_dir = worker.local_directory
-        creds_path = Path(local_dir) / creds_filename
+        worker_creds_path = get_worker_creds_path(worker, creds_filename)
+        creds_path = Path(worker_creds_path)
 
         region_id = region_metadata['region_id']
         region_name = region_metadata['region_name']
@@ -528,23 +597,24 @@ def process_region_with_worker_icechunk(region_metadata, bucket, prefix, group_n
                 'region_name': region_name,
                 'return_periods': return_periods,
                 'return_levels': [np.nan] * len(return_periods),
-                'status': f'error: credentials not found at {creds_path}',
+                'status': f'error: credentials not found at {worker_creds_path}',
                 'worker_id': worker_id,
                 'n_years': 0
             }
 
-        # Initialize Icechunk connection on worker
+        # Initialize Icechunk connection on worker using dynamic path
         storage = icechunk.gcs_storage(
             bucket=bucket,
             prefix=prefix,
-            service_account_file=str(creds_path)
+            service_account_file=worker_creds_path
         )
         
         repo = icechunk.Repository.open(storage)
         session = repo.readonly_session("main")
         
-        # Load dataset on worker
-        dataset = xr.open_zarr(session.store, group=group_name, consolidated=False)
+        # Load dataset on worker with chunking to manage memory
+        dataset = xr.open_zarr(session.store, group=group_name, consolidated=False, 
+                              chunks={'time': 50, 'lat': 100, 'lon': 100})
         
         # Get SPI data - try specified variable first, then search
         if spi_var_name not in dataset.data_vars:
@@ -777,13 +847,19 @@ def calculate_return_periods_multi_variable(region_metadata, client, spi_variabl
             for T, level in zip(sample['return_periods'], sample['return_levels']):
                 logging.info(f"      {T:3d}-year drought: SPI = {level:.3f}")
 
-        # Store results for this variable
+        # Save results immediately for this variable
+        individual_output_file = save_individual_variable_results(
+            spi_type, results, session_id, len(client.scheduler_info()['workers']), computation_time
+        )
+        
+        # Store results for this variable in summary
         all_results[spi_type] = {
             'status': 'completed',
             'processing_time': computation_time,
             'successful_regions': len(successful_regions),
             'failed_regions': len(failed_regions),
-            'results': results
+            'results': results,
+            'output_file': individual_output_file
         }
 
     # Summary across all variables
@@ -791,14 +867,24 @@ def calculate_return_periods_multi_variable(region_metadata, client, spi_variabl
     logging.info("MULTI-VARIABLE PROCESSING SUMMARY")
     logging.info("=" * 70)
     
+    completed_files = []
     for spi_type, var_results in all_results.items():
         status = var_results['status']
         if status == 'completed':
+            output_file = var_results.get('output_file', 'unknown')
             logging.info(f"✅ {spi_type.upper()}: {var_results['successful_regions']} regions processed")
+            logging.info(f"   📁 Saved to: {output_file}")
+            if output_file != 'unknown' and output_file:
+                completed_files.append(output_file)
         elif status == 'skipped':
             logging.info(f"⚠️  {spi_type.upper()}: Skipped - {var_results['reason']}")
         else:
             logging.info(f"❌ {spi_type.upper()}: Failed - {var_results['reason']}")
+
+    if completed_files:
+        logging.info(f"\n📁 Individual result files created ({len(completed_files)} total):")
+        for filename in completed_files:
+            logging.info(f"   • {filename}")
 
     return all_results
 
@@ -846,6 +932,62 @@ def cleanup_cluster(client, cluster, force=False):
             logging.warning("Forcing cleanup despite errors")
         else:
             raise
+
+
+def save_individual_variable_results(spi_type, results, session_id, n_workers, processing_time):
+    """Save results for a single SPI variable immediately after completion"""
+    output_file = f"spi_{spi_type}_extreme_analysis_results_v20250811_{session_id}.json"
+    
+    logging.info(f"\n💾 Saving {spi_type.upper()} results immediately...")
+    logging.info(f"   Output file: {output_file}")
+    
+    try:
+        # Process results for this variable
+        successful_regions = [r for r in results if r['status'] == 'success']
+        failed_regions = [r for r in results if r['status'] != 'success']
+        
+        # Create metadata for this variable
+        metadata = {
+            'session_id': session_id,
+            'created_at': datetime.now().isoformat(),
+            'script_version': 'multi_variable_v20250811',
+            'spi_variable': spi_type,
+            'configuration': {
+                'base_prefix': BASE_PREFIX,
+                'n_workers': n_workers,
+                'bucket_name': BUCKET_NAME,
+                'geojson_file': GEOJSON_FILE
+            },
+            'processing_statistics': {
+                'processing_time_seconds': processing_time,
+                'total_regions': len(results),
+                'successful_regions': len(successful_regions),
+                'failed_regions': len(failed_regions),
+                'success_rate': len(successful_regions) / len(results) if results else 0
+            }
+        }
+        
+        # Create output data structure
+        output_data = {
+            'metadata': metadata,
+            'results': results
+        }
+        
+        # Save to JSON file
+        with open(output_file, 'w') as f:
+            json.dump(output_data, f, indent=2, default=str)
+        
+        logging.info(f"✅ {spi_type.upper()} results saved successfully")
+        logging.info(f"   File: {output_file}")
+        logging.info(f"   Regions: {len(successful_regions)}/{len(results)} successful")
+        logging.info(f"   Processing time: {processing_time:.1f} seconds")
+        
+        return output_file
+        
+    except Exception as e:
+        logging.error(f"❌ Failed to save {spi_type.upper()} results: {e}")
+        logging.debug(traceback.format_exc())
+        return None
 
 
 def save_results(all_results, session_id, spi_variables, n_workers, output_file=None):
@@ -956,6 +1098,10 @@ def main():
 
         # Step 2: Upload credentials to workers
         logging.info("STEP 2: Uploading credentials to workers")
+        if not Path(SERVICE_ACCOUNT_FILE).exists():
+            logging.error(f"❌ Service account file not found: {SERVICE_ACCOUNT_FILE}")
+            logging.error("   Make sure the credentials file is in the current directory")
+            raise FileNotFoundError(f"Required service account file not found: {SERVICE_ACCOUNT_FILE}")
         upload_credentials_to_workers(client, SERVICE_ACCOUNT_FILE)
 
         # Step 3: Load administrative regions
@@ -974,8 +1120,8 @@ def main():
             spi_variables,
             return_periods)
 
-        # Step 6: Save results
-        logging.info("STEP 6: Saving multi-variable results")
+        # Step 6: Save consolidated summary (optional - individual files already saved)
+        logging.info("STEP 6: Saving consolidated multi-variable summary")
         output_file = save_results(all_results, session_id, spi_variables, n_workers)
 
         # Summary
@@ -991,9 +1137,18 @@ def main():
                 total_successful += var_results['successful_regions']
                 completed_vars += 1
 
+        # Count individual files created
+        individual_files = []
+        for spi_type, var_results in all_results.items():
+            if var_results['status'] == 'completed' and var_results.get('output_file'):
+                individual_files.append(var_results['output_file'])
+        
         logging.info(f"✅ Processed {completed_vars} SPI variables successfully")
         logging.info(f"✅ Total regions processed: {total_successful}")
-        logging.info(f"✅ Results saved to: {output_file}")
+        logging.info(f"✅ Individual result files: {len(individual_files)} created")
+        for i, filename in enumerate(individual_files, 1):
+            logging.info(f"   {i}. {filename}")
+        logging.info(f"✅ Consolidated summary: {output_file}")
         logging.info(f"✅ Log file: {log_file}")
         logging.info(f"✅ Session ID: {session_id}")
 
