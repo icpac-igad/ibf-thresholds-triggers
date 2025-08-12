@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
 """
-Enhanced Icechunk-based Regional Extreme Value Analysis v20250809
-================================================================
+Sequential Multi-Variable Icechunk-based Regional Extreme Value Analysis v20250812
+==================================================================================
 
-WORKER CREDENTIALS FIX VERSION
+SEQUENTIAL PROCESSING VERSION
 
-This enhanced script fixes the worker credentials issue by implementing:
-1. Worker-side credentials upload and verification
-2. Individual Icechunk connections per worker
-3. Region-specific data loading and processing
-4. Enhanced error handling and recovery
+This script processes multiple SPI variables sequentially using separate clusters,
+based on the stable v20250809 approach that works reliably with single variables.
 
-Key improvements over the original:
-- Eliminates "No such file or directory" credential errors
-- Reduces data serialization overhead
-- Improves fault tolerance and scalability
-- Maintains analytical accuracy
-
-Based on the approach demonstrated in 21-icechunk-pass-index-worker-test.ipynb
+Key features:
+1. Sequential processing of SPI variables (spi3, spi6, spi9, spi12, spi24, spi48)
+2. Fresh cluster for each variable to avoid memory issues
+3. Individual output files for each variable
+4. Stable n2-standard-4 VM configuration
+5. Command-line variable selection
 
 Usage:
-    python icechunk_regionmask_extreme_analysis_enhanced_v20250809.py
+    # Process single variable
+    python icechunk_regionmask_extreme_analysis_enhanced_v20250812.py --variable spi6
+    
+    # Process multiple variables sequentially
+    python icechunk_regionmask_extreme_analysis_enhanced_v20250812.py --variables spi3,spi6,spi9
+
+Based on the proven approach from v20250809 with individual cluster management.
 """
 
 import icechunk
@@ -46,31 +48,82 @@ import pickle
 from pathlib import Path
 import traceback
 import sys
+import argparse
 
 warnings.filterwarnings('ignore')
 
 # Configuration
 BASE_PREFIX = "t2spi1_east_africa_icechunk"
-SPI_TYPE = "spi9"
 BUCKET_NAME = "cdi_arco"
 SERVICE_ACCOUNT_FILE = "coiled-data-e4drr_202505.json"
 GEOJSON_FILE = "icpac_adm1v3.geojson"
 BUFFER_SIZE = 0.25
 
+# Available SPI variables
+AVAILABLE_SPI_VARIABLES = ["spi3", "spi6", "spi9", "spi12", "spi24", "spi48"]
+
 # Logging and session configuration
 LOG_DIR = Path("logs")
 SESSION_DIR = Path("sessions")
-CLUSTER_CACHE_FILE = "cluster_cache.pkl"
 
 
-def setup_logging(log_level=logging.INFO):
+def parse_arguments():
+    """Parse command line arguments for variable selection"""
+    parser = argparse.ArgumentParser(description='Sequential SPI extreme value analysis')
+    
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--variable', 
+                      type=str,
+                      help=f'Single SPI variable to process. Options: {", ".join(AVAILABLE_SPI_VARIABLES)}')
+    
+    group.add_argument('--variables',
+                      type=str,
+                      help=f'Comma-separated list of SPI variables to process sequentially. Options: {", ".join(AVAILABLE_SPI_VARIABLES)}')
+    
+    parser.add_argument('--return-periods',
+                       type=str,
+                       default='2,5,10,25,50,100',
+                       help='Comma-separated list of return periods (default: 2,5,10,25,50,100)')
+    
+    args = parser.parse_args()
+    
+    # Parse variables
+    if args.variable:
+        variables = [args.variable.strip()]
+    else:
+        variables = [var.strip() for var in args.variables.split(',')]
+    
+    # Validate variables
+    valid_variables = []
+    for var in variables:
+        if var in AVAILABLE_SPI_VARIABLES:
+            valid_variables.append(var)
+        else:
+            print(f"Warning: Skipping invalid variable '{var}'. Valid options: {AVAILABLE_SPI_VARIABLES}")
+    
+    if not valid_variables:
+        print(f"Error: No valid variables specified. Valid options: {AVAILABLE_SPI_VARIABLES}")
+        sys.exit(1)
+    
+    # Parse return periods
+    try:
+        return_periods = [int(x.strip()) for x in args.return_periods.split(',')]
+    except ValueError:
+        print("Error: Invalid return periods format. Using default: [2, 5, 10, 25, 50, 100]")
+        return_periods = [2, 5, 10, 25, 50, 100]
+    
+    return valid_variables, return_periods
+
+
+def setup_logging(log_level=logging.INFO, variable=None):
     """Setup comprehensive logging system with file and console output"""
     # Create log directory if it doesn't exist
     LOG_DIR.mkdir(exist_ok=True)
 
     # Create unique session identifier
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = LOG_DIR / f"icechunk_analysis_v20250809_{session_id}.log"
+    var_suffix = variable if variable else "multi"
+    log_file = LOG_DIR / f"icechunk_analysis_v20250812_{var_suffix}_{session_id}.log"
 
     # Configure root logger
     logger = logging.getLogger()
@@ -104,110 +157,12 @@ def setup_logging(log_level=logging.INFO):
     return session_id, log_file
 
 
-def save_cluster_info(cluster, client, session_id):
-    """Save cluster connection information for reuse"""
-    SESSION_DIR.mkdir(exist_ok=True)
-
-    cluster_info = {
-        'session_id': session_id,
-        'cluster_name': cluster.name,
-        'scheduler_address': client.scheduler.address,
-        'dashboard_link': client.dashboard_link,
-        'created_at': datetime.now().isoformat(),
-        'status': 'active'
-    }
-
-    cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
-
-    try:
-        with open(cache_file, 'wb') as f:
-            pickle.dump(cluster_info, f)
-        logging.info(f"Cluster info saved to {cache_file}")
-    except Exception as e:
-        logging.warning(f"Failed to save cluster info: {e}")
-
-
-def load_cluster_info():
-    """Load existing cluster connection information"""
-    cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
-
-    if not cache_file.exists():
-        return None
-
-    try:
-        with open(cache_file, 'rb') as f:
-            cluster_info = pickle.load(f)
-
-        # Check if cluster info is recent (within 4 hours)
-        created_at = datetime.fromisoformat(cluster_info['created_at'])
-        age_hours = (datetime.now() - created_at).total_seconds() / 3600
-
-        if age_hours > 4:
-            logging.info(f"Cluster cache expired ({age_hours:.1f} hours old)")
-            return None
-
-        logging.info(
-            f"Found cached cluster info: {cluster_info['cluster_name']}")
-        return cluster_info
-
-    except Exception as e:
-        logging.warning(f"Failed to load cluster info: {e}")
-        return None
-
-
-def test_cluster_connection(client):
-    """Test if cluster connection is still active"""
-    try:
-        worker_info = client.scheduler_info().get('workers', {})
-        if len(worker_info) > 0:
-            logging.info(
-                f"Cluster connection active with {len(worker_info)} workers")
-            return True
-        else:
-            logging.warning(
-                "Cluster connection exists but no workers available")
-            return False
-    except Exception as e:
-        logging.warning(f"Cluster connection test failed: {e}")
-        return False
-
-
-def setup_coiled_cluster(software_env="v5-geosfm-rm-x",
-                         n_workers=1,
-                         reuse_existing=True,
-                         session_id=None):
-    """Setup Coiled Dask cluster with reuse capability and error recovery"""
-
-    # Try to reuse existing cluster first
-    if reuse_existing:
-        cluster_info = load_cluster_info()
-        if cluster_info:
-            try:
-                logging.info(
-                    f"Attempting to reconnect to existing cluster: {cluster_info['cluster_name']}"
-                )
-
-                # Try to get existing cluster
-                cluster = coiled.Cluster(cluster_info['cluster_name'])
-                client = cluster.get_client()
-
-                # Test connection
-                if test_cluster_connection(client):
-                    logging.info(
-                        f"✅ Reusing existing cluster: {client.dashboard_link}")
-                    return client, cluster
-                else:
-                    logging.info(
-                        "Existing cluster not responsive, creating new one...")
-                    client.close()
-                    cluster.close()
-
-            except Exception as e:
-                logging.warning(f"Failed to reuse existing cluster: {e}")
-
-    logging.info(f"Creating new Coiled cluster with {n_workers} workers...")
-
-    cluster_name = f"spi-extreme-analysis-v20250809-{datetime.now().strftime('%m%d-%H%M')}"
+def setup_coiled_cluster_for_variable(spi_variable, software_env="v5-geosfm-rm-x", n_workers=1):
+    """Setup fresh Coiled Dask cluster for a specific SPI variable"""
+    
+    logging.info(f"Creating fresh cluster for {spi_variable.upper()}")
+    
+    cluster_name = f"spi-{spi_variable}-analysis-v20250812-{datetime.now().strftime('%m%d-%H%M')}"
 
     try:
         cluster = coiled.Cluster(
@@ -227,28 +182,24 @@ def setup_coiled_cluster(software_env="v5-geosfm-rm-x",
         worker_info = client.scheduler_info().get('workers', {})
         actual_workers = len(worker_info)
 
-        logging.info(f"✅ New Coiled cluster ready: {client.dashboard_link}")
+        logging.info(f"✅ New Coiled cluster ready for {spi_variable.upper()}: {client.dashboard_link}")
         logging.info(f"   Cluster name: {cluster_name}")
         logging.info(f"   Workers: {actual_workers}/{n_workers}")
         logging.info(f"   VM type: n2-standard-4")
         logging.info(f"   Region: us-east1")
 
-        # Save cluster info for reuse
-        if session_id:
-            save_cluster_info(cluster, client, session_id)
-
         return client, cluster
 
     except Exception as e:
-        logging.error(f"❌ Failed to setup Coiled cluster: {e}")
+        logging.error(f"❌ Failed to setup Coiled cluster for {spi_variable.upper()}: {e}")
         raise
 
 
 def upload_credentials_to_workers(client, service_account_file):
     """Upload service account credentials to all workers with verification"""
-    logging.info("=" * 70)
+    logging.info("=" * 50)
     logging.info("UPLOADING CREDENTIALS TO WORKERS")
-    logging.info("=" * 70)
+    logging.info("=" * 50)
 
     if not Path(service_account_file).exists():
         raise FileNotFoundError(f"Service account file not found: {service_account_file}")
@@ -258,8 +209,8 @@ def upload_credentials_to_workers(client, service_account_file):
         logging.info(f"Uploading {service_account_file} to all workers...")
         client.upload_file(service_account_file)
         
-        # Wait for upload to complete
-        time.sleep(10)
+        # Wait longer for upload to complete (especially for larger datasets)
+        time.sleep(20)
         
         # Verify upload on workers
         def verify_credentials_on_worker(creds_filename):
@@ -310,9 +261,9 @@ def upload_credentials_to_workers(client, service_account_file):
 
 def load_administrative_regions():
     """Load administrative regions and create regionmask with enhanced logging"""
-    logging.info("=" * 70)
+    logging.info("=" * 50)
     logging.info("LOADING ADMINISTRATIVE REGIONS")
-    logging.info("=" * 70)
+    logging.info("=" * 50)
 
     start_time = time.time()
 
@@ -365,9 +316,9 @@ def load_administrative_regions():
 
 def get_region_metadata(gdf, regions):
     """Extract region metadata for worker processing"""
-    logging.info("=" * 70)
+    logging.info("=" * 50)
     logging.info("EXTRACTING REGION METADATA")
-    logging.info("=" * 70)
+    logging.info("=" * 50)
 
     region_metadata = []
     
@@ -556,21 +507,21 @@ def process_region_with_worker_icechunk(region_metadata, bucket, prefix, group_n
         }
 
 
-def calculate_return_periods_with_worker_connections(region_metadata, client, return_periods=[2, 5, 10, 25, 50, 100]):
-    """Calculate return periods using worker-side Icechunk connections"""
-    logging.info("=" * 70)
-    logging.info("CALCULATING RETURN PERIODS WITH WORKER CONNECTIONS")
-    logging.info("=" * 70)
+def calculate_return_periods_for_variable(region_metadata, client, spi_variable, return_periods):
+    """Calculate return periods for a specific SPI variable using worker-side connections"""
+    logging.info(f"=" * 60)
+    logging.info(f"CALCULATING RETURN PERIODS FOR {spi_variable.upper()}")
+    logging.info(f"=" * 60)
 
     logging.info(f"Return periods to calculate: {return_periods}")
     logging.info(f"Processing {len(region_metadata)} regions")
 
     # Configuration for worker tasks
     bucket = BUCKET_NAME
-    prefix = f"{BASE_PREFIX}_{SPI_TYPE}"
-    group_name = f"{SPI_TYPE}_data"
+    prefix = f"{BASE_PREFIX}_{spi_variable}"
+    group_name = f"{spi_variable}_data"
     creds_filename = SERVICE_ACCOUNT_FILE
-    spi_var_name = f"spc{SPI_TYPE[3:]}"  # Convert spi9 -> spc09
+    spi_var_name = f"spc{spi_variable[3:]:0>2}"  # Convert spi9 -> spc09
 
     start_time = time.time()
 
@@ -592,13 +543,14 @@ def calculate_return_periods_with_worker_connections(region_metadata, client, re
             )
             futures.append(future)
 
-        # Collect results with progress tracking
+        # Collect results with progress tracking and longer timeouts
         results = []
         completed = 0
 
         for i, future in enumerate(futures):
             try:
-                result = future.result()
+                # Increase timeout for larger datasets
+                result = future.result(timeout=300)  # 5 minutes per region
                 results.append(result)
                 completed += 1
 
@@ -621,7 +573,7 @@ def calculate_return_periods_with_worker_connections(region_metadata, client, re
                 })
 
     except Exception as e:
-        logging.error(f"Failed to process regions: {e}")
+        logging.error(f"Failed to process regions for {spi_variable.upper()}: {e}")
         raise
 
     computation_time = time.time() - start_time
@@ -631,7 +583,7 @@ def calculate_return_periods_with_worker_connections(region_metadata, client, re
     failed_regions = [r for r in results if r['status'] != 'success']
 
     logging.info(
-        f"✅ Return period calculation completed in {computation_time:.2f} seconds"
+        f"✅ {spi_variable.upper()} calculation completed in {computation_time:.2f} seconds"
     )
     logging.info(f"   Successful regions: {len(successful_regions)}")
     logging.info(f"   Failed regions: {len(failed_regions)}")
@@ -641,14 +593,14 @@ def calculate_return_periods_with_worker_connections(region_metadata, client, re
 
     # Log failure details if any
     if failed_regions:
-        for failed in failed_regions[:5]:  # Show first 5 failures
+        for failed in failed_regions[:3]:  # Show first 3 failures
             logging.warning(
                 f"   Failed region {failed['region_id']}: {failed['status']}")
 
     # Display sample results
     if successful_regions:
         sample = successful_regions[0]
-        logging.info(f"\nSample results for {sample['region_name']}:")
+        logging.info(f"\nSample results for {sample['region_name']} ({spi_variable.upper()}):")
         for T, level in zip(sample['return_periods'], sample['return_levels']):
             logging.info(f"   {T:3d}-year drought: SPI = {level:.3f}")
 
@@ -683,15 +635,6 @@ def cleanup_cluster(client, cluster, force=False):
             except Exception as e:
                 logging.warning(f"Error closing cluster: {e}")
 
-        # Clear cluster cache
-        cache_file = SESSION_DIR / CLUSTER_CACHE_FILE
-        if cache_file.exists():
-            try:
-                cache_file.unlink()
-                logging.info("Cluster cache cleared")
-            except Exception as e:
-                logging.warning(f"Error clearing cache: {e}")
-
     except Exception as e:
         logging.error(f"Error during cluster cleanup: {e}")
         if force:
@@ -700,34 +643,31 @@ def cleanup_cluster(client, cluster, force=False):
             raise
 
 
-def save_results(results, session_id, output_file=None):
+def save_results(results, session_id, spi_variable, output_file=None):
     """Save results to JSON file with enhanced metadata"""
     if output_file is None:
-        output_file = f"extreme_value_analysis_results_v20250809_{session_id}.json"
+        output_file = f"{spi_variable}_extreme_analysis_results_v20250812_{session_id}.json"
 
-    logging.info("=" * 70)
-    logging.info("SAVING RESULTS")
-    logging.info("=" * 70)
+    logging.info("=" * 50)
+    logging.info(f"SAVING {spi_variable.upper()} RESULTS")
+    logging.info("=" * 50)
 
     try:
         # Add metadata to results
         metadata = {
             'session_id': session_id,
             'created_at': datetime.now().isoformat(),
-            'script_version': 'enhanced_v20250809',
+            'script_version': 'sequential_v20250812',
+            'spi_variable': spi_variable,
             'configuration': {
                 'base_prefix': BASE_PREFIX,
-                'spi_type': SPI_TYPE,
                 'bucket_name': BUCKET_NAME,
                 'geojson_file': GEOJSON_FILE
             },
             'summary': {
-                'total_regions':
-                len(results),
-                'successful_regions':
-                len([r for r in results if r['status'] == 'success']),
-                'failed_regions':
-                len([r for r in results if r['status'] != 'success'])
+                'total_regions': len(results),
+                'successful_regions': len([r for r in results if r['status'] == 'success']),
+                'failed_regions': len([r for r in results if r['status'] != 'success'])
             }
         }
 
@@ -736,100 +676,150 @@ def save_results(results, session_id, output_file=None):
         with open(output_file, 'w') as f:
             json.dump(output_data, f, indent=2, default=str)
 
-        logging.info(f"✅ Results saved to {output_file}")
+        logging.info(f"✅ {spi_variable.upper()} results saved to {output_file}")
         logging.info(f"   Total regions processed: {len(results)}")
-        logging.info(
-            f"   Successful: {metadata['summary']['successful_regions']}")
+        logging.info(f"   Successful: {metadata['summary']['successful_regions']}")
         logging.info(f"   Failed: {metadata['summary']['failed_regions']}")
+        
+        return output_file
 
     except Exception as e:
-        logging.error(f"❌ Failed to save results: {e}")
+        logging.error(f"❌ Failed to save {spi_variable.upper()} results: {e}")
         logging.debug(traceback.format_exc())
+        return None
+
+
+def process_single_variable(spi_variable, region_metadata, return_periods, session_id, max_retries=2):
+    """Process a single SPI variable with its own cluster and retry capability"""
+    
+    logging.info(f"\n{'='*80}")
+    logging.info(f"PROCESSING {spi_variable.upper()}")
+    logging.info(f"{'='*80}")
+    
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            logging.info(f"🔄 Retry attempt {attempt}/{max_retries} for {spi_variable.upper()}")
+            time.sleep(30)  # Wait before retry
+        
+        cluster = None
+        client = None
+        success = False
+        
+        try:
+            # Step 1: Setup fresh cluster for this variable
+            logging.info(f"STEP 1: Setting up Dask cluster for {spi_variable.upper()}")
+            client, cluster = setup_coiled_cluster_for_variable(spi_variable)
+
+            # Step 2: Upload credentials to workers
+            logging.info(f"STEP 2: Uploading credentials to workers")
+            upload_credentials_to_workers(client, SERVICE_ACCOUNT_FILE)
+
+            # Step 3: Calculate return periods for this variable
+            logging.info(f"STEP 3: Calculating return periods for {spi_variable.upper()}")
+            results = calculate_return_periods_for_variable(
+                region_metadata, client, spi_variable, return_periods)
+
+            # Step 4: Save results for this variable
+            logging.info(f"STEP 4: Saving {spi_variable.upper()} results")
+            output_file = save_results(results, session_id, spi_variable)
+            
+            successful_regions = [r for r in results if r['status'] == 'success']
+            logging.info(f"✅ {spi_variable.upper()} completed: {len(successful_regions)} regions processed")
+            
+            success = True
+            return output_file, len(successful_regions)
+
+        except Exception as e:
+            logging.error(f"❌ {spi_variable.upper()} processing failed (attempt {attempt + 1}): {e}")
+            logging.debug(traceback.format_exc())
+            
+            # Don't retry on final attempt
+            if attempt == max_retries:
+                return None, 0
+
+        finally:
+            # Cleanup cluster for this variable
+            logging.info(f"Cleaning up cluster for {spi_variable.upper()}...")
+            try:
+                cleanup_cluster(client, cluster, force=not success)
+                time.sleep(10)  # Wait after cleanup
+            except Exception as e:
+                logging.error(f"Error during {spi_variable.upper()} cleanup: {e}")
+    
+    return None, 0
 
 
 def main():
-    """Main execution function with enhanced logging and error recovery"""
+    """Main execution function with sequential variable processing"""
 
+    # Parse command line arguments
+    spi_variables, return_periods = parse_arguments()
+    
     # Initialize logging system
-    session_id, log_file = setup_logging()
+    session_id, log_file = setup_logging(variable="_".join(spi_variables))
 
-    logging.info("=" * 70)
-    logging.info(
-        "ICECHUNK REGIONMASK EXTREME VALUE ANALYSIS - ENHANCED v20250809")
-    logging.info("=" * 70)
+    logging.info("=" * 80)
+    logging.info("SEQUENTIAL MULTI-VARIABLE ICECHUNK REGIONMASK EXTREME VALUE ANALYSIS v20250812")
+    logging.info("=" * 80)
     logging.info(f"Session ID: {session_id}")
-
-    cluster = None
-    client = None
-    success = False
+    logging.info(f"SPI Variables: {spi_variables}")
+    logging.info(f"Return periods: {return_periods}")
+    logging.info(f"Processing mode: Sequential (separate cluster per variable)")
 
     try:
-        # Step 1: Setup Coiled Dask cluster
-        logging.info("STEP 1: Setting up Dask cluster")
-        client, cluster = setup_coiled_cluster(session_id=session_id)
+        # Check service account file exists
+        if not Path(SERVICE_ACCOUNT_FILE).exists():
+            logging.error(f"❌ Service account file not found: {SERVICE_ACCOUNT_FILE}")
+            logging.error("   Make sure the credentials file is in the current directory")
+            return False
 
-        # Step 2: Upload credentials to workers
-        logging.info("STEP 2: Uploading credentials to workers")
-        upload_credentials_to_workers(client, SERVICE_ACCOUNT_FILE)
-
-        # Step 3: Load administrative regions
-        logging.info("STEP 3: Loading administrative regions")
+        # Load administrative regions once (shared across all variables)
+        logging.info("PRELIMINARY: Loading administrative regions")
         gdf, regions = load_administrative_regions()
-
-        # Step 4: Extract region metadata for workers
-        logging.info("STEP 4: Extracting region metadata")
+        
+        logging.info("PRELIMINARY: Extracting region metadata")
         region_metadata = get_region_metadata(gdf, regions)
 
-        # Step 5: Calculate return periods using worker connections
-        logging.info("STEP 5: Calculating return periods with worker connections")
-        results = calculate_return_periods_with_worker_connections(
-            region_metadata,
-            client,
-            return_periods=[2, 5, 10, 25, 50, 100])
+        # Process each variable sequentially with its own cluster
+        completed_files = []
+        total_successful_regions = 0
+        
+        for i, spi_variable in enumerate(spi_variables, 1):
+            logging.info(f"\n🔄 Processing variable {i}/{len(spi_variables)}: {spi_variable.upper()}")
+            
+            output_file, successful_count = process_single_variable(
+                spi_variable, region_metadata, return_periods, session_id)
+                
+            if output_file:
+                completed_files.append(output_file)
+                total_successful_regions += successful_count
+                logging.info(f"✅ {spi_variable.upper()} completed successfully")
+            else:
+                logging.error(f"❌ {spi_variable.upper()} failed")
 
-        # Step 6: Save results
-        logging.info("STEP 6: Saving results")
-        save_results(results, session_id)
-
-        # Summary
-        logging.info("=" * 70)
-        logging.info("ANALYSIS COMPLETED SUCCESSFULLY")
-        logging.info("=" * 70)
-
-        successful_regions = [r for r in results if r['status'] == 'success']
-        logging.info(
-            f"✅ Processed {len(successful_regions)} regions successfully")
-        logging.info(f"✅ Results saved for extreme value analysis")
+        # Final summary
+        logging.info("=" * 80)
+        logging.info("SEQUENTIAL PROCESSING COMPLETED")
+        logging.info("=" * 80)
+        
+        logging.info(f"✅ Variables processed: {len(completed_files)}/{len(spi_variables)}")
+        logging.info(f"✅ Total regions processed: {total_successful_regions}")
+        logging.info(f"✅ Output files created:")
+        for i, filename in enumerate(completed_files, 1):
+            logging.info(f"   {i}. {filename}")
         logging.info(f"✅ Log file: {log_file}")
         logging.info(f"✅ Session ID: {session_id}")
 
-        success = True
+        return len(completed_files) > 0
 
     except KeyboardInterrupt:
         logging.warning("Analysis interrupted by user")
-        success = False
+        return False
 
     except Exception as e:
-        logging.error(f"❌ Analysis failed: {e}")
+        logging.error(f"❌ Sequential analysis failed: {e}")
         logging.debug(traceback.format_exc())
-        success = False
-
-    finally:
-        # Cleanup cluster
-        logging.info("Performing cleanup...")
-        try:
-            cleanup_cluster(client, cluster, force=not success)
-        except Exception as e:
-            logging.error(f"Error during cleanup: {e}")
-
-        logging.info(f"Analysis session {session_id} completed")
-
-        if success:
-            logging.info("✅ Session completed successfully")
-        else:
-            logging.error("❌ Session completed with errors")
-
-    return success
+        return False
 
 
 if __name__ == "__main__":
