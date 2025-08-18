@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """
-Extreme Precipitation Analysis using Coiled and IMERG Data v20250814
+Extreme Precipitation Analysis using Coiled and IMERG Data v20250816
 ===================================================================
 
 This script analyzes extreme precipitation events using IMERG data from Planetary Computer
-with distributed processing via Coiled. It supports multiple accumulation periods
-and follows the pattern established in icechunk_regionmask_extreme_analysis.py.
+with distributed processing via Coiled. It follows the corrected pattern from 
+icechunk_regionmask_extreme_analysis.py where each worker processes only one region.
+
+CRITICAL CORRECTIONS in v20250816:
+1. Each worker connects to Planetary Computer independently (no shared large datasets)
+2. Each worker loads only the data subset needed for its specific region
+3. Region masking and extreme value analysis happen on worker-side with minimal data
+4. Follows the proven icechunk_regionmask_extreme_analysis.py worker pattern
+5. Annual maxima calculation for extreme rainfall (not drought like SPI)
 
 Key features:
 1. Multiple accumulation periods: 1h, 3h, 6h, 12h, 24h, 48h, 7days (168h)
@@ -17,15 +24,15 @@ Key features:
 
 Usage:
     # Process single accumulation period
-    python extreme_precipitation_coiled.py --accumulation 1
+    python extreme_precipitation_coiled_v20250816.py --accumulation 1
     
     # Process multiple accumulation periods
-    python extreme_precipitation_coiled.py --accumulations 1,3,6,24
+    python extreme_precipitation_coiled_v20250816.py --accumulations 1,3,6,24
     
     # Specify custom return periods
-    python extreme_precipitation_coiled.py --accumulation 24 --return-periods 2,10,50,100
+    python extreme_precipitation_coiled_v20250816.py --accumulation 24 --return-periods 2,10,50,100
 
-Based on the approach from icechunk_regionmask_extreme_analysis.py adapted for IMERG precipitation.
+Based on the corrected approach from icechunk_regionmask_extreme_analysis.py adapted for IMERG precipitation.
 """
 
 import xarray as xr
@@ -68,49 +75,68 @@ SESSION_DIR = Path("sessions")
 
 def parse_arguments():
     """Parse command line arguments for accumulation period selection"""
-    parser = argparse.ArgumentParser(description='Extreme precipitation analysis with IMERG data')
-    
+    parser = argparse.ArgumentParser(
+        description='Extreme precipitation analysis with IMERG data')
+
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--accumulation', 
-                      type=int,
-                      help=f'Single accumulation period in hours. Options: {AVAILABLE_ACCUMULATIONS}')
-    
-    group.add_argument('--accumulations',
-                      type=str,
-                      help=f'Comma-separated list of accumulation periods in hours. Options: {AVAILABLE_ACCUMULATIONS}')
-    
-    parser.add_argument('--return-periods',
-                       type=str,
-                       default='2,5,10,25,50,100',
-                       help='Comma-separated list of return periods (default: 2,5,10,25,50,100)')
-    
+    group.add_argument(
+        '--accumulation',
+        type=int,
+        help=
+        f'Single accumulation period in hours. Options: {AVAILABLE_ACCUMULATIONS}'
+    )
+
+    group.add_argument(
+        '--accumulations',
+        type=str,
+        help=
+        f'Comma-separated list of accumulation periods in hours. Options: {AVAILABLE_ACCUMULATIONS}'
+    )
+
+    parser.add_argument(
+        '--return-periods',
+        type=str,
+        default='2,5,10,25,50,100',
+        help=
+        'Comma-separated list of return periods (default: 2,5,10,25,50,100)')
+
     args = parser.parse_args()
-    
+
     # Parse accumulation periods
     if args.accumulation:
         accumulations = [args.accumulation]
     else:
-        accumulations = [int(acc.strip()) for acc in args.accumulations.split(',')]
-    
+        accumulations = [
+            int(acc.strip()) for acc in args.accumulations.split(',')
+        ]
+
     # Validate accumulation periods
     valid_accumulations = []
     for acc in accumulations:
         if acc in AVAILABLE_ACCUMULATIONS:
             valid_accumulations.append(acc)
         else:
-            print(f"Warning: Skipping invalid accumulation '{acc}h'. Valid options: {AVAILABLE_ACCUMULATIONS}")
-    
+            print(
+                f"Warning: Skipping invalid accumulation '{acc}h'. Valid options: {AVAILABLE_ACCUMULATIONS}"
+            )
+
     if not valid_accumulations:
-        print(f"Error: No valid accumulation periods specified. Valid options: {AVAILABLE_ACCUMULATIONS}")
+        print(
+            f"Error: No valid accumulation periods specified. Valid options: {AVAILABLE_ACCUMULATIONS}"
+        )
         sys.exit(1)
-    
+
     # Parse return periods
     try:
-        return_periods = [int(x.strip()) for x in args.return_periods.split(',')]
+        return_periods = [
+            int(x.strip()) for x in args.return_periods.split(',')
+        ]
     except ValueError:
-        print("Error: Invalid return periods format. Using default: [2, 5, 10, 25, 50, 100]")
+        print(
+            "Error: Invalid return periods format. Using default: [2, 5, 10, 25, 50, 100]"
+        )
         return_periods = [2, 5, 10, 25, 50, 100]
-    
+
     return valid_accumulations, return_periods
 
 
@@ -122,7 +148,7 @@ def setup_logging(log_level=logging.INFO, accumulation=None):
     # Create unique session identifier
     session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     acc_suffix = f"{accumulation}h" if accumulation else "multi"
-    log_file = LOG_DIR / f"extreme_precipitation_v20250814_{acc_suffix}_{session_id}.log"
+    log_file = LOG_DIR / f"extreme_precipitation_v20250816_{acc_suffix}_{session_id}.log"
 
     # Configure root logger
     logger = logging.getLogger()
@@ -156,24 +182,26 @@ def setup_logging(log_level=logging.INFO, accumulation=None):
     return session_id, log_file
 
 
-def setup_coiled_cluster_for_accumulation(accumulation_hours, software_env="v7-geosfm-rm-x", n_workers=3):
+def setup_coiled_cluster_for_accumulation(accumulation_hours,
+                                          software_env="v7-geosfm-rm-x",
+                                          n_workers=4):
     """Setup fresh Coiled Dask cluster for a specific accumulation period"""
-    
-    logging.info(f"Creating fresh cluster for {accumulation_hours}h accumulation")
-    
-    cluster_name = f"precip-{accumulation_hours}h-analysis-v20250814-{datetime.now().strftime('%m%d-%H%M')}"
+
+    logging.info(
+        f"Creating fresh cluster for {accumulation_hours}h accumulation")
+
+    cluster_name = f"precip-{accumulation_hours}h-analysis-v20250816-{datetime.now().strftime('%m%d-%H%M')}"
 
     try:
-        cluster = coiled.Cluster(
-            name=cluster_name,
-            software=software_env,
-            n_workers=n_workers,
-            scheduler_vm_types=["n2-standard-4"],
-            worker_vm_types="n2-standard-8",
-            region="us-east1",
-            arm=False,
-            compute_purchase_option="spot",
-            workspace='geosfm')
+        cluster = coiled.Cluster(name=cluster_name,
+                                 software=software_env,
+                                 n_workers=n_workers,
+                                 scheduler_vm_types=["n2-standard-4"],
+                                 worker_vm_types="n2-standard-8",
+                                 region="us-east1",
+                                 arm=False,
+                                 compute_purchase_option="spot",
+                                 workspace='geosfm')
 
         client = Client(cluster)
 
@@ -181,64 +209,20 @@ def setup_coiled_cluster_for_accumulation(accumulation_hours, software_env="v7-g
         worker_info = client.scheduler_info().get('workers', {})
         actual_workers = len(worker_info)
 
-        logging.info(f"✅ New Coiled cluster ready for {accumulation_hours}h: {client.dashboard_link}")
+        logging.info(
+            f"✅ New Coiled cluster ready for {accumulation_hours}h: {client.dashboard_link}"
+        )
         logging.info(f"   Cluster name: {cluster_name}")
         logging.info(f"   Workers: {actual_workers}/{n_workers}")
-        logging.info(f"   VM type: n2-standard-4")
+        logging.info(f"   VM type: n2-standard-8")
         logging.info(f"   Region: us-east1")
 
         return client, cluster
 
     except Exception as e:
-        logging.error(f"❌ Failed to setup Coiled cluster for {accumulation_hours}h: {e}")
+        logging.error(
+            f"❌ Failed to setup Coiled cluster for {accumulation_hours}h: {e}")
         raise
-
-
-def load_imerg_dataset_worker():
-    """Load IMERG data from Planetary Computer on worker - subset to East Africa region"""
-    
-    try:
-        # Load IMERG data
-        catalog = pystac_client.Client.open(
-            "https://planetarycomputer.microsoft.com/api/stac/v1",
-            modifier=planetary_computer.sign_inplace,
-        )
-        asset = catalog.get_collection("gpm-imerg-hhr").assets["zarr-abfs"]
-        fs = fsspec.get_mapper(asset.href, **asset.extra_fields["xarray:storage_options"])
-        ds = xr.open_zarr(fs, **asset.extra_fields["xarray:open_kwargs"])
-        
-        # Define East Africa bounds (based on administrative regions)
-        east_africa_bounds = {
-            'lon_min': 21.84,
-            'lon_max': 51.42,
-            'lat_min': -11.75,
-            'lat_max': 23.15
-        }
-        
-        # Add buffer to ensure we capture all boundary regions
-        buffer = BUFFER_SIZE
-        lon_min = east_africa_bounds['lon_min'] - buffer
-        lon_max = east_africa_bounds['lon_max'] + buffer
-        lat_min = east_africa_bounds['lat_min'] - buffer
-        lat_max = east_africa_bounds['lat_max'] + buffer
-        
-        # Subset the dataset to East Africa region
-        lat_values = ds.lat.values
-        if lat_values[0] < lat_values[-1]:  # ascending order
-            ds_subset = ds.sel(
-                lon=slice(lon_min, lon_max),
-                lat=slice(lat_min, lat_max)
-            )
-        else:  # descending order
-            ds_subset = ds.sel(
-                lon=slice(lon_min, lon_max),
-                lat=slice(lat_max, lat_min)
-            )
-        
-        return ds_subset
-        
-    except Exception as e:
-        raise RuntimeError(f"Failed to load IMERG dataset: {e}")
 
 
 def load_administrative_regions():
@@ -303,7 +287,7 @@ def get_region_metadata(gdf, regions):
     logging.info("=" * 50)
 
     region_metadata = []
-    
+
     for i, region in enumerate(regions):
         try:
             # Get region name from different possible columns
@@ -316,15 +300,16 @@ def get_region_metadata(gdf, regions):
 
             # Get region bounds
             bounds = gdf.iloc[i].geometry.bounds
-            
+
             metadata = {
                 'region_id': i,
                 'region_name': region_name,
                 'bounds': bounds,  # (minx, miny, maxx, maxy)
-                'geometry': gdf.iloc[i].geometry.__geo_interface__  # Serialize geometry
+                'geometry':
+                gdf.iloc[i].geometry.__geo_interface__  # Serialize geometry
             }
             region_metadata.append(metadata)
-            
+
         except Exception as e:
             logging.warning(f"Failed to extract metadata for region {i}: {e}")
             continue
@@ -333,16 +318,23 @@ def get_region_metadata(gdf, regions):
     return region_metadata
 
 
-def process_region_extreme_precipitation_worker(region_metadata, accumulation_hours, return_periods):
+def process_region_extreme_precipitation_worker(region_metadata,
+                                                accumulation_hours,
+                                                return_periods):
     """
     Process extreme precipitation for a single region on Dask worker
     
+    CORRECTED APPROACH v20250816:
     This function runs on individual workers and:
-    1. Loads IMERG data subset to East Africa
-    2. Calculates rolling accumulation 
-    3. Applies regionmask filtering
-    4. Performs extreme value analysis
-    5. Returns results to main process
+    1. Establishes its own Planetary Computer connection
+    2. Loads only the data subset needed for THIS specific region (with bounds)
+    3. Calculates rolling accumulation 
+    4. Applies regionmask filtering to get region-specific data
+    5. Performs extreme value analysis on the region data
+    6. Returns results to main process
+    
+    This follows the pattern from icechunk_regionmask_extreme_analysis.py
+    but adapted for IMERG precipitation data and extreme rainfall analysis.
     """
     try:
         import xarray as xr
@@ -352,6 +344,9 @@ def process_region_extreme_precipitation_worker(region_metadata, accumulation_ho
         from shapely.geometry import shape
         from xclim.indices import stats
         from dask.distributed import get_worker
+        import pystac_client
+        import fsspec
+        import planetary_computer
         import warnings
         warnings.filterwarnings('ignore')
 
@@ -361,48 +356,91 @@ def process_region_extreme_precipitation_worker(region_metadata, accumulation_ho
 
         region_id = region_metadata['region_id']
         region_name = region_metadata['region_name']
-        
-        # Load IMERG dataset on worker
-        dataset = load_imerg_dataset_worker()
-        
+
+        # Get region bounds for efficient data loading
+        minx, miny, maxx, maxy = region_metadata['bounds']
+
+        # Add buffer to ensure we capture all data for this region
+        buffer = BUFFER_SIZE
+        lon_min = minx - buffer
+        lon_max = maxx + buffer
+        lat_min = miny - buffer
+        lat_max = maxy + buffer
+
+        # Connect to Planetary Computer and load IMERG data on worker
+        catalog = pystac_client.Client.open(
+            "https://planetarycomputer.microsoft.com/api/stac/v1",
+            modifier=planetary_computer.sign_inplace,
+        )
+        asset = catalog.get_collection("gpm-imerg-hhr").assets["zarr-abfs"]
+        fs = fsspec.get_mapper(asset.href,
+                               **asset.extra_fields["xarray:storage_options"])
+        ds = xr.open_zarr(fs, **asset.extra_fields["xarray:open_kwargs"])
+
+        # Subset to region bounds (not entire East Africa like before)
+        lat_values = ds.lat.values
+        if lat_values[0] < lat_values[-1]:  # ascending order
+            ds_subset = ds.sel(lon=slice(lon_min, lon_max),
+                               lat=slice(lat_min, lat_max))
+        else:  # descending order
+            ds_subset = ds.sel(lon=slice(lon_min, lon_max),
+                               lat=slice(lat_max, lat_min))
+
         # Calculate number of 30-minute timesteps for the accumulation period
         timesteps_per_accumulation = accumulation_hours * 2  # 2 timesteps per hour
-        
+
         # Get precipitation variable
         precip_vars = ['precipitationCal', 'precipitation']
         precip_var = None
         for var in precip_vars:
-            if var in dataset.data_vars:
+            if var in ds_subset.data_vars:
                 precip_var = var
                 break
-        
+
         if precip_var is None:
-            raise ValueError(f"No precipitation variable found. Available: {list(dataset.data_vars)}")
-        
+            return {
+                'region_id': region_id,
+                'region_name': region_name,
+                'accumulation_hours': accumulation_hours,
+                'return_periods': return_periods,
+                'return_levels': [np.nan] * len(return_periods),
+                'status':
+                f'error: No precipitation variable found. Available: {list(ds_subset.data_vars)}',
+                'worker_id': worker_id,
+                'n_years': 0
+            }
+
         # Calculate rolling accumulation
-        precip_data = dataset[precip_var]
-        accumulated = precip_data.rolling(time=timesteps_per_accumulation, center=False).sum()
-        
-        # Extract annual maxima using groupby
+        precip_data = ds_subset[precip_var]
+        accumulated = precip_data.rolling(time=timesteps_per_accumulation,
+                                          center=False).sum()
+
+        # Extract annual maxima using groupby (for extreme rainfall analysis)
         annual_maxima = accumulated.groupby('time.year').max('time')
-        
+
         # Create region geometry and mask on worker
         region_geom = shape(region_metadata['geometry'])
-        
-        # Get coordinate arrays
-        lons = dataset.lon.values
-        lats = dataset.lat.values
-        
+
+        # Get coordinate arrays from the subset
+        lons = ds_subset.lon.values
+        lats = ds_subset.lat.values
+
         # Create mask for this specific region
-        region_gdf = gpd.GeoDataFrame([{'geometry': region_geom, 'region_id': region_id}])
-        region_mask = regionmask.mask_geopandas(region_gdf.geometry, lons, lats)
-        
+        region_gdf = gpd.GeoDataFrame([{
+            'geometry': region_geom,
+            'region_id': region_id
+        }])
+        region_mask = regionmask.mask_geopandas(region_gdf.geometry, lons,
+                                                lats)
+
         # Apply regional mask to get region-specific data
-        region_data = annual_maxima.where(region_mask == 0)  # regionmask uses 0 for first region
-        
+        region_data = annual_maxima.where(
+            region_mask == 0)  # regionmask uses 0 for first region
+
         # Calculate regional mean (spatial average over the region)
-        region_annual_maxima = region_data.mean(dim=['lon', 'lat'], skipna=True)
-        
+        region_annual_maxima = region_data.mean(dim=['lon', 'lat'],
+                                                skipna=True)
+
         # Extract values and remove NaNs
         valid_data = region_annual_maxima.values
         valid_data = valid_data[~np.isnan(valid_data)]
@@ -424,10 +462,12 @@ def process_region_extreme_precipitation_worker(region_metadata, accumulation_ho
         precip_xr.attrs['units'] = 'mm'
 
         # Calculate return levels using xclim's fa() function for precipitation extremes
-        fa_result = stats.fa(precip_xr,
-                           t=return_periods,
-                           dist='genextreme',  # Generalized extreme value distribution
-                           mode='max')  # For precipitation maxima
+        # Note: For extreme rainfall, we use 'max' mode (unlike SPI drought which uses negative values)
+        fa_result = stats.fa(
+            precip_xr,
+            t=return_periods,
+            dist='genextreme',  # Generalized extreme value distribution
+            mode='max')  # For precipitation maxima
 
         return {
             'region_id': region_id,
@@ -445,22 +485,34 @@ def process_region_extreme_precipitation_worker(region_metadata, accumulation_ho
     except Exception as e:
         import traceback
         return {
-            'region_id': region_metadata.get('region_id', -1),
-            'region_name': region_metadata.get('region_name', 'unknown'),
-            'accumulation_hours': accumulation_hours,
-            'return_periods': return_periods,
+            'region_id':
+            region_metadata.get('region_id', -1),
+            'region_name':
+            region_metadata.get('region_name', 'unknown'),
+            'accumulation_hours':
+            accumulation_hours,
+            'return_periods':
+            return_periods,
             'return_levels': [np.nan] * len(return_periods),
-            'status': f'error: {str(e)}',
-            'worker_id': getattr(get_worker(), 'address', 'unknown') if 'get_worker' in locals() else 'unknown',
-            'n_years': 0,
-            'traceback': traceback.format_exc()
+            'status':
+            f'error: {str(e)}',
+            'worker_id':
+            getattr(get_worker(), 'address', 'unknown')
+            if 'get_worker' in locals() else 'unknown',
+            'n_years':
+            0,
+            'traceback':
+            traceback.format_exc()
         }
 
 
-def calculate_return_periods_for_accumulation(region_metadata, client, accumulation_hours, return_periods):
+def calculate_return_periods_for_accumulation(region_metadata, client,
+                                              accumulation_hours,
+                                              return_periods):
     """Calculate return periods for a specific accumulation period using distributed processing"""
     logging.info(f"=" * 60)
-    logging.info(f"CALCULATING RETURN PERIODS FOR {accumulation_hours}H ACCUMULATION")
+    logging.info(
+        f"CALCULATING RETURN PERIODS FOR {accumulation_hours}H ACCUMULATION")
     logging.info(f"=" * 60)
 
     logging.info(f"Return periods to calculate: {return_periods}")
@@ -469,17 +521,14 @@ def calculate_return_periods_for_accumulation(region_metadata, client, accumulat
     start_time = time.time()
 
     try:
-        # Submit tasks to workers
+        # Submit tasks to workers - each worker processes ONE region
         logging.info(f"Submitting {len(region_metadata)} tasks to workers...")
-        
+
         futures = []
         for region_meta in region_metadata:
-            future = client.submit(
-                process_region_extreme_precipitation_worker,
-                region_meta,
-                accumulation_hours,
-                return_periods
-            )
+            future = client.submit(process_region_extreme_precipitation_worker,
+                                   region_meta, accumulation_hours,
+                                   return_periods)
             futures.append(future)
 
         # Collect results with progress tracking
@@ -512,7 +561,8 @@ def calculate_return_periods_for_accumulation(region_metadata, client, accumulat
                 })
 
     except Exception as e:
-        logging.error(f"Failed to process regions for {accumulation_hours}h: {e}")
+        logging.error(
+            f"Failed to process regions for {accumulation_hours}h: {e}")
         raise
 
     computation_time = time.time() - start_time
@@ -530,10 +580,18 @@ def calculate_return_periods_for_accumulation(region_metadata, client, accumulat
         f"   Processing rate: {len(region_metadata)/computation_time:.2f} regions/second"
     )
 
+    # Log failure details if any
+    if failed_regions:
+        for failed in failed_regions[:3]:  # Show first 3 failures
+            logging.warning(
+                f"   Failed region {failed['region_id']}: {failed['status']}")
+
     # Display sample results
     if successful_regions:
         sample = successful_regions[0]
-        logging.info(f"\nSample results for {sample['region_name']} ({accumulation_hours}h accumulation):")
+        logging.info(
+            f"\nSample results for {sample['region_name']} ({accumulation_hours}h accumulation):"
+        )
         for T, level in zip(sample['return_periods'], sample['return_levels']):
             logging.info(f"   {T:3d}-year return level: {level:.2f} mm")
 
@@ -576,7 +634,7 @@ def cleanup_cluster(client, cluster, force=False):
 def save_results(results, session_id, accumulation_hours, output_file=None):
     """Save results to JSON file with enhanced metadata"""
     if output_file is None:
-        output_file = f"extreme_precipitation_{accumulation_hours}h_results_v20250814_{session_id}.json"
+        output_file = f"extreme_precipitation_{accumulation_hours}h_results_v20250816_{session_id}.json"
 
     logging.info("=" * 50)
     logging.info(f"SAVING {accumulation_hours}H RESULTS")
@@ -585,18 +643,32 @@ def save_results(results, session_id, accumulation_hours, output_file=None):
     try:
         # Add metadata to results
         metadata = {
-            'session_id': session_id,
-            'created_at': datetime.now().isoformat(),
-            'script_version': 'extreme_precipitation_v20250814',
-            'accumulation_hours': accumulation_hours,
+            'session_id':
+            session_id,
+            'created_at':
+            datetime.now().isoformat(),
+            'script_version':
+            'extreme_precipitation_v20250816',
+            'accumulation_hours':
+            accumulation_hours,
             'configuration': {
                 'geojson_file': GEOJSON_FILE,
                 'buffer_size': BUFFER_SIZE
             },
+            'improvements_v20250816': [
+                'Each worker processes only one region with subset data loading',
+                'Follows icechunk_regionmask_extreme_analysis.py worker pattern',
+                'Region bounds used to minimize data transfer',
+                'Annual maxima for extreme rainfall (not drought analysis)',
+                'Worker-side Planetary Computer connections'
+            ],
             'summary': {
-                'total_regions': len(results),
-                'successful_regions': len([r for r in results if r['status'] == 'success']),
-                'failed_regions': len([r for r in results if r['status'] != 'success'])
+                'total_regions':
+                len(results),
+                'successful_regions':
+                len([r for r in results if r['status'] == 'success']),
+                'failed_regions':
+                len([r for r in results if r['status'] != 'success'])
             }
         }
 
@@ -607,9 +679,10 @@ def save_results(results, session_id, accumulation_hours, output_file=None):
 
         logging.info(f"✅ {accumulation_hours}h results saved to {output_file}")
         logging.info(f"   Total regions processed: {len(results)}")
-        logging.info(f"   Successful: {metadata['summary']['successful_regions']}")
+        logging.info(
+            f"   Successful: {metadata['summary']['successful_regions']}")
         logging.info(f"   Failed: {metadata['summary']['failed_regions']}")
-        
+
         return output_file
 
     except Exception as e:
@@ -618,46 +691,62 @@ def save_results(results, session_id, accumulation_hours, output_file=None):
         return None
 
 
-def process_single_accumulation(accumulation_hours, region_metadata, return_periods, session_id, max_retries=2):
+def process_single_accumulation(accumulation_hours,
+                                region_metadata,
+                                return_periods,
+                                session_id,
+                                max_retries=2):
     """Process a single accumulation period with its own cluster and retry capability"""
-    
+
     logging.info(f"\n{'='*80}")
     logging.info(f"PROCESSING {accumulation_hours}H ACCUMULATION")
     logging.info(f"{'='*80}")
-    
+
     for attempt in range(max_retries + 1):
         if attempt > 0:
-            logging.info(f"🔄 Retry attempt {attempt}/{max_retries} for {accumulation_hours}h")
+            logging.info(
+                f"🔄 Retry attempt {attempt}/{max_retries} for {accumulation_hours}h"
+            )
             time.sleep(30)  # Wait before retry
-        
+
         cluster = None
         client = None
         success = False
-        
+
         try:
             # Step 1: Setup fresh cluster for this accumulation period
-            logging.info(f"STEP 1: Setting up Dask cluster for {accumulation_hours}h")
-            client, cluster = setup_coiled_cluster_for_accumulation(accumulation_hours)
+            logging.info(
+                f"STEP 1: Setting up Dask cluster for {accumulation_hours}h")
+            client, cluster = setup_coiled_cluster_for_accumulation(
+                accumulation_hours)
 
             # Step 2: Calculate return periods for this accumulation period
-            logging.info(f"STEP 2: Calculating return periods for {accumulation_hours}h")
+            logging.info(
+                f"STEP 2: Calculating return periods for {accumulation_hours}h"
+            )
             results = calculate_return_periods_for_accumulation(
                 region_metadata, client, accumulation_hours, return_periods)
 
             # Step 3: Save results for this accumulation period
             logging.info(f"STEP 3: Saving {accumulation_hours}h results")
             output_file = save_results(results, session_id, accumulation_hours)
-            
-            successful_regions = [r for r in results if r['status'] == 'success']
-            logging.info(f"✅ {accumulation_hours}h completed: {len(successful_regions)} regions processed")
-            
+
+            successful_regions = [
+                r for r in results if r['status'] == 'success'
+            ]
+            logging.info(
+                f"✅ {accumulation_hours}h completed: {len(successful_regions)} regions processed"
+            )
+
             success = True
             return output_file, len(successful_regions)
 
         except Exception as e:
-            logging.error(f"❌ {accumulation_hours}h processing failed (attempt {attempt + 1}): {e}")
+            logging.error(
+                f"❌ {accumulation_hours}h processing failed (attempt {attempt + 1}): {e}"
+            )
             logging.debug(traceback.format_exc())
-            
+
             # Don't retry on final attempt
             if attempt == max_retries:
                 return None, 0
@@ -669,8 +758,9 @@ def process_single_accumulation(accumulation_hours, region_metadata, return_peri
                 cleanup_cluster(client, cluster, force=not success)
                 time.sleep(10)  # Wait after cleanup
             except Exception as e:
-                logging.error(f"Error during {accumulation_hours}h cleanup: {e}")
-    
+                logging.error(
+                    f"Error during {accumulation_hours}h cleanup: {e}")
+
     return None, 0
 
 
@@ -679,36 +769,43 @@ def main():
 
     # Parse command line arguments
     accumulations, return_periods = parse_arguments()
-    
+
     # Initialize logging system
-    session_id, log_file = setup_logging(accumulation="_".join(map(str, accumulations)))
+    session_id, log_file = setup_logging(
+        accumulation="_".join(map(str, accumulations)))
 
     logging.info("=" * 80)
-    logging.info("EXTREME PRECIPITATION ANALYSIS WITH COILED v20250814")
+    logging.info("EXTREME PRECIPITATION ANALYSIS WITH COILED v20250816")
     logging.info("=" * 80)
     logging.info(f"Session ID: {session_id}")
     logging.info(f"Accumulation periods: {accumulations}h")
     logging.info(f"Return periods: {return_periods}")
-    logging.info(f"Processing mode: Sequential (separate cluster per accumulation)")
+    logging.info(
+        f"Processing mode: Sequential (separate cluster per accumulation)")
+    logging.info(
+        "CORRECTED v20250816: Worker-side region-specific data loading")
 
     try:
         # Load administrative regions once (shared across all accumulations)
         logging.info("PRELIMINARY: Loading administrative regions")
         gdf, regions = load_administrative_regions()
-        
+
         logging.info("PRELIMINARY: Extracting region metadata")
         region_metadata = get_region_metadata(gdf, regions)
 
         # Process each accumulation period sequentially with its own cluster
         completed_files = []
         total_successful_regions = 0
-        
+
         for i, accumulation_hours in enumerate(accumulations, 1):
-            logging.info(f"\n🔄 Processing accumulation {i}/{len(accumulations)}: {accumulation_hours}h")
-            
+            logging.info(
+                f"\n🔄 Processing accumulation {i}/{len(accumulations)}: {accumulation_hours}h"
+            )
+
             output_file, successful_count = process_single_accumulation(
-                accumulation_hours, region_metadata, return_periods, session_id)
-                
+                accumulation_hours, region_metadata, return_periods,
+                session_id)
+
             if output_file:
                 completed_files.append(output_file)
                 total_successful_regions += successful_count
@@ -720,8 +817,10 @@ def main():
         logging.info("=" * 80)
         logging.info("SEQUENTIAL PROCESSING COMPLETED")
         logging.info("=" * 80)
-        
-        logging.info(f"✅ Accumulations processed: {len(completed_files)}/{len(accumulations)}")
+
+        logging.info(
+            f"✅ Accumulations processed: {len(completed_files)}/{len(accumulations)}"
+        )
         logging.info(f"✅ Total regions processed: {total_successful_regions}")
         logging.info(f"✅ Output files created:")
         for i, filename in enumerate(completed_files, 1):
@@ -744,3 +843,4 @@ def main():
 if __name__ == "__main__":
     success = main()
     exit(0 if success else 1)
+
