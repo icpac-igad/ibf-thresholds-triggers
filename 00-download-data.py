@@ -113,15 +113,15 @@ def download_seas5(output_dir="./data", filename_prefix="seas5_precipitation_"):
 def parse_month_input(month_input):
     """
     Parse month input in various formats (single month, comma-separated, or range)
-    
+
     Args:
         month_input: Input string like "3", "1,2,3,4", "1-6", or "1-12"
-    
+
     Returns:
         list: List of month strings formatted as two digits (e.g., ["01", "02"])
     """
     months = []
-    
+
     # Check if input is a range (e.g., "1-6")
     if isinstance(month_input, str) and "-" in month_input:
         start, end = map(int, month_input.split("-"))
@@ -129,7 +129,7 @@ def parse_month_input(month_input):
             months = [f"{m:02d}" for m in range(start, end + 1)]
         else:
             raise ValueError("Month range must be between 1-12")
-    
+
     # Check if input is comma-separated (e.g., "1,3,5")
     elif isinstance(month_input, str) and "," in month_input:
         for m in month_input.split(","):
@@ -138,7 +138,18 @@ def parse_month_input(month_input):
                 months.append(f"{month_num:02d}")
             else:
                 raise ValueError(f"Invalid month: {month_num}. Must be between 1-12")
-    
+
+    # Single string that can be converted to integer (e.g., "8")
+    elif isinstance(month_input, str):
+        try:
+            month_num = int(month_input.strip())
+            if 1 <= month_num <= 12:
+                months.append(f"{month_num:02d}")
+            else:
+                raise ValueError(f"Invalid month: {month_num}. Must be between 1-12")
+        except ValueError:
+            raise ValueError(f"Invalid month format: {month_input}. Expected a number, comma-separated numbers, or range (e.g., 1-6)")
+
     # Single integer or list of integers
     elif isinstance(month_input, int) or isinstance(month_input, list):
         if isinstance(month_input, int):
@@ -148,10 +159,10 @@ def parse_month_input(month_input):
                 months.append(f"{m:02d}")
             else:
                 raise ValueError(f"Invalid month: {m}. Must be between 1-12")
-    
+
     if not months:
         raise ValueError("No valid months provided")
-    
+
     return months
 
 def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_precipitation_", month_input=None, year=None):
