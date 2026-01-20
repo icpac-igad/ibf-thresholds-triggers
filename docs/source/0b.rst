@@ -32,10 +32,12 @@ The script connects to the Copernicus Climate Data Store (CDS) API to retrieve E
 * `--output-dir`: Directory where downloaded files will be saved
 * `--seas5-only`: Flag to download only SEAS5 data (no CHIRPS observations)
 * `--only-current-month-seas5`: Month(s) to download (3-4 means March-April)
-* `--year`: Year for the forecast data (2025 in this example)
+* `--year`: Single year for the forecast data (2025 in this example)
+* `--year-start`: Start year for multi-year download (e.g., 1981)
+* `--year-end`: End year for multi-year download (e.g., 2025)
 * `--check-availability`: Check which months are available for a given year
 * `--validate-availability`: Validate requested months before downloading
-* `--skip-unavailable`: Skip unavailable months instead of failing
+* `--skip-unavailable`: Skip unavailable months/years instead of failing
 
 **IMPORTANT: Data Availability Warning**
 
@@ -110,6 +112,30 @@ verify: 0
 ```
 
 SEAS5 data is organized by initialization months and includes forecasts for up to 6 months ahead. For operational forecasting, only the most recent initialization months are typically needed.
+
+**Downloading Year Ranges (Multi-Year Download)**:
+
+For hindcast verification or building historical datasets, you can download multiple years at once using `--year-start` and `--year-end`:
+
+Download full historical dataset (1981-2025, all months):
+
+```bash
+python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
+```
+
+Download partial year range:
+
+```bash
+python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
+```
+
+Download historical + current year (skipping unavailable months in 2026):
+
+```bash
+python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
+```
+
+**Note**: Multi-year downloads can be large (e.g., 1981-2025 with all months is ~234MB). For verification purposes, it's recommended to download the full historical dataset once and then only update with the current year's data as needed.
 
 **Updating Availability Configuration**:
 

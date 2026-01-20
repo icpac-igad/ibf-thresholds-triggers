@@ -140,9 +140,31 @@ Step 1: Download ECMWF SEAS5 and CHIRPS Data
 
 * ``--chirps-only``: Download only CHIRPS data (no SEAS5)
 * ``--only-current-month-seas5 {1-12}``: Specify which month's data to download
+* ``--year-start``: Start year for multi-year download (e.g., 1981)
+* ``--year-end``: End year for multi-year download (e.g., 2025)
 * ``--check-availability``: Check which months are available for a given year
 * ``--validate-availability``: Validate requested months before downloading
-* ``--skip-unavailable``: Skip unavailable months instead of failing
+* ``--skip-unavailable``: Skip unavailable months/years instead of failing
+
+**Downloading Year Ranges (Multi-Year Download):**
+
+To download the full historical SEAS5 dataset (1981-2025) with all months:
+
+.. code-block:: bash
+
+   python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
+
+To download a partial year range:
+
+.. code-block:: bash
+
+   python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
+
+To download historical data plus the current year (skipping unavailable months in 2026):
+
+.. code-block:: bash
+
+   python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
 
 .. warning::
    **SEAS5 Data Availability by Year**

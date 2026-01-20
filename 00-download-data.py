@@ -39,6 +39,21 @@ CHIRPS handling:
 Downloads CHIRPS data only once (checks if file already exists)
 Uses wget to retrieve the data as specified
 
+File Storage Location:
+----------------------
+By default, all downloaded files are stored in the `./data` directory (relative to current working directory).
+Use `--output-dir` to specify a different location.
+
+Output file naming convention:
+- Single year: seas5_precipitation_YYYYMMDD_yearYYYY_months_XX_XX.grib
+- Year range: seas5_precipitation_YYYYMMDD_yearsYYYY-YYYY_months_XX_months.grib
+- CHIRPS: chirps-v3.0.monthly.nc
+
+Example output paths:
+- ./data/seas5_precipitation_20260120_year2026_months_01.grib
+- ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib
+- ./data/chirps-v3.0.monthly.nc
+
 Examples:
 ---------
 # Download both datasets (run monthly)
@@ -56,8 +71,17 @@ python 00-download-data.py --output-dir /path/to/data
 # Download SEAS5 data for a specific month only (1-12)
 python 00-download-data.py --only-current-month-seas5 4
 
-# Download SEAS5 data for a specific month and year
+# Download SEAS5 data for a specific month and single year
 python 00-download-data.py --only-current-month-seas5 4 --year 2023
+
+# Download full historical dataset (1981-2025, all months)
+python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
+
+# Download partial year range (2000-2025, all months)
+python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
+
+# Download historical + current year (skip unavailable months in 2026)
+python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
 
 # Check data availability for a specific year
 python 00-download-data.py --check-availability --year 2026
@@ -288,10 +312,10 @@ def parse_month_input(month_input):
     return months
 
 def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_precipitation_",
-                                  month_input=None, year=None, validate_availability=False,
-                                  skip_unavailable=False):
+                                  month_input=None, year=None, year_start=None, year_end=None,
+                                  validate_availability=False, skip_unavailable=False):
     """
-    Download SEAS5 dataset from ECMWF CDS API for specific months and optionally a specific year
+    Download SEAS5 dataset from ECMWF CDS API for specific months and year(s)
 
     Args:
         output_dir: Directory to save the downloaded data
@@ -301,9 +325,11 @@ def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_pre
                     - String range like "1-6"
                     - Comma-separated string like "1,3,5"
                     - List of integers [1, 3, 5]
-        year: Year to download data for (4-digit integer, defaults to current year if None)
+        year: Single year to download (4-digit integer, defaults to current year if None)
+        year_start: Start year for year range (use with year_end for multi-year download)
+        year_end: End year for year range (use with year_start for multi-year download)
         validate_availability: If True, validate months against known availability before download
-        skip_unavailable: If True, skip unavailable months instead of failing (requires validate_availability)
+        skip_unavailable: If True, skip unavailable months/years instead of failing
 
     Returns:
         str: Path to the downloaded file, or None if download failed
@@ -318,74 +344,125 @@ def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_pre
         - Future years: No data available
 
         Use --check-availability --year YYYY to verify before downloading.
-    """
-    # If year is not provided, use current year
-    if year is None:
-        year = datetime.datetime.now().year
 
-    year_str = str(year)
+    Examples:
+        # Single year download
+        download_current_month_seas5(month_input="1-12", year=2025)
+
+        # Year range download (1981-2025)
+        download_current_month_seas5(month_input="1-12", year_start=1981, year_end=2025)
+    """
+    # Determine years to download
+    if year_start is not None and year_end is not None:
+        # Year range mode
+        if year_start > year_end:
+            print(f"ERROR: --year-start ({year_start}) must be <= --year-end ({year_end})")
+            return None
+        years = list(range(year_start, year_end + 1))
+        year_str_list = [str(y) for y in years]
+        year_display = f"{year_start}-{year_end}"
+    elif year is not None:
+        # Single year mode
+        years = [year]
+        year_str_list = [str(year)]
+        year_display = str(year)
+    else:
+        # Default to current year
+        year = datetime.datetime.now().year
+        years = [year]
+        year_str_list = [str(year)]
+        year_display = str(year)
 
     # Parse month input to get list of months in proper format
     months = parse_month_input(month_input)
 
-    # Validate availability if requested or if downloading current/future year
-    if validate_availability or int(year) >= CURRENT_YEAR:
-        is_valid, valid_months, unavailable = validate_year_month_availability(year, months)
+    # Validate availability for each year if requested or if any year >= CURRENT_YEAR
+    needs_validation = validate_availability or any(y >= CURRENT_YEAR for y in years)
 
-        if not is_valid:
-            unavailable_str = ', '.join(str(m) for m in unavailable)
-            available = get_available_months_for_year(year)
-            available_str = ', '.join(str(m) for m in available) if available else 'None'
+    if needs_validation:
+        valid_years = []
+        skipped_years = []
 
-            if skip_unavailable and valid_months:
-                print(f"\nWARNING: Months {unavailable_str} are not available for year {year}.")
-                print(f"Available months for {year}: {available_str}")
-                print(f"Proceeding with available months only: {', '.join(str(m) for m in valid_months)}")
-                months = [f"{m:02d}" for m in valid_months]
+        for y in years:
+            is_valid, valid_months_for_year, unavailable = validate_year_month_availability(y, months)
+
+            if is_valid:
+                valid_years.append(y)
             else:
-                print(f"\nERROR: Requested months {unavailable_str} are not available for year {year}.")
-                print(f"Available months for {year}: {available_str}")
-                print(f"\nTo check availability: python 00-download-data.py --check-availability --year {year}")
-                print(f"To skip unavailable months: add --skip-unavailable flag")
+                available = get_available_months_for_year(y)
+                available_str = ', '.join(str(m) for m in available) if available else 'None'
+                unavailable_str = ', '.join(str(m) for m in unavailable)
 
-                if int(year) == CURRENT_YEAR:
-                    print(f"\nNote: {year} is the current year. ECMWF releases new forecasts")
-                    print(f"around the 13th of each month. Update CURRENT_YEAR_AVAILABLE_MONTHS")
-                    print(f"in this script when new months become available.")
+                if y >= CURRENT_YEAR:
+                    if skip_unavailable:
+                        print(f"WARNING: Year {y} - months {unavailable_str} not available. Skipping year.")
+                        skipped_years.append(y)
+                    else:
+                        print(f"\nERROR: Requested months {unavailable_str} are not available for year {y}.")
+                        print(f"Available months for {y}: {available_str}")
+                        print(f"\nTo check availability: python 00-download-data.py --check-availability --year {y}")
+                        print(f"To skip unavailable years: add --skip-unavailable flag")
 
-                return None
+                        if y == CURRENT_YEAR:
+                            print(f"\nNote: {y} is the current year. ECMWF releases new forecasts")
+                            print(f"around the 13th of each month. Update CURRENT_YEAR_AVAILABLE_MONTHS")
+                            print(f"in this script when new months become available.")
 
-    print(f"Downloading SEAS5 data from ECMWF CDS for months {', '.join(months)}, year {year_str}...")
-    
+                        return None
+                else:
+                    valid_years.append(y)  # Historical years should have all months
+
+        if skipped_years:
+            print(f"Skipped years due to unavailable months: {', '.join(str(y) for y in skipped_years)}")
+
+        if not valid_years:
+            print("ERROR: No valid years to download after validation.")
+            return None
+
+        years = valid_years
+        year_str_list = [str(y) for y in years]
+        if len(years) == 1:
+            year_display = str(years[0])
+        else:
+            year_display = f"{min(years)}-{max(years)}"
+
+    print(f"Downloading SEAS5 data from ECMWF CDS for months {', '.join(months)}, years {year_display}...")
+    print(f"Total years: {len(years)}, Total months per year: {len(months)}")
+
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-    
-    # Create filename with month info
+
+    # Create filename with year and month info
+    if len(years) == 1:
+        year_info = f"year{years[0]}"
+    else:
+        year_info = f"years{min(years)}-{max(years)}"
+
     month_info = "months_" + "_".join(months) if len(months) <= 4 else f"months_{len(months)}_months"
     current_date = datetime.datetime.now().strftime("%Y%m%d")
-    output_file = os.path.join(output_dir, f'{filename_prefix}{current_date}_year{year_str}_{month_info}.grib')
-    
+    output_file = os.path.join(output_dir, f'{filename_prefix}{current_date}_{year_info}_{month_info}.grib')
+
     # Define the SEAS5 dataset and request parameters
     dataset = "seasonal-monthly-single-levels"
     request = {
         "originating_centre": "ecmwf",
         "system": "51",
         "variable": ["total_precipitation"],
-        "year": [year_str],
+        "year": year_str_list,
         "month": months,
         "leadtime_month": ["1", "2", "3", "4", "5", "6"],
         "data_format": "grib",
         "product_type": ["monthly_mean"],
         "area": [23, 21, -12, 53]
     }
-    
+
     try:
         client = cdsapi.Client()
         client.retrieve(dataset, request, output_file)
-        print(f"SEAS5 data for months {', '.join(months)}, year {year_str} downloaded successfully to: {output_file}")
+        print(f"SEAS5 data for months {', '.join(months)}, years {year_display} downloaded successfully to: {output_file}")
         return output_file
     except Exception as e:
-        print(f"Error downloading SEAS5 data for months {', '.join(months)}, year {year_str}: {e}")
+        print(f"Error downloading SEAS5 data for months {', '.join(months)}, years {year_display}: {e}")
         return None
 
 def check_grib_file(grib_file_path):
@@ -525,11 +602,20 @@ To automatically validate and skip unavailable months:
 
 EXAMPLES:
 ---------
-# Download historical data (all months available):
+# Download single year historical data (all months available):
   python 00-download-data.py --only-current-month-seas5 1-12 --year 2025
+
+# Download full historical dataset (1981-2025, all months):
+  python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
+
+# Download partial historical range:
+  python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
 
 # Download current year (only available months):
   python 00-download-data.py --only-current-month-seas5 1 --year 2026
+
+# Download historical + current year (skip unavailable):
+  python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
 
 # Check data availability:
   python 00-download-data.py --check-availability --year 2026
@@ -561,8 +647,15 @@ EXAMPLES:
                              help="Download SEAS5 data for specific months. Formats: "
                                   "single (3), comma-separated (1,2,3), or range (1-12)")
     seas5_group.add_argument("--year", type=int,
-                             help="Year for SEAS5 data. IMPORTANT: For 2026+, only released "
-                                  "months are available. Use --check-availability to verify.")
+                             help="Single year for SEAS5 data. IMPORTANT: For 2026+, only released "
+                                  "months are available. Use --check-availability to verify. "
+                                  "Cannot be used with --year-start/--year-end.")
+    seas5_group.add_argument("--year-start", type=int, metavar="YEAR",
+                             help="Start year for multi-year download (e.g., 1981). "
+                                  "Use with --year-end for downloading year ranges.")
+    seas5_group.add_argument("--year-end", type=int, metavar="YEAR",
+                             help="End year for multi-year download (e.g., 2025). "
+                                  "Use with --year-start for downloading year ranges.")
     seas5_group.add_argument("--keep-all-seas5", action="store_true",
                              help="Keep all SEAS5 files (don't clean up old files)")
 
@@ -576,8 +669,8 @@ EXAMPLES:
                              help="Validate requested months against known availability before "
                                   "downloading (automatically enabled for year >= 2026)")
     avail_group.add_argument("--skip-unavailable", action="store_true",
-                             help="Skip unavailable months instead of failing "
-                                  "(use with --validate-availability)")
+                             help="Skip unavailable months/years instead of failing "
+                                  "(use with --validate-availability or year ranges including 2026+)")
 
     # Utility options
     util_group = parser.add_argument_group('Utility Options')
@@ -602,9 +695,30 @@ EXAMPLES:
         print("Use --seas5-only OR --chirps-only OR --only-current-month-seas5")
         return
 
-    # Validate that --year is only used with appropriate options
-    if args.year is not None and args.only_current_month_seas5 is None and not args.check_availability:
-        print("Error: --year can only be used with --only-current-month-seas5 or --check-availability")
+    # Validate year arguments
+    has_year = args.year is not None
+    has_year_range = args.year_start is not None or args.year_end is not None
+
+    if has_year and has_year_range:
+        print("Error: Cannot use --year together with --year-start/--year-end")
+        print("Use either --year for single year OR --year-start and --year-end for year range")
+        return
+
+    if (args.year_start is not None) != (args.year_end is not None):
+        print("Error: --year-start and --year-end must be used together")
+        return
+
+    if args.year_start is not None and args.year_end is not None:
+        if args.year_start > args.year_end:
+            print(f"Error: --year-start ({args.year_start}) must be <= --year-end ({args.year_end})")
+            return
+        if args.year_start < 1981:
+            print(f"Error: --year-start ({args.year_start}) cannot be before 1981 (SEAS5 data starts from 1981)")
+            return
+
+    # Validate that year options are only used with appropriate download options
+    if (has_year or has_year_range) and args.only_current_month_seas5 is None and not args.check_availability:
+        print("Error: Year options can only be used with --only-current-month-seas5 or --check-availability")
         return
 
     # Validate --skip-unavailable requires --validate-availability
@@ -618,6 +732,8 @@ EXAMPLES:
             args.output_dir,
             month_input=args.only_current_month_seas5,
             year=args.year,
+            year_start=args.year_start,
+            year_end=args.year_end,
             validate_availability=args.validate_availability,
             skip_unavailable=args.skip_unavailable
         )
