@@ -239,43 +239,56 @@ def process_chirps_data(region_id, credentials, extent, chirps_file=None, output
 def merge_grib_files(main_file, additional_files, output_file=None):
     """
     Merge multiple GRIB files, removing any duplicate time periods.
-    
+
     Args:
         main_file (str): Path to the main GRIB file (historical data)
         additional_files (list): List of paths to additional GRIB files
         output_file (str): Optional path to save the merged file
-        
+
     Returns:
         xarray.Dataset: The merged dataset
     """
     logger.info(f"Merging main GRIB file: {main_file} with additional files")
-    
+
+    # Backend kwargs for cfgrib - use 'warn' to skip corrupted messages gracefully
+    cfgrib_kwargs = dict(
+        time_dims=('forecastMonth', 'time'),
+        errors='warn'  # Skip corrupted messages with warning instead of failing
+    )
+
     # Open the main file
     if main_file.endswith('.grib') or main_file.endswith('.grb') or main_file.endswith('.grib2'):
-        main_ds = xr.open_dataset(main_file, engine='cfgrib', 
-                                 backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+        main_ds = xr.open_dataset(main_file, engine='cfgrib',
+                                 backend_kwargs=cfgrib_kwargs)
     else:
         main_ds = xr.open_dataset(main_file)
-    
+
+    logger.info(f"Main file loaded. Time range: {main_ds.time.values[0]} to {main_ds.time.values[-1]}, "
+                f"Total time steps: {len(main_ds.time)}")
+
     # Process each additional file
     all_datasets = [main_ds]
-    
+
     for add_file in additional_files:
         logger.info(f"Processing additional file: {add_file}")
-        
+
         try:
             # Open the additional file
             if add_file.endswith('.grib') or add_file.endswith('.grb') or add_file.endswith('.grib2'):
-                add_ds = xr.open_dataset(add_file, engine='cfgrib', 
-                                        backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+                add_ds = xr.open_dataset(add_file, engine='cfgrib',
+                                        backend_kwargs=cfgrib_kwargs)
             else:
                 add_ds = xr.open_dataset(add_file)
-            
+
+            logger.info(f"Additional file loaded. Time range: {add_ds.time.values[0]} to {add_ds.time.values[-1]}, "
+                        f"Total time steps: {len(add_ds.time)}")
+
             # Append to our list
             all_datasets.append(add_ds)
-            
+
         except Exception as e:
             logger.error(f"Error processing file {add_file}: {e}")
+            logger.warning(f"Skipping file {add_file} due to error. Processing will continue with remaining files.")
             continue
     
     # Handle merging carefully to ensure monotonic time index
@@ -378,14 +391,20 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=N
         raise
     
     # Load SEAS51 data
+    # Backend kwargs for cfgrib - use 'warn' to skip corrupted messages gracefully
+    cfgrib_kwargs = dict(
+        time_dims=('forecastMonth', 'time'),
+        errors='warn'  # Skip corrupted messages with warning instead of failing
+    )
+
     if seas51_files:
         # Check if it's a single file or multiple files
         if isinstance(seas51_files, str):
             logger.info(f"Using single local SEAS51 file: {seas51_files}")
             if seas51_files.endswith('.grib') or seas51_files.endswith('.grb') or seas51_files.endswith('.grib2'):
                 logger.info("Processing GRIB file format")
-                sds = xr.open_dataset(seas51_files, engine='cfgrib', 
-                                     backend_kwargs=dict(time_dims=('forecastMonth', 'time')))
+                sds = xr.open_dataset(seas51_files, engine='cfgrib',
+                                     backend_kwargs=cfgrib_kwargs)
             else:
                 sds = xr.open_dataset(seas51_files)
         else:

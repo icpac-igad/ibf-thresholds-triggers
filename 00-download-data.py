@@ -484,19 +484,19 @@ To automatically validate and skip unavailable months:
 EXAMPLES:
 ---------
 # Download single year historical data (all months available):
-  python 00-download-data.py --only-current-month-seas5 1-12 --year 2025
+  python 00-download-data.py --output-dir ../data --only-current-month-seas5 1-12 --year 2025
 
 # Download full historical dataset (1981-2025, all months):
-  python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
+  python 00-download-data.py --output-dir ../data --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
 
 # Download partial historical range:
-  python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
+  python 00-download-data.py --output-dir ../data --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
 
 # Download current year (only available months):
-  python 00-download-data.py --only-current-month-seas5 1 --year 2026
+  python 00-download-data.py --output-dir ../data --only-current-month-seas5 1 --year 2026
 
 # Download historical + current year (skip unavailable):
-  python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
+  python 00-download-data.py --output-dir ../data --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
 
 # Check data availability:
   python 00-download-data.py --check-availability --year 2026
