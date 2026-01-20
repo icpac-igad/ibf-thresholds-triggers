@@ -16,7 +16,7 @@ Run these commands in sequence to validate forecast quality and establish optima
 .. code-block:: bash
 
    # Step 1: Download required data
-   python 00-download-data.py --output-dir './' --only-current-month-seas5 4 --year 2025
+   python 00-download-data.py --output-dir './' --months 4 --year 2025
 
    # Step 2: Process SPI for SEAS5 forecasts and CHIRPS observations 
    python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
@@ -41,7 +41,7 @@ Once trigger values have been established, use the following steps for operation
 .. code-block:: bash
 
    # Step 1: Download required data
-   python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 3-5 --year 2025
+   python 00-download-data.py --output-dir '../../data' --seas5-only --months 3-5 --year 2025
 
    # Step 2: Process SPI for SEAS5 forecasts only
    # For May 2025 
@@ -126,19 +126,19 @@ Step 1: Download ECMWF SEAS5 and CHIRPS Data
 
 .. code-block:: bash
 
-   python 00-download-data.py --output-dir './' --only-current-month-seas5 4 --year 2025
+   python 00-download-data.py --output-dir './' --months 4 --year 2025
 
 **Parameters explained:**
 
 * ``--output-dir './'``: Specifies the directory where downloaded data will be saved
-* ``--only-current-month-seas5 4``: Downloads SEAS5 data only for April (month 4)
+* ``--months 4``: Downloads SEAS5 data only for April (month 4)
 * ``--year 2025``: Specifies the year for the SEAS5 data
 * ``--seas5-only``: Download only SEAS5 data (no CHIRPS) - use for monthly operational mode
 
 **Additional options:**
 
 * ``--chirps-only``: Download only CHIRPS data (no SEAS5)
-* ``--only-current-month-seas5 {1-12}``: Specify which month's data to download
+* ``--months {1-12}``: Specify which month's data to download
 * ``--year-start``: Start year for multi-year download (e.g., 1981)
 * ``--year-end``: End year for multi-year download (e.g., 2025)
 * ``--check-availability``: Check which months are available for a given year
@@ -151,19 +151,19 @@ To download the full historical SEAS5 dataset (1981-2025) with all months:
 
 .. code-block:: bash
 
-   python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
+   python 00-download-data.py --months 1-12 --year-start 1981 --year-end 2025
 
 To download a partial year range:
 
 .. code-block:: bash
 
-   python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
+   python 00-download-data.py --months 1-12 --year-start 2000 --year-end 2025
 
 To download historical data plus the current year (skipping unavailable months in 2026):
 
 .. code-block:: bash
 
-   python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
+   python 00-download-data.py --months 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
 
 .. warning::
    **SEAS5 Data Availability by Year**
@@ -187,7 +187,7 @@ To download historical data plus the current year (skipping unavailable months i
 
    .. code-block:: bash
 
-      python 00-download-data.py --only-current-month-seas5 1-3 --year 2026 --validate-availability --skip-unavailable
+      python 00-download-data.py --months 1-3 --year 2026 --validate-availability --skip-unavailable
 
 .. note::
    This script automatically names files with date stamps (e.g., ``seas5_precipitation_20250402.grib``) and CHIRPS data is only downloaded if it doesn't already exist.

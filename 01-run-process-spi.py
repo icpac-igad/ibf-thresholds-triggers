@@ -256,6 +256,33 @@ def merge_grib_files(main_file, additional_files, output_file=None):
         errors='warn'  # Skip corrupted messages with warning instead of failing
     )
 
+    def ensure_time_dimension(ds, file_path):
+        """
+        Ensure the time coordinate is a proper dimension (not scalar).
+        Single-time-step files can have time as a scalar, which causes indexing errors.
+        """
+        if 'time' in ds.coords:
+            time_val = ds.time
+            # Check if time is scalar (0-dimensional)
+            if time_val.ndim == 0:
+                logger.info(f"Expanding scalar time dimension in {os.path.basename(file_path)}")
+                ds = ds.expand_dims('time')
+        return ds
+
+    def log_time_info(ds, label):
+        """Log time range info, handling both scalar and array time coordinates."""
+        if 'time' in ds.coords:
+            time_vals = ds.time.values
+            if np.ndim(time_vals) == 0:
+                # Scalar time
+                logger.info(f"{label} Time: {time_vals}, Total time steps: 1")
+            else:
+                # Array time
+                logger.info(f"{label} Time range: {time_vals[0]} to {time_vals[-1]}, "
+                           f"Total time steps: {len(time_vals)}")
+        else:
+            logger.warning(f"{label} No time coordinate found")
+
     # Open the main file
     if main_file.endswith('.grib') or main_file.endswith('.grb') or main_file.endswith('.grib2'):
         main_ds = xr.open_dataset(main_file, engine='cfgrib',
@@ -263,8 +290,8 @@ def merge_grib_files(main_file, additional_files, output_file=None):
     else:
         main_ds = xr.open_dataset(main_file)
 
-    logger.info(f"Main file loaded. Time range: {main_ds.time.values[0]} to {main_ds.time.values[-1]}, "
-                f"Total time steps: {len(main_ds.time)}")
+    main_ds = ensure_time_dimension(main_ds, main_file)
+    log_time_info(main_ds, "Main file loaded.")
 
     # Process each additional file
     all_datasets = [main_ds]
@@ -280,8 +307,9 @@ def merge_grib_files(main_file, additional_files, output_file=None):
             else:
                 add_ds = xr.open_dataset(add_file)
 
-            logger.info(f"Additional file loaded. Time range: {add_ds.time.values[0]} to {add_ds.time.values[-1]}, "
-                        f"Total time steps: {len(add_ds.time)}")
+            # Ensure time is a proper dimension (not scalar)
+            add_ds = ensure_time_dimension(add_ds, add_file)
+            log_time_info(add_ds, f"Additional file {os.path.basename(add_file)} loaded.")
 
             # Append to our list
             all_datasets.append(add_ds)
