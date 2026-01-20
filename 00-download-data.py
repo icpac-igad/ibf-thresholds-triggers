@@ -2,97 +2,12 @@
 """
 ECMWF SEAS5 and CHIRPS Data Downloader
 
-This script downloads:
-1. SEAS5 seasonal forecast data from ECMWF CDS API
-2. CHIRPS precipitation data (optional)
-
-The script cleans up old SEAS5 files when new data is downloaded.
-
-IMPORTANT: SEAS5 Data Availability
-----------------------------------
-SEAS5 data availability varies by year:
-- Historical years (1981-2025): All months (1-12) are typically available
-- Current year (2026): Only months up to the current forecast release are available.
-  ECMWF releases new forecasts around the 13th of each month for that month.
-
-For example, in January 2026, only month 1 (January) initialization is available.
-Requesting months beyond what is available will cause the download to fail.
-
-Use --check-availability to see what months are currently available for a given year.
-
-Flexible downloading options:
------------------------------
-Download both datasets (default)
-Download only SEAS5 data with --seas5-only
-Download only CHIRPS data with --chirps-only
-Download only specific month SEAS5 data with --only-current-month-seas5 [month] and optional --year [year]
-
-SEAS5 file management:
----------------------
-Downloads SEAS5 data with the correct parameters
-Automatically names files with date stamps (e.g., seas5_precipitation_20250402.grib)
-Cleans up old SEAS5 files by default, keeping only the latest one
-Option to keep all SEAS5 files with --keep-all-seas5
-
-CHIRPS handling:
----------------
-Downloads CHIRPS data only once (checks if file already exists)
-Uses wget to retrieve the data as specified
-
-File Storage Location:
-----------------------
-By default, all downloaded files are stored in the `./data` directory (relative to current working directory).
-Use `--output-dir` to specify a different location.
-
-Output file naming convention:
-- Single year: seas5_precipitation_YYYYMMDD_yearYYYY_months_XX_XX.grib
-- Year range: seas5_precipitation_YYYYMMDD_yearsYYYY-YYYY_months_XX_months.grib
-- CHIRPS: chirps-v3.0.monthly.nc
-
-Example output paths:
-- ./data/seas5_precipitation_20260120_year2026_months_01.grib
-- ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib
-- ./data/chirps-v3.0.monthly.nc
-
-Examples:
----------
-# Download both datasets (run monthly)
-python 00-download-data.py
-
-# Download only SEAS5 (typical monthly update)
-python 00-download-data.py --seas5-only
-
-# Download only CHIRPS (rarely needed)
-python 00-download-data.py --chirps-only
-
-# Specify a different output directory
-python 00-download-data.py --output-dir /path/to/data
-
-# Download SEAS5 data for a specific month only (1-12)
-python 00-download-data.py --only-current-month-seas5 4
-
-# Download SEAS5 data for a specific month and single year
-python 00-download-data.py --only-current-month-seas5 4 --year 2023
-
-# Download full historical dataset (1981-2025, all months)
-python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2025
-
-# Download partial year range (2000-2025, all months)
-python 00-download-data.py --only-current-month-seas5 1-12 --year-start 2000 --year-end 2025
-
-# Download historical + current year (skip unavailable months in 2026)
-python 00-download-data.py --only-current-month-seas5 1-12 --year-start 1981 --year-end 2026 --skip-unavailable
-
-# Check data availability for a specific year
-python 00-download-data.py --check-availability --year 2026
-
-# Download current year with available months only (auto-detect)
-python 00-download-data.py --only-current-month-seas5 1-3 --year 2026 --validate-availability
+Downloads SEAS5 seasonal forecast data from ECMWF CDS API and CHIRPS precipitation data.
+Run with --help for usage examples and data availability information.
 """
 
 import os
 import argparse
-import glob
 import datetime
 import subprocess
 import cdsapi
@@ -545,40 +460,6 @@ def download_chirps(output_dir="./data", filename="chirps-v3.0.monthly.nc"):
         print(f"Unexpected error: {e}")
         return None
 
-def cleanup_old_seas5_files(output_dir="./data", filename_prefix="seas5_precipitation_", keep_latest=True):
-    """
-    Remove old SEAS5 files, optionally keeping the latest one
-    
-    Args:
-        output_dir: Directory containing the SEAS5 files
-        filename_prefix: Prefix of the SEAS5 files
-        keep_latest: Whether to keep the latest file
-    """
-    print("Cleaning up old SEAS5 files...")
-    
-    # Get all SEAS5 files
-    pattern = os.path.join(output_dir, f"{filename_prefix}*.grib")
-    files = glob.glob(pattern)
-    
-    if not files:
-        print("No SEAS5 files found for cleanup.")
-        return
-    
-    if keep_latest and len(files) > 1:
-        # Sort files by modification time (newest last)
-        files.sort(key=os.path.getmtime)
-        # Remove the latest file from the list
-        latest_file = files.pop()
-        print(f"Keeping latest file: {os.path.basename(latest_file)}")
-    
-    # Remove remaining files
-    for file in files:
-        try:
-            os.remove(file)
-            print(f"Removed: {os.path.basename(file)}")
-        except Exception as e:
-            print(f"Error removing {file}: {e}")
-
 def main():
     # Create epilog with data availability information
     epilog_text = """
@@ -656,8 +537,6 @@ EXAMPLES:
     seas5_group.add_argument("--year-end", type=int, metavar="YEAR",
                              help="End year for multi-year download (e.g., 2025). "
                                   "Use with --year-start for downloading year ranges.")
-    seas5_group.add_argument("--keep-all-seas5", action="store_true",
-                             help="Keep all SEAS5 files (don't clean up old files)")
 
     # Data availability options
     avail_group = parser.add_argument_group('Data Availability',
@@ -740,13 +619,9 @@ EXAMPLES:
         if seas5_file is None:
             print("\nDownload failed. Please check the error messages above.")
             return
-        if not args.keep_all_seas5:
-            cleanup_old_seas5_files(args.output_dir)
     # Download full SEAS5 data if requested or if no specific option is specified
     elif args.seas5_only or not args.chirps_only:
         seas5_file = download_seas5(args.output_dir)
-        if not args.keep_all_seas5:
-            cleanup_old_seas5_files(args.output_dir)
     
     # Download CHIRPS data if requested or if neither option is specified
     if args.chirps_only or (not args.seas5_only and args.only_current_month_seas5 is None):

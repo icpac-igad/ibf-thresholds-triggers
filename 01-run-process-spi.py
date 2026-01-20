@@ -719,44 +719,80 @@ def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_siz
     
     return output_obs_path , output_forecast_path 
 
-def print_usage_examples():
-    """Print usage examples for the script."""
-    examples = """
-    Examples:
-      # Run both CHIRPS and SEAS51 processing for region 'kmj' using local data
-      python 01-run-process-spi.py --region-id kmj --mode both --use-local --chirps-file ../chirps-v3.0.monthly.nc --seas51-main-file ../historical_seas51_1981_2025March.grib
-
-      # Run only CHIRPS processing
-      python 01-run-process-spi.py --region-id kmj --mode chirps --use-local --chirps-file ../chirps-v3.0.monthly.nc
-
-      # Run only SEAS51 processing using an existing observation file
-      python 01-run-process-spi.py --region-id kmj --mode seas51 --use-local --obs-file kmj_obs_spi3.nc --seas51-main-file ../historical_seas51_1981_2025March.grib
-
-      # Merge multiple SEAS51 files and process
-      python 01-run-process-spi.py --region-id kmj --mode seas51 --obs-file kmj_obs_spi3.nc --seas51-main-file ../historical_seas51_1981_2025March.grib --seas51-additional-files ../seas51_2025_January_April.grib
-      # Doing all the steps 
-      python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
-
-      # Using GCP data with credentials
-      python 01-run-process-spi.py --region-id kmj --credentials-file ./coiled-data.json
-    """
-    print(examples)
-
 def parse_arguments():
     """
     Parse command line arguments for the script.
-    
+
     Returns:
         argparse.Namespace: The parsed arguments
     """
+    description = """
+SPI-3 Processing Script for Drought Anticipatory Action System
+
+Calculates Standardized Precipitation Index (SPI-3) from CHIRPS observations
+and/or SEAS51 forecasts for drought anticipatory action.
+
+OPERATIONAL MODES:
+  --mode both   : Mode 1 - Hindcast Verification (process CHIRPS + SEAS51)
+  --mode chirps : Process only CHIRPS observations
+  --mode seas51 : Mode 2 - Monthly Operational (process only SEAS51 forecasts)
+
+For Mode 2 (seas51), an existing observation file (--obs-file) is required.
+"""
+
+    epilog = """
+EXAMPLES:
+
+  Mode 1 - Hindcast Verification (--mode both):
+  ---------------------------------------------
+  python 01-run-process-spi.py \\
+      --region-id kmj \\
+      --mode both \\
+      --output-dir ./output \\
+      --use-local \\
+      --local-shapefile ./data/kmj_polygon.shp \\
+      --chirps-file ./data/chirps-v2.0.monthly.nc \\
+      --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \\
+      --apply-mask \\
+      --mask-buffer 0.25
+
+  Mode 2 - Monthly Operational (--mode seas51):
+  ---------------------------------------------
+  python 01-run-process-spi.py \\
+      --region-id kmj \\
+      --mode seas51 \\
+      --output-dir ./output \\
+      --use-local \\
+      --local-shapefile ./data/kmj_polygon.shp \\
+      --obs-file ./output/kmj_obs_spi3.nc \\
+      --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \\
+      --seas51-additional-files ./data/seas5_precipitation_20260120_year2026_months_01.grib \\
+      --apply-mask \\
+      --mask-buffer 0.25
+
+  CHIRPS only (create observation baseline):
+  ------------------------------------------
+  python 01-run-process-spi.py \\
+      --region-id kmj \\
+      --mode chirps \\
+      --output-dir ./output \\
+      --use-local \\
+      --local-shapefile ./data/kmj_polygon.shp \\
+      --chirps-file ./data/chirps-v2.0.monthly.nc
+
+OUTPUT FILES:
+  Mode 'both':   {region}_obs_spi3.nc, {region}_rgr_seas51_spi3.nc, + masked versions
+  Mode 'chirps': {region}_obs_spi3.nc
+  Mode 'seas51': {region}_rgr_seas51_spi3.nc, + masked version
+
+WORKFLOW: First download data using 00-download-data.py, then process with this script.
+"""
+
     parser = argparse.ArgumentParser(
-        description="Process SPI calculations for CHIRPS observations and SEAS51 forecasts",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    
-    # Add this line after creating the argument parser but before parsing args
-    parser.epilog = "Run with --examples for detailed usage examples."
-    parser.add_argument("--examples", action="store_true", help="Show usage examples and exit")
 
     # General arguments
     parser.add_argument("--region-id", type=str, required=True,
@@ -801,10 +837,7 @@ def parse_arguments():
 if __name__ == "__main__":
     # Parse command line arguments
     args = parse_arguments()
-    # At the beginning of your main code:
-    if args.examples:
-        print_usage_examples()
-        sys.exit(0) 
+
     # Setup output directory
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)

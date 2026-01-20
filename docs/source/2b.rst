@@ -173,44 +173,9 @@ SEAS5 is ECMWF's fifth generation seasonal forecast system, providing global for
            print(f"Error downloading SEAS5 data: {e}")
            return None
    
-   def cleanup_old_seas5_files(output_dir="./data", filename_prefix="seas5_precipitation_", keep_latest=True):
-       """
-       Remove old SEAS5 files, optionally keeping the latest one
-       
-       Args:
-           output_dir: Directory containing the SEAS5 files
-           filename_prefix: Prefix of the SEAS5 files
-           keep_latest: Whether to keep the latest file
-       """
-       print("Cleaning up old SEAS5 files...")
-       
-       # Get all SEAS5 files
-       pattern = os.path.join(output_dir, f"{filename_prefix}*.grib")
-       files = glob.glob(pattern)
-       
-       if not files:
-           print("No SEAS5 files found for cleanup.")
-           return
-       
-       if keep_latest and len(files) > 1:
-           # Sort files by modification time (newest last)
-           files.sort(key=os.path.getmtime)
-           # Remove the latest file from the list
-           latest_file = files.pop()
-           print(f"Keeping latest file: {os.path.basename(latest_file)}")
-       
-       # Remove remaining files
-       for file in files:
-           try:
-               os.remove(file)
-               print(f"Removed: {os.path.basename(file)}")
-           except Exception as e:
-               print(f"Error removing {file}: {e}")
-   
-   # Example: Download SEAS5 data and clean up old files
+   # Example: Download SEAS5 data
    seas5_file = download_seas5()
-   cleanup_old_seas5_files()
-   
+
    # Open the data with xarray
    import xarray as xr
    ds = xr.open_dataset(seas5_file)

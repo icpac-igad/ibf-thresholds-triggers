@@ -16,7 +16,7 @@ Run these commands in sequence to validate forecast quality and establish optima
 .. code-block:: bash
 
    # Step 1: Download required data
-   python 00-download-data.py --output-dir './' --keep-all-seas5 --only-current-month-seas5 4 --year 2025
+   python 00-download-data.py --output-dir './' --only-current-month-seas5 4 --year 2025
 
    # Step 2: Process SPI for SEAS5 forecasts and CHIRPS observations 
    python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
@@ -126,12 +126,11 @@ Step 1: Download ECMWF SEAS5 and CHIRPS Data
 
 .. code-block:: bash
 
-   python 00-download-data.py --output-dir './' --keep-all-seas5 --only-current-month-seas5 4 --year 2025
+   python 00-download-data.py --output-dir './' --only-current-month-seas5 4 --year 2025
 
 **Parameters explained:**
 
 * ``--output-dir './'``: Specifies the directory where downloaded data will be saved
-* ``--keep-all-seas5``: Keeps all previously downloaded SEAS5 files instead of deleting older ones
 * ``--only-current-month-seas5 4``: Downloads SEAS5 data only for April (month 4)
 * ``--year 2025``: Specifies the year for the SEAS5 data
 * ``--seas5-only``: Download only SEAS5 data (no CHIRPS) - use for monthly operational mode
@@ -199,35 +198,67 @@ To download historical data plus the current year (skipping unavailable months i
 Step 2: Process SPI (Standardized Precipitation Index)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For hindcast verification mode:
+This script calculates SPI-3 (3-month Standardized Precipitation Index) from CHIRPS observations and/or SEAS51 forecasts.
+
+**Mode 1: Hindcast Verification (--mode both)**
+
+For initial setup and forecast verification, process both CHIRPS and SEAS51 data:
 
 .. code-block:: bash
 
-   python 01-run-process-spi.py --region-id kmj --mode both --use-local --local-shapefile ../data/kmj_polygon.shp --chirps-file ../data/chirps-v2.0.monthly.nc --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../data/47ed48882ef56a748a72999c1e28baa4.grib --apply-mask --mask-buffer 0.25
+   python 01-run-process-spi.py \
+       --region-id kmj \
+       --mode both \
+       --output-dir ./output \
+       --use-local \
+       --local-shapefile ./data/kmj_polygon.shp \
+       --chirps-file ./data/chirps-v2.0.monthly.nc \
+       --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \
+       --apply-mask \
+       --mask-buffer 0.25
 
-For monthly operational forecasting:
+**Mode 2: Monthly Operational Forecasting (--mode seas51)**
+
+For routine monthly forecasting using a pre-existing observation file:
 
 .. code-block:: bash
 
-   python 01-run-process-spi.py --region-id kmj --mode forecast --use-local --local-shapefile ../data/kmj_polygon.shp --seas51-main-file ../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --apply-mask --mask-buffer 0.25
+   python 01-run-process-spi.py \
+       --region-id kmj \
+       --mode seas51 \
+       --output-dir ./output \
+       --use-local \
+       --local-shapefile ./data/kmj_polygon.shp \
+       --obs-file ./output/kmj_obs_spi3.nc \
+       --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \
+       --seas51-additional-files ./data/seas5_precipitation_20260120_year2026_months_01.grib \
+       --apply-mask \
+       --mask-buffer 0.25
+
+.. note::
+   In Mode 2, the ``--seas51-additional-files`` is used to merge new forecast data with the historical hindcast data for proper SPI calculation.
 
 **Parameters explained:**
 
 * ``--region-id kmj``: Specifies the region identifier (Karamoja in this case)
-* ``--mode both``: Processes both forecast and observation data (use for hindcast verification)
-* ``--mode forecast``: Processes only forecast data (use for monthly operational forecasting)
+* ``--mode both``: Processes both CHIRPS observations and SEAS51 forecasts (Mode 1 - Hindcast Verification)
+* ``--mode seas51``: Processes only SEAS51 forecast data (Mode 2 - Monthly Operational)
 * ``--use-local``: Uses local files instead of cloud storage
-* ``--local-shapefile ../data/kmj_polygon.shp``: Path to the shapefile defining the region
-* ``--chirps-file``: Path to CHIRPS observation data (only needed for hindcast verification)
-* ``--seas51-main-file``: Path to main SEAS51 forecast file
-* ``--seas51-additional-files``: Path to additional SEAS51 files (if needed)
+* ``--local-shapefile``: Path to the shapefile defining the region
+* ``--chirps-file``: Path to CHIRPS observation data (only needed for Mode 1)
+* ``--obs-file``: Path to existing observation SPI file (required for Mode 2)
+* ``--seas51-main-file``: Path to main SEAS51 GRIB file (historical data 1981-2025)
+* ``--seas51-additional-files``: Path to additional SEAS51 files to merge (e.g., current year forecasts)
 * ``--apply-mask``: Applies a spatial mask based on the shapefile
 * ``--mask-buffer 0.25``: Adds a 0.25-degree buffer around the masked region
 
-**Output:** This script generates netCDF files with calculated SPI values.
+**Output files:**
 
- 
-   Processing SPI values from forecast and observation data
+* Mode 1 (both): ``{region}_obs_spi3.nc``, ``{region}_rgr_seas51_spi3.nc``, and masked versions
+* Mode 2 (seas51): ``{region}_rgr_seas51_spi3.nc`` and masked version
+
+.. tip::
+   Run ``python 01-run-process-spi.py --examples`` for detailed usage examples and workflow integration with ``00-download-data.py``.
 
 Step 3: Run Forecast Verification (Hindcast Mode Only)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

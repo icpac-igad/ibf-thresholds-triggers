@@ -175,9 +175,56 @@ Even in operational mode, an observation file (`--obs-file`) is still required a
 
 **Command Example**:
 
+For monthly operational forecasting (Mode 2), use the following multi-line command format for better readability:
+
 ```bash
-python 01-run-process-spi.py --region-id kmj --output-dir output --mode seas51 --use-local --obs-file kmj_obs_spi3.nc --local-shapefile ../../data/kmj_polygon.shp --seas51-main-file ../../data/3c58a474556eba4e1fd6a0d24e9824e8.grib --seas51-additional-files ../../data/seas5_precipitation_20250514_year2025_months_03_04_05.grib --apply-mask --mask-buffer 0.25
+python 01-run-process-spi.py \
+    --region-id kmj \
+    --mode seas51 \
+    --output-dir ./output \
+    --use-local \
+    --local-shapefile ./data/kmj_polygon.shp \
+    --obs-file ./output/kmj_obs_spi3.nc \
+    --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \
+    --seas51-additional-files ./data/seas5_precipitation_20260120_year2026_months_01.grib \
+    --apply-mask \
+    --mask-buffer 0.25
 ```
+
+**Understanding the Input Files**:
+
+The command above uses files downloaded from `00-download-data.py`:
+
+* ``--seas51-main-file``: Historical hindcast data (1981-2025) with all 12 months
+  - Example filename: ``seas5_precipitation_20260120_years1981-2025_months_12_months.grib``
+  - This provides the climatological reference for SPI calculation
+
+* ``--seas51-additional-files``: Current year forecast data
+  - Example filename: ``seas5_precipitation_20260120_year2026_months_01.grib``
+  - This contains the latest forecast to be processed
+
+* ``--obs-file``: Pre-existing observation SPI file from Mode 1 verification
+  - Used only as a reference for regridding (spatial resolution alignment)
+  - Does not need to be updated each month
+
+**Workflow Integration with 00-download-data.py**:
+
+The typical monthly operational workflow is:
+
+1. Download the latest forecast data:
+
+   ```bash
+   python 00-download-data.py \
+       --output-dir ./data \
+       --seas5-only \
+       --only-current-month-seas5 1 \
+       --year 2026 \
+       --validate-availability
+   ```
+
+2. Process SPI using the downloaded data (command above)
+
+3. Generate visualizations (Step 3 below)
 
 **Output Files**:
 
