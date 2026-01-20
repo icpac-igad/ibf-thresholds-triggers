@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-ECMWF 
-MWF SEAS5 and CHIRPS Data Downloader
+ECMWF SEAS5 and CHIRPS Data Downloader
 
 This script downloads:
 1. SEAS5 seasonal forecast data from ECMWF CDS API
@@ -9,45 +8,62 @@ This script downloads:
 
 The script cleans up old SEAS5 files when new data is downloaded.
 
-#Flexible downloading options:
+IMPORTANT: SEAS5 Data Availability
+----------------------------------
+SEAS5 data availability varies by year:
+- Historical years (1981-2025): All months (1-12) are typically available
+- Current year (2026): Only months up to the current forecast release are available.
+  ECMWF releases new forecasts around the 13th of each month for that month.
 
+For example, in January 2026, only month 1 (January) initialization is available.
+Requesting months beyond what is available will cause the download to fail.
+
+Use --check-availability to see what months are currently available for a given year.
+
+Flexible downloading options:
+-----------------------------
 Download both datasets (default)
 Download only SEAS5 data with --seas5-only
 Download only CHIRPS data with --chirps-only
 Download only specific month SEAS5 data with --only-current-month-seas5 [month] and optional --year [year]
 
-
-#SEAS5 file management:
-
+SEAS5 file management:
+---------------------
 Downloads SEAS5 data with the correct parameters
 Automatically names files with date stamps (e.g., seas5_precipitation_20250402.grib)
 Cleans up old SEAS5 files by default, keeping only the latest one
 Option to keep all SEAS5 files with --keep-all-seas5
 
-
-#CHIRPS handling:
-
+CHIRPS handling:
+---------------
 Downloads CHIRPS data only once (checks if file already exists)
 Uses wget to retrieve the data as specified
 
-
+Examples:
+---------
 # Download both datasets (run monthly)
-python ecmwf_downloader.py
+python 00-download-data.py
 
 # Download only SEAS5 (typical monthly update)
-python ecmwf_downloader.py --seas5-only
+python 00-download-data.py --seas5-only
 
 # Download only CHIRPS (rarely needed)
-python ecmwf_downloader.py --chirps-only
+python 00-download-data.py --chirps-only
 
 # Specify a different output directory
-python ecmwf_downloader.py --output-dir /path/to/data
+python 00-download-data.py --output-dir /path/to/data
 
 # Download SEAS5 data for a specific month only (1-12)
-python ecmwf_downloader.py --only-current-month-seas5 4
+python 00-download-data.py --only-current-month-seas5 4
 
 # Download SEAS5 data for a specific month and year
-python ecmwf_downloader.py --only-current-month-seas5 4 --year 2023
+python 00-download-data.py --only-current-month-seas5 4 --year 2023
+
+# Check data availability for a specific year
+python 00-download-data.py --check-availability --year 2026
+
+# Download current year with available months only (auto-detect)
+python 00-download-data.py --only-current-month-seas5 1-3 --year 2026 --validate-availability
 """
 
 import os
@@ -56,6 +72,112 @@ import glob
 import datetime
 import subprocess
 import cdsapi
+
+
+# =============================================================================
+# SEAS5 DATA AVAILABILITY CONFIGURATION
+# =============================================================================
+# Historical years have all months available. Current/future years may have
+# limited months depending on when the forecasts are released.
+# Update CURRENT_YEAR_AVAILABLE_MONTHS as new forecasts become available.
+
+# Full historical data is available for these years (all 12 months)
+SEAS5_FULL_YEARS = list(range(1981, 2026))  # 1981-2025 have all months
+
+# For the current year (2026), specify available months
+# ECMWF releases forecasts around the 13th of each month
+# Update this as new months become available
+CURRENT_YEAR = 2026
+CURRENT_YEAR_AVAILABLE_MONTHS = [1]  # As of January 2026, only month 1 is available
+
+# Future years have no data available
+FUTURE_YEARS_START = 2027
+
+
+def get_available_months_for_year(year):
+    """
+    Get list of available months for a given year.
+
+    Args:
+        year: Year to check (integer)
+
+    Returns:
+        list: List of available month numbers (1-12), or empty list if year not available
+    """
+    year = int(year)
+
+    if year < 1981:
+        return []
+    elif year in SEAS5_FULL_YEARS:
+        return list(range(1, 13))  # All months 1-12
+    elif year == CURRENT_YEAR:
+        return CURRENT_YEAR_AVAILABLE_MONTHS.copy()
+    else:
+        return []  # Future years
+
+
+def validate_year_month_availability(year, months):
+    """
+    Validate that requested months are available for the specified year.
+
+    Args:
+        year: Year to download (integer)
+        months: List of month strings (e.g., ["01", "02", "03"])
+
+    Returns:
+        tuple: (is_valid, available_months, unavailable_months)
+    """
+    available = get_available_months_for_year(year)
+    available_set = set(available)
+
+    requested_months = [int(m) for m in months]
+    unavailable = [m for m in requested_months if m not in available_set]
+    valid_months = [m for m in requested_months if m in available_set]
+
+    return (len(unavailable) == 0, valid_months, unavailable)
+
+
+def print_availability_info(year=None):
+    """
+    Print information about SEAS5 data availability.
+
+    Args:
+        year: Optional specific year to check. If None, prints general info.
+    """
+    print("\n" + "=" * 70)
+    print("SEAS5 DATA AVAILABILITY INFORMATION")
+    print("=" * 70)
+
+    if year is not None:
+        year = int(year)
+        available = get_available_months_for_year(year)
+
+        if not available:
+            if year < 1981:
+                print(f"\nYear {year}: NO DATA AVAILABLE (SEAS5 starts from 1981)")
+            else:
+                print(f"\nYear {year}: NO DATA AVAILABLE YET (future year)")
+        else:
+            month_names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            available_names = [month_names[m-1] for m in available]
+            print(f"\nYear {year}: {len(available)} months available")
+            print(f"Available months: {', '.join(available_names)}")
+            print(f"Month numbers: {', '.join(str(m) for m in available)}")
+
+            if year == CURRENT_YEAR and len(available) < 12:
+                print(f"\nNote: This is the current year. More months will become")
+                print(f"available as ECMWF releases new forecasts (~13th of each month).")
+    else:
+        print(f"\nHistorical data (1981-{max(SEAS5_FULL_YEARS)}): All 12 months available")
+        print(f"Current year ({CURRENT_YEAR}): Months {CURRENT_YEAR_AVAILABLE_MONTHS} available")
+        print(f"Future years ({FUTURE_YEARS_START}+): No data available yet")
+
+    print("\n" + "-" * 70)
+    print("IMPORTANT: When downloading data for the current year, ensure you only")
+    print("request months that are available. Use --check-availability --year YYYY")
+    print("to verify availability before downloading.")
+    print("=" * 70 + "\n")
 
 def download_seas5(output_dir="./data", filename_prefix="seas5_precipitation_"):
     """
@@ -165,10 +287,12 @@ def parse_month_input(month_input):
 
     return months
 
-def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_precipitation_", month_input=None, year=None):
+def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_precipitation_",
+                                  month_input=None, year=None, validate_availability=False,
+                                  skip_unavailable=False):
     """
     Download SEAS5 dataset from ECMWF CDS API for specific months and optionally a specific year
-    
+
     Args:
         output_dir: Directory to save the downloaded data
         filename_prefix: Prefix for the output filename
@@ -178,19 +302,59 @@ def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_pre
                     - Comma-separated string like "1,3,5"
                     - List of integers [1, 3, 5]
         year: Year to download data for (4-digit integer, defaults to current year if None)
-    
+        validate_availability: If True, validate months against known availability before download
+        skip_unavailable: If True, skip unavailable months instead of failing (requires validate_availability)
+
     Returns:
-        str: Path to the downloaded file
+        str: Path to the downloaded file, or None if download failed
+
+    Raises:
+        ValueError: If requested months are not available and skip_unavailable is False
+
+    Note:
+        SEAS5 data availability varies by year:
+        - Historical years (1981-2025): All months (1-12) available
+        - Current year (2026): Only released months available (updated monthly ~13th)
+        - Future years: No data available
+
+        Use --check-availability --year YYYY to verify before downloading.
     """
     # If year is not provided, use current year
     if year is None:
         year = datetime.datetime.now().year
-    
+
     year_str = str(year)
-    
+
     # Parse month input to get list of months in proper format
     months = parse_month_input(month_input)
-    
+
+    # Validate availability if requested or if downloading current/future year
+    if validate_availability or int(year) >= CURRENT_YEAR:
+        is_valid, valid_months, unavailable = validate_year_month_availability(year, months)
+
+        if not is_valid:
+            unavailable_str = ', '.join(str(m) for m in unavailable)
+            available = get_available_months_for_year(year)
+            available_str = ', '.join(str(m) for m in available) if available else 'None'
+
+            if skip_unavailable and valid_months:
+                print(f"\nWARNING: Months {unavailable_str} are not available for year {year}.")
+                print(f"Available months for {year}: {available_str}")
+                print(f"Proceeding with available months only: {', '.join(str(m) for m in valid_months)}")
+                months = [f"{m:02d}" for m in valid_months]
+            else:
+                print(f"\nERROR: Requested months {unavailable_str} are not available for year {year}.")
+                print(f"Available months for {year}: {available_str}")
+                print(f"\nTo check availability: python 00-download-data.py --check-availability --year {year}")
+                print(f"To skip unavailable months: add --skip-unavailable flag")
+
+                if int(year) == CURRENT_YEAR:
+                    print(f"\nNote: {year} is the current year. ECMWF releases new forecasts")
+                    print(f"around the 13th of each month. Update CURRENT_YEAR_AVAILABLE_MONTHS")
+                    print(f"in this script when new months become available.")
+
+                return None
+
     print(f"Downloading SEAS5 data from ECMWF CDS for months {', '.join(months)}, year {year_str}...")
     
     # Create output directory if it doesn't exist
@@ -339,38 +503,127 @@ def cleanup_old_seas5_files(output_dir="./data", filename_prefix="seas5_precipit
             print(f"Error removing {file}: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Download ECMWF SEAS5 and CHIRPS data")
-    parser.add_argument("--output-dir", default="./data", help="Directory to save downloaded data")
-    parser.add_argument("--seas5-only", action="store_true", help="Download only SEAS5 data")
-    parser.add_argument("--chirps-only", action="store_true", help="Download only CHIRPS data")
-    parser.add_argument("--keep-all-seas5", action="store_true", help="Keep all SEAS5 files (don't clean up)")
-    parser.add_argument("--only-current-month-seas5", type=str, 
-                        help="Download SEAS5 data for specific months. Format can be: single number (3), comma-separated (1,2,3), or range (1-12)")
-    parser.add_argument("--year", type=int, 
-                        help="Year to download data for when using --only-current-month-seas5 (defaults to current year)")
-    parser.add_argument("--check-available-grib", type=str, metavar="GRIB_FILE_PATH",
-                        help="Check and display time information for a specified GRIB file")
-    
+    # Create epilog with data availability information
+    epilog_text = """
+DATA AVAILABILITY NOTES:
+------------------------
+SEAS5 data availability varies by year:
+  - Historical years (1981-2025): All months (1-12) are available
+  - Current year (2026): Only months with released forecasts are available
+    (ECMWF releases new forecasts around the 13th of each month)
+  - Future years: No data available
+
+IMPORTANT: When downloading data for the current year (2026), you must only
+request months that have been released. Requesting unavailable months will
+cause the CDS API to fail.
+
+To check which months are available:
+  python 00-download-data.py --check-availability --year 2026
+
+To automatically validate and skip unavailable months:
+  python 00-download-data.py --only-current-month-seas5 1-6 --year 2026 --validate-availability --skip-unavailable
+
+EXAMPLES:
+---------
+# Download historical data (all months available):
+  python 00-download-data.py --only-current-month-seas5 1-12 --year 2025
+
+# Download current year (only available months):
+  python 00-download-data.py --only-current-month-seas5 1 --year 2026
+
+# Check data availability:
+  python 00-download-data.py --check-availability --year 2026
+
+# Validate before downloading:
+  python 00-download-data.py --only-current-month-seas5 1-3 --year 2026 --validate-availability
+"""
+
+    parser = argparse.ArgumentParser(
+        description="Download ECMWF SEAS5 and CHIRPS data",
+        epilog=epilog_text,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # Output options
+    parser.add_argument("--output-dir", default="./data",
+                        help="Directory to save downloaded data (default: ./data)")
+
+    # Data source selection
+    source_group = parser.add_argument_group('Data Source Selection')
+    source_group.add_argument("--seas5-only", action="store_true",
+                              help="Download only SEAS5 data (no CHIRPS)")
+    source_group.add_argument("--chirps-only", action="store_true",
+                              help="Download only CHIRPS data (no SEAS5)")
+
+    # SEAS5 specific options
+    seas5_group = parser.add_argument_group('SEAS5 Options')
+    seas5_group.add_argument("--only-current-month-seas5", type=str, metavar="MONTHS",
+                             help="Download SEAS5 data for specific months. Formats: "
+                                  "single (3), comma-separated (1,2,3), or range (1-12)")
+    seas5_group.add_argument("--year", type=int,
+                             help="Year for SEAS5 data. IMPORTANT: For 2026+, only released "
+                                  "months are available. Use --check-availability to verify.")
+    seas5_group.add_argument("--keep-all-seas5", action="store_true",
+                             help="Keep all SEAS5 files (don't clean up old files)")
+
+    # Data availability options
+    avail_group = parser.add_argument_group('Data Availability',
+                                            'Options for checking and validating data availability')
+    avail_group.add_argument("--check-availability", action="store_true",
+                             help="Check and display SEAS5 data availability for a year "
+                                  "(use with --year to check a specific year)")
+    avail_group.add_argument("--validate-availability", action="store_true",
+                             help="Validate requested months against known availability before "
+                                  "downloading (automatically enabled for year >= 2026)")
+    avail_group.add_argument("--skip-unavailable", action="store_true",
+                             help="Skip unavailable months instead of failing "
+                                  "(use with --validate-availability)")
+
+    # Utility options
+    util_group = parser.add_argument_group('Utility Options')
+    util_group.add_argument("--check-available-grib", type=str, metavar="GRIB_FILE_PATH",
+                            help="Check and display time information for a specified GRIB file")
+
     args = parser.parse_args()
-    
+
+    # If check-availability option is provided, show availability info and exit
+    if args.check_availability:
+        print_availability_info(args.year)
+        return
+
     # If check-available-grib option is provided, do that and exit
     if args.check_available_grib:
         check_grib_file(args.check_available_grib)
         return
-    
+
     # Handle mutually exclusive options
     if sum([args.seas5_only, args.chirps_only, args.only_current_month_seas5 is not None]) > 1:
         print("Error: Cannot specify multiple download options together")
+        print("Use --seas5-only OR --chirps-only OR --only-current-month-seas5")
         return
-    
-    # Validate that --year is only used with --only-current-month-seas5
-    if args.year is not None and args.only_current_month_seas5 is None:
-        print("Error: --year can only be used with --only-current-month-seas5")
+
+    # Validate that --year is only used with appropriate options
+    if args.year is not None and args.only_current_month_seas5 is None and not args.check_availability:
+        print("Error: --year can only be used with --only-current-month-seas5 or --check-availability")
         return
-    
+
+    # Validate --skip-unavailable requires --validate-availability
+    if args.skip_unavailable and not args.validate_availability:
+        print("Warning: --skip-unavailable requires --validate-availability. Enabling validation.")
+        args.validate_availability = True
+
     # Download SEAS5 data for specific month if requested
     if args.only_current_month_seas5 is not None:
-        seas5_file = download_current_month_seas5(args.output_dir, month_input=args.only_current_month_seas5, year=args.year)
+        seas5_file = download_current_month_seas5(
+            args.output_dir,
+            month_input=args.only_current_month_seas5,
+            year=args.year,
+            validate_availability=args.validate_availability,
+            skip_unavailable=args.skip_unavailable
+        )
+        if seas5_file is None:
+            print("\nDownload failed. Please check the error messages above.")
+            return
         if not args.keep_all_seas5:
             cleanup_old_seas5_files(args.output_dir)
     # Download full SEAS5 data if requested or if no specific option is specified

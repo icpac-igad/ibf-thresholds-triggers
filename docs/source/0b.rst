@@ -33,11 +33,63 @@ The script connects to the Copernicus Climate Data Store (CDS) API to retrieve E
 * `--seas5-only`: Flag to download only SEAS5 data (no CHIRPS observations)
 * `--only-current-month-seas5`: Month(s) to download (3-4 means March-April)
 * `--year`: Year for the forecast data (2025 in this example)
+* `--check-availability`: Check which months are available for a given year
+* `--validate-availability`: Validate requested months before downloading
+* `--skip-unavailable`: Skip unavailable months instead of failing
 
-**Command Example**:
+**IMPORTANT: Data Availability Warning**
+
+.. warning::
+
+   SEAS5 data availability varies by year:
+
+   * **Historical years (1981-2025)**: All months (1-12) are available
+   * **Current year (2026+)**: Only months with released forecasts are available
+
+   ECMWF releases new forecasts around the 13th of each month. For example, in January 2026, only month 1 (January) is available. **Requesting unavailable months will cause the download to fail.**
+
+**Checking Data Availability**:
+
+Before downloading data for the current year, check which months are available:
+
+```bash
+python 00-download-data.py --check-availability --year 2026
+```
+
+This will display output like:
+
+```
+======================================================================
+SEAS5 DATA AVAILABILITY INFORMATION
+======================================================================
+
+Year 2026: 1 months available
+Available months: Jan
+Month numbers: 1
+
+Note: This is the current year. More months will become
+available as ECMWF releases new forecasts (~13th of each month).
+======================================================================
+```
+
+**Command Examples**:
+
+For historical data (all months available):
 
 ```bash
 python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 3-4 --year 2025
+```
+
+For current year with validation:
+
+```bash
+python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 1 --year 2026 --validate-availability
+```
+
+To automatically skip unavailable months:
+
+```bash
+python 00-download-data.py --output-dir '../../data' --seas5-only --only-current-month-seas5 1-6 --year 2026 --validate-availability --skip-unavailable
 ```
 
 **Output Files**:
@@ -58,6 +110,16 @@ verify: 0
 ```
 
 SEAS5 data is organized by initialization months and includes forecasts for up to 6 months ahead. For operational forecasting, only the most recent initialization months are typically needed.
+
+**Updating Availability Configuration**:
+
+When new months become available, update the ``CURRENT_YEAR_AVAILABLE_MONTHS`` list at the top of the ``00-download-data.py`` script:
+
+```python
+# Update this as new months become available
+CURRENT_YEAR = 2026
+CURRENT_YEAR_AVAILABLE_MONTHS = [1, 2]  # Add new months as they are released
+```
 
 Step 2: Process SPI for SEAS5 Forecasts
 --------------------------------------

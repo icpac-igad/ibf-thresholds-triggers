@@ -140,9 +140,39 @@ Step 1: Download ECMWF SEAS5 and CHIRPS Data
 
 * ``--chirps-only``: Download only CHIRPS data (no SEAS5)
 * ``--only-current-month-seas5 {1-12}``: Specify which month's data to download
+* ``--check-availability``: Check which months are available for a given year
+* ``--validate-availability``: Validate requested months before downloading
+* ``--skip-unavailable``: Skip unavailable months instead of failing
+
+.. warning::
+   **SEAS5 Data Availability by Year**
+
+   SEAS5 data availability varies depending on the year:
+
+   * **Historical years (1981-2025)**: All months (1-12) are available
+   * **Current year (2026+)**: Only months with released forecasts are available. ECMWF releases new forecasts around the 13th of each month.
+
+   **If you request months that are not yet available, the download will fail!**
+
+   For example, in January 2026, only month 1 (January) initialization data is available. Requesting months 2-12 will cause an error.
+
+   To check availability before downloading:
+
+   .. code-block:: bash
+
+      python 00-download-data.py --check-availability --year 2026
+
+   To automatically validate and handle unavailable months:
+
+   .. code-block:: bash
+
+      python 00-download-data.py --only-current-month-seas5 1-3 --year 2026 --validate-availability --skip-unavailable
 
 .. note::
    This script automatically names files with date stamps (e.g., ``seas5_precipitation_20250402.grib``) and CHIRPS data is only downloaded if it doesn't already exist.
+
+.. tip::
+   **Updating availability configuration**: When new months become available, update the ``CURRENT_YEAR_AVAILABLE_MONTHS`` variable in ``00-download-data.py`` to reflect the newly available months.
 
 Step 2: Process SPI (Standardized Precipitation Index)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -22,7 +22,10 @@ import xhistogram.xarray as xhist
 from sklearn.metrics import roc_auc_score
 
 import xskillscore as xs
-from xbootstrap import block_bootstrap
+try:
+    from xbootstrap import block_bootstrap
+except ImportError:
+    block_bootstrap = None  # Will fail only if actually used
 from dask.distributed import Client
 
 # matplotlib.use("Agg")
