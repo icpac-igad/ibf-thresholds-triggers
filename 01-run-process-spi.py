@@ -810,10 +810,10 @@ EXAMPLES:
       --mode seas51 \\
       --output-dir ./output \\
       --use-local \\
-      --local-shapefile ./data/kmj_polygon.shp \\
+      --local-shapefile ../data/kmj_polygon.shp \\
       --obs-file ./output/kmj_obs_spi3.nc \\
-      --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \\
-      --seas51-additional-files ./data/seas5_precipitation_20260120_year2026_months_01.grib \\
+      --seas51-main-file ../data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \\
+      --seas51-additional-files ../data/seas5_precipitation_20260120_year2026_months_01.grib \\
       --apply-mask \\
       --mask-buffer 0.25
 
