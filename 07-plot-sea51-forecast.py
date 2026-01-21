@@ -480,37 +480,20 @@ WORKFLOW STEPS:
     epilog = """
 EXAMPLES:
 
-  Basic usage with required arguments:
-  ------------------------------------
-  python 07-plot-sea51-forecast-v4-newrun.py \\
-      --threshold -0.68 --trigger 0.152 \\
-      --use_shpfile --shapefile_path ./kmj_polygon.shp
-
-  Full specification for JJA 2025 forecast initialized in April:
+  Full specification for MAM 2025 forecast initialized in December:
   --------------------------------------------------------------
   python 07-plot-sea51-forecast-v4-newrun.py \\
       --region_id kmj \\
-      --season JJA \\
-      --lead_time 3 \\
+      --season MAM \\
+      --lead_time 4 \\
       --year 2025 \\
-      --month 4 \\
+      --month 12 \\
       --threshold -0.68 \\
       --trigger 0.152 \\
       --use_shpfile \\
       --shapefile_path ./kmj_polygon.shp \\
       --fct_file ./kmj_rgr_seas51_spi3_masked.nc \\
       --output_dir ./output
-
-  MAM 2026 forecast with different threshold/trigger:
-  ---------------------------------------------------
-  python 07-plot-sea51-forecast-v4-newrun.py \\
-      --season MAM \\
-      --year 2025 \\
-      --month 12 \\
-      --threshold -0.5 \\
-      --trigger 0.20 \\
-      --use_shpfile \\
-      --shapefile_path ./kmj_polygon.shp
 
 OUTPUT FILES:
   - {region}_seas51_spi3_{season}_eprob_{year}_{month}_th{threshold}_tr{trigger}.nc
@@ -599,8 +582,41 @@ NOTES:
     # Select specific month and year
     month = args.month
     year = args.year
+
+    # Validate that the requested year/month exists in the forecast data
+    # Handle both pandas datetime and cftime datetime objects
+    init_values = ens_data.init.values
+    available_year_months = [(d.year, d.month) for d in init_values]
+
+    if (year, month) not in available_year_months:
+        # Get unique year-month combinations for error message
+        unique_dates = sorted(set(available_year_months))
+        first_date = unique_dates[0]
+        last_date = unique_dates[-1]
+
+        logger.error(f"Requested initialization date {year}-{month:02d} not found in forecast data!")
+        logger.error(f"Available date range: {first_date[0]}-{first_date[1]:02d} to {last_date[0]}-{last_date[1]:02d}")
+        logger.error(f"Total available initialization dates: {len(unique_dates)}")
+
+        # Show recent available dates
+        recent_dates = unique_dates[-5:] if len(unique_dates) >= 5 else unique_dates
+        recent_str = ", ".join([f"{d[0]}-{d[1]:02d}" for d in recent_dates])
+        logger.error(f"Most recent available dates: {recent_str}")
+
+        raise ValueError(
+            f"Forecast initialization date {year}-{month:02d} not found in data. "
+            f"Available range: {first_date[0]}-{first_date[1]:02d} to {last_date[0]}-{last_date[1]:02d}. "
+            f"Most recent: {recent_str}"
+        )
+
+    logger.info(f"Found requested initialization date: {year}-{month:02d}")
+
     dm_ens_data = ens_data.sel(init=(ens_data.init.dt.year == year) & (ens_data.init.dt.month == month))
     dm_fct_prob = fct_prob_ds.sel(init=(fct_prob_ds.init.dt.year == year) & (fct_prob_ds.init.dt.month == month))
+
+    # Double-check that selection returned data
+    if dm_ens_data.init.size == 0:
+        raise ValueError(f"Selection returned empty dataset for {year}-{month:02d}. This should not happen.")
 
     # Save forecast data to NetCDF
     netcdf_path, epds = save_forecast_to_netcdf(
