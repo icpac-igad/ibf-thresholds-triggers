@@ -42,22 +42,175 @@ This sequence of operations performs several crucial tasks:
 
 The ``HindcastEnsemble`` framework enables consistent handling of forecast lead times across multiple initialization dates, crucial for calculating skill metrics.
 
-Lead Time Calculation Example: JJA Season SPI
---------------------------------------------
+Understanding Lead Time Conventions
+-----------------------------------
 
-To illustrate the lead time concept, consider forecasting the June-July-August (JJA) SPI:
+Lead time in seasonal forecasting can be expressed using two different conventions, which is a common source of confusion. Understanding the distinction is critical for correct forecast interpretation.
 
-+-------------------+---------------+-------------------------+------------------+
-| Forecast Month    | Lead Time     | Valid Period (SPI JJA)  | Practical Usage  |
-+===================+===============+=========================+==================+
-| March             | Lead time 4   | June-July-August        | Early planning   |
-+-------------------+---------------+-------------------------+------------------+
-| April             | Lead time 3   | June-July-August        | Refinement       |
-+-------------------+---------------+-------------------------+------------------+
-| May               | Lead time 2   | June-July-August        | Final decision   |
-+-------------------+---------------+-------------------------+------------------+
+INDEX vs VALUE Convention
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-For example, forecasts initialized in March (Lead time 4) need three months to reach the start of the JJA period, providing earlier warning but typically with lower skill. Conversely, May forecasts (Lead time 2) offer higher accuracy but less preparation time.
+ECMWF SEAS51 forecasts use ``forecastMonth`` as a 1-indexed VALUE representing the number of months ahead:
+
++-------------------+------------------+---------------------+
+| forecastMonth     | Meaning          | Months Ahead        |
++===================+==================+=====================+
+| 1                 | First month      | 1 month ahead       |
++-------------------+------------------+---------------------+
+| 2                 | Second month     | 2 months ahead      |
++-------------------+------------------+---------------------+
+| 3                 | Third month      | 3 months ahead      |
++-------------------+------------------+---------------------+
+| 4                 | Fourth month     | 4 months ahead      |
++-------------------+------------------+---------------------+
+| 5                 | Fifth month      | 5 months ahead      |
++-------------------+------------------+---------------------+
+| 6                 | Sixth month      | 6 months ahead      |
++-------------------+------------------+---------------------+
+
+When processed through climpred or xarray, the ``forecastMonth`` dimension becomes a ``lead`` coordinate. When selecting data using position-based indexing (e.g., ``.isel(lead=N)``), the selection uses 0-indexed positions:
+
++-------------------+---------------------+-------------------------+---------------------+
+| Lead INDEX        | Position in Array   | Selects forecastMonth   | Actual Months Ahead |
++===================+=====================+=========================+=====================+
+| 0                 | 1st element         | 1                       | 1 month             |
++-------------------+---------------------+-------------------------+---------------------+
+| 1                 | 2nd element         | 2                       | 2 months            |
++-------------------+---------------------+-------------------------+---------------------+
+| 2                 | 3rd element         | 3                       | 3 months            |
++-------------------+---------------------+-------------------------+---------------------+
+| 3                 | 4th element         | 4                       | 4 months            |
++-------------------+---------------------+-------------------------+---------------------+
+| 4                 | 5th element         | 5                       | 5 months            |
++-------------------+---------------------+-------------------------+---------------------+
+| 5                 | 6th element         | 6                       | 6 months            |
++-------------------+---------------------+-------------------------+---------------------+
+
+.. important::
+
+   **Key Relationship**: ``Lead INDEX = forecastMonth VALUE - 1``
+
+   Or equivalently: ``Months Ahead = Lead INDEX + 1``
+
+Valid Time Calculation for SPI-3
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For SPI-3 (3-month accumulation), the **valid_time** represents the END of the accumulation window. This is the month used to identify the seasonal product:
+
+- **MAM** (March-April-May): valid_time = May (month 5)
+- **JJA** (June-July-August): valid_time = August (month 8)
+- **OND** (October-November-December): valid_time = December (month 12)
+
+The formula to calculate valid_time from initialization month:
+
+.. code-block:: text
+
+   valid_month = init_month + months_ahead
+   valid_month = init_month + (lead_index + 1)
+
+Lead Time Calculation: MAM Season SPI
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To forecast the March-April-May (MAM) SPI-3, the valid_time must be May (month 5).
+
++-------------------+---------------+---------------------+-------------------------+------------------+
+| Init Month        | Lead INDEX    | Months Ahead        | Valid Month             | Practical Usage  |
++===================+===============+=====================+=========================+==================+
+| December (12)     | 4             | 5                   | May (5) → MAM           | Early planning   |
++-------------------+---------------+---------------------+-------------------------+------------------+
+| January (1)       | 3             | 4                   | May (5) → MAM           | Refinement       |
++-------------------+---------------+---------------------+-------------------------+------------------+
+| February (2)      | 2             | 3                   | May (5) → MAM           | Final decision   |
++-------------------+---------------+---------------------+-------------------------+------------------+
+
+**Example Calculation for December Initialization:**
+
+.. code-block:: text
+
+   Target: MAM (valid_time = May = month 5)
+   Init month: December = month 12
+
+   Months ahead needed: 5 (Dec→Jan→Feb→Mar→Apr→May)
+   Lead INDEX = Months ahead - 1 = 5 - 1 = 4
+
+   Verification: December (12) + 5 months = May (5) ✓
+
+.. warning::
+
+   A common mistake is confusing lead INDEX with months ahead:
+
+   - Lead INDEX 4 from December → 5 months ahead → **May (MAM)** ✓
+   - Lead INDEX 5 from December → 6 months ahead → June (AMJ) ✗
+
+   Using lead INDEX 5 instead of 4 would target the wrong season!
+
+Lead Time Calculation: JJA Season SPI
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To forecast the June-July-August (JJA) SPI-3, the valid_time must be August (month 8).
+
++-------------------+---------------+---------------------+-------------------------+------------------+
+| Init Month        | Lead INDEX    | Months Ahead        | Valid Month             | Practical Usage  |
++===================+===============+=====================+=========================+==================+
+| March (3)         | 4             | 5                   | August (8) → JJA        | Early planning   |
++-------------------+---------------+---------------------+-------------------------+------------------+
+| April (4)         | 3             | 4                   | August (8) → JJA        | Refinement       |
++-------------------+---------------+---------------------+-------------------------+------------------+
+| May (5)           | 2             | 3                   | August (8) → JJA        | Final decision   |
++-------------------+---------------+---------------------+-------------------------+------------------+
+
+**Example Calculation for March Initialization:**
+
+.. code-block:: text
+
+   Target: JJA (valid_time = August = month 8)
+   Init month: March = month 3
+
+   Months ahead needed: 5 (Mar→Apr→May→Jun→Jul→Aug)
+   Lead INDEX = Months ahead - 1 = 5 - 1 = 4
+
+   Verification: March (3) + 5 months = August (8) ✓
+
+Quick Reference Formula
+^^^^^^^^^^^^^^^^^^^^^^^
+
+To determine the correct lead INDEX for any target season:
+
+.. code-block:: text
+
+   1. Identify the valid_month for your target season
+      (last month of the 3-month SPI accumulation period)
+
+   2. Calculate months ahead:
+      months_ahead = (valid_month - init_month) mod 12
+      If result is 0 or negative, add 12
+
+   3. Convert to lead INDEX:
+      lead_index = months_ahead - 1
+
+**Complete Reference Table:**
+
++-------------------+-------------------+---------------+---------------------+
+| Target Season     | Init Month        | Lead INDEX    | Months Ahead        |
++===================+===================+===============+=====================+
+| MAM               | December          | 4             | 5                   |
++-------------------+-------------------+---------------+---------------------+
+| MAM               | January           | 3             | 4                   |
++-------------------+-------------------+---------------+---------------------+
+| MAM               | February          | 2             | 3                   |
++-------------------+-------------------+---------------+---------------------+
+| JJA               | March             | 4             | 5                   |
++-------------------+-------------------+---------------+---------------------+
+| JJA               | April             | 3             | 4                   |
++-------------------+-------------------+---------------+---------------------+
+| JJA               | May               | 2             | 3                   |
++-------------------+-------------------+---------------+---------------------+
+| OND               | July              | 4             | 5                   |
++-------------------+-------------------+---------------+---------------------+
+| OND               | August            | 3             | 4                   |
++-------------------+-------------------+---------------+---------------------+
+| OND               | September         | 2             | 3                   |
++-------------------+-------------------+---------------+---------------------+
 
 The alignment process must account for these varying lead times, extracting the correct forecast-observation pairs:
 
