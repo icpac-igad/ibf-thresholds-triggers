@@ -1,15 +1,11 @@
 """
-08-kmj-district-prob-trigger.py - Script to regrid forecast probabilities to 1km resolution,
-overlay with district shapefiles, and calculate district-level average probabilities.
+District-Level Drought Probability Statistics Calculator
 
-This script takes SEAS51 SPI3 forecast probabilities, regrids them to 1km resolution,
-overlays them with district boundary shapefiles, and calculates average probabilities
-for each district. The results are saved as CSV files and visualized with maps.
+Continuation workflow from 07-plot-sea51-forecast.py output.
+Takes the empirical probability NetCDF file and calculates district-level
+average drought probabilities for anticipatory action decision-making.
 
-Usage:
-     python 08-kmj-district-stats.py --input_netcdf kmj_seas51_spi3_jja_eprob_2025_04.nc 
-                              --district_shapefile ../../data/Karamoja_Admin2.shp                               
-                            --output_dir ./output
+Run with --help for detailed usage information and examples.
 """
 
 import os
@@ -19,20 +15,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import geopandas as gpd
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-from matplotlib.colors import ListedColormap, BoundaryNorm
 from datetime import datetime
 import logging
 import xesmf as xe
 import regionmask
-import json
 from pathlib import Path
 
 # Add necessary paths to import modules from the project
 sys.path.append('.')
-
-from vthree_utils import BinCreateParams
 
 # Set up logging
 logging.basicConfig(
@@ -285,45 +275,149 @@ def calculate_district_averages(regridded_ds, district_mask, districts_gdf, dist
 
 
 def main():
-    """Main function to run the script
-    
-    Example usage:
-    python 08-kmj-district-stats.py --input_netcdf kmj_seas51_spi3_jja_eprob_2025_04.nc \
-                                         --district_shapefile ../../data/Karamoja_Admin2.shp \
-                                         
-    """
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Calculate district-level drought risk from SEAS51 forecasts")
-    parser.add_argument("--input-netcdf", required=True, help="Path to forecast emprical probablity netcdf file")
-    parser.add_argument("--admin-level", required=True, help="Admin level of shape file is it admin2 or admin 4")
-    parser.add_argument("--district-shapefile", required=True, help="Path to district shapefile")
-       
-    args = parser.parse_args()
-    
-    try:
-        # Ensure output directory exists
-        #os.makedirs(args.output_dir, exist_ok=True)
-        epds=load_netcdf_forecast(args.input_netcdf)
-        regridded_ds = regrid_to_1km(epds, target_res=0.01)
+    """Main function to run the script."""
 
-        districts_gdf, district_name_col = load_district_shapefile(args.district_shapefile,args.admin_level)
+    description = """
+District-Level Drought Probability Statistics Calculator
+
+Continuation workflow from 07-plot-sea51-forecast.py output.
+Takes the empirical probability NetCDF file and calculates district-level
+average drought probabilities for anticipatory action decision-making.
+
+WORKFLOW STEPS:
+  1. Load empirical probability NetCDF from 07-plot-sea51-forecast.py output
+  2. Regrid forecast data to 1km resolution (~0.01 degrees)
+  3. Load district boundary shapefile
+  4. Create district mask overlay
+  5. Calculate average probability for each district
+  6. Save results to CSV file (probabilities as percentages)
+"""
+
+    epilog = """
+EXAMPLES:
+
+  Basic usage with admin2 districts:
+  ----------------------------------
+  python 08-kmj-district-stats.py \\
+      --input_netcdf ./kmj_seas51_spi3_mam_eprob_2025_12_th0p68_tr15p2.nc \\
+      --district_shapefile ./Karamoja_Admin2.shp \\
+      --admin_level admin2
+
+  Full workflow (from 07-plot-sea51-forecast.py output):
+  ------------------------------------------------------
+  # Step 1: Calculate district statistics
+  python 08-kmj-district-stats.py \\
+      --input_netcdf ./output/kmj_seas51_spi3_mam_eprob_2025_12_th0p68_tr15p2.nc \\
+      --district_shapefile ./Karamoja_Admin2.shp \\
+      --admin_level admin2
+
+INPUT FILE:
+  - NetCDF file from 07-plot-sea51-forecast.py containing 'drought_prob' variable
+  - Expected filename pattern: kmj_seas51_spi3_{season}_eprob_{year}_{month}_th{threshold}_tr{trigger}.nc
+
+OUTPUT FILE:
+  - CSV file: {input_filename}_district_averages.csv
+  - Contains district names and average drought probability (as percentage)
+
+NOTES:
+  - Admin level determines which column to use for district names:
+    * admin2: Uses 'admin2Name' column (district level)
+  - Probabilities are converted to percentages (0-100) in the output CSV
+"""
+
+    parser = argparse.ArgumentParser(
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
+    # Input file argument
+    parser.add_argument("--input_netcdf", type=str, required=True,
+                        help="Path to forecast empirical probability NetCDF file (from 07-plot-sea51-forecast.py)")
+
+    # District shapefile argument
+    parser.add_argument("--district_shapefile", type=str, required=True,
+                        help="Path to district boundary shapefile (.shp or .geojson)")
+
+    # Admin level argument
+    parser.add_argument("--admin_level", type=str, required=True,
+                        choices=['admin2', 'admin4'],
+                        help="Admin level: admin2 (district) or admin4 (sub-county)")
+
+    # Optional output directory
+    parser.add_argument("--output_dir", type=str, default=None,
+                        help="Output directory for CSV (default: same as input file)")
+
+    # Optional regrid resolution
+    parser.add_argument("--target_res", type=float, default=0.01,
+                        help="Target resolution in degrees for regridding (default: 0.01 ~ 1km)")
+
+    args = parser.parse_args()
+
+    try:
+        # Validate input file exists
+        if not os.path.exists(args.input_netcdf):
+            logger.error(f"Input NetCDF file not found: {args.input_netcdf}")
+            sys.exit(1)
+
+        # Validate shapefile exists
+        if not os.path.exists(args.district_shapefile):
+            logger.error(f"District shapefile not found: {args.district_shapefile}")
+            sys.exit(1)
+
+        # Load and process data
+        logger.info(f"Processing input file: {args.input_netcdf}")
+        epds = load_netcdf_forecast(args.input_netcdf)
+
+        # Log metadata if available
+        if hasattr(epds, 'attrs'):
+            for key in ['threshold', 'trigger', 'year', 'month', 'lead_time']:
+                if key in epds.attrs:
+                    logger.info(f"Metadata - {key}: {epds.attrs[key]}")
+
+        regridded_ds = regrid_to_1km(epds, target_res=args.target_res)
+
+        districts_gdf, district_name_col = load_district_shapefile(
+            args.district_shapefile, args.admin_level
+        )
 
         district_mask = create_district_mask(districts_gdf, regridded_ds)
-        dd_dict={'Karenga': 'District_7', 'Kaabong': 'District_6', 'Kotido': 'District_3', 'Abim': 'District_0', 'Napak': 'District_1', 'Moroto': 'District_4', 'Nabilatuk': 'District_2', 'Nakapiripirit': 'District_5', 'Amudat': 'District_8'}
-        # Calculate district averages with mapping
-        dd=districts_gdf.reset_index()
+
+        # Calculate district averages
+        dd = districts_gdf.reset_index()
         results_df = calculate_district_averages(
             regridded_ds,
             district_mask,
-            dd, 
+            dd,
             district_name_col,
             district_map=None
         )
-        #results_df.to_csv(f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv")
-        #import ipdb; ipdb.set_trace()
-        results_df_formatted = (results_df * 100).round(1)
-        results_df_formatted.to_csv(f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv")
 
+        # Format as percentages and save
+        results_df_formatted = (results_df * 100).round(1)
+
+        # Determine output path
+        if args.output_dir:
+            os.makedirs(args.output_dir, exist_ok=True)
+            input_basename = os.path.basename(args.input_netcdf)
+            output_file = os.path.join(
+                args.output_dir,
+                f"{os.path.splitext(input_basename)[0]}_district_averages.csv"
+            )
+        else:
+            output_file = f"{os.path.splitext(args.input_netcdf)[0]}_district_averages.csv"
+
+        results_df_formatted.to_csv(output_file)
+        logger.info(f"District averages saved to: {output_file}")
+
+        # Print summary
+        print(f"\n=== District Statistics Summary ===")
+        print(f"Input file: {args.input_netcdf}")
+        print(f"Districts processed: {len(results_df_formatted)}")
+        print(f"Output file: {output_file}")
+        print(f"\nDistrict Averages (%):")
+        print(results_df_formatted.to_string())
+        print("===================================\n")
 
     except Exception as e:
         logger.error(f"Error in main execution: {e}")
