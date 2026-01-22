@@ -37,26 +37,34 @@ PREREQUISITES - CDS API SETUP (Required for Step 00 - Download)
 USAGE EXAMPLES:
 =================================================================================
 
-  Basic usage (downloads data and processes for January 2026 forecast):
-  ---------------------------------------------------------------------
-  python run_pipeline.py --year 2026 --month 1 --output-dir /srv/t2-202601-itt/
+  MAM forecast from January 2026 initialization:
+  ----------------------------------------------
+  python run_pipeline.py --year 2026 --month 1 --season MAM --output-dir /srv/t2-202601-itt/
+
+  MAM forecast from December 2025 (earliest lead time):
+  -----------------------------------------------------
+  python run_pipeline.py --year 2025 --month 12 --season MAM --output-dir /srv/t2-202512-itt/
+
+  JJA forecast from March 2026 initialization:
+  --------------------------------------------
+  python run_pipeline.py --year 2026 --month 3 --season JJA --output-dir /srv/t2-202603-itt/
 
   Skip download if GRIB files already exist:
   ------------------------------------------
-  python run_pipeline.py --year 2026 --month 1 --output-dir /srv/t2-202601-itt/ --skip-download
+  python run_pipeline.py --year 2026 --month 1 --season MAM --output-dir /srv/t2-202601-itt/ --skip-download
 
   Run only specific steps:
   ------------------------
-  python run_pipeline.py --year 2026 --month 1 --output-dir /srv/t2-202601-itt/ --steps 1,7,8
+  python run_pipeline.py --year 2026 --month 1 --season MAM --output-dir /srv/t2-202601-itt/ --steps 1,7,8
 
   Multiple threshold/trigger combinations (NOTE: use = for negative values):
   --------------------------------------------------------------------------
-  python run_pipeline.py --year 2026 --month 1 --output-dir /srv/t2-202601-itt/ \\
+  python run_pipeline.py --year 2026 --month 1 --season MAM --output-dir /srv/t2-202601-itt/ \\
       --thresholds="-0.68,-0.84" --triggers="0.152,0.111"
 
   Dry run (show commands without executing):
   ------------------------------------------
-  python run_pipeline.py --year 2026 --month 1 --output-dir /srv/t2-202601-itt/ --dry-run
+  python run_pipeline.py --year 2026 --month 1 --season MAM --output-dir /srv/t2-202601-itt/ --dry-run
 
 =================================================================================
 SEASON AND LEAD TIME REFERENCE:
