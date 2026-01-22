@@ -22,6 +22,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def build_output_filename(region_id, suffix, output_dir='.', year=None, month=None, extension='.nc'):
+    """
+    Build output filename with optional year/month for downstream process compatibility.
+
+    Args:
+        region_id (str): Region identifier (e.g., 'kmj')
+        suffix (str): File suffix (e.g., 'rgr_seas51_spi3', 'obs_spi3')
+        output_dir (str): Output directory path
+        year (int, optional): Year to include in filename
+        month (int, optional): Month to include in filename
+        extension (str): File extension (default: '.nc')
+
+    Returns:
+        str: Full path to output file
+
+    Examples:
+        Without year/month: kmj_rgr_seas51_spi3.nc
+        With year/month:    kmj_rgr_seas51_spi3_2026_01.nc
+    """
+    if year is not None and month is not None:
+        filename = f"{region_id}_{suffix}_{year}_{month:02d}{extension}"
+    else:
+        filename = f"{region_id}_{suffix}{extension}"
+
+    return os.path.join(output_dir, filename)
+
+
 def get_credentials(service_account_json):
     """Create and return Google Cloud credentials."""
     credentials = service_account.Credentials.from_service_account_file(
@@ -66,44 +94,57 @@ def old_get_region_bounds(region_id, credentials, buffer=0.5):
     return gdf, extent 
 
 
-def get_region_bounds(region_id, credentials=None, buffer=0.5, use_local=False, local_shapefile_path='../kmj_polygon.shp'):
+def get_region_bounds(region_id, credentials=None, buffer=0.5, use_local=False, local_shapefile_path='../kmj_polygon.geojson'):
     """
     Get geographic bounds for a specific region with buffer, supporting both local and GCS data sources.
-    
+
     Args:
         region_id (str): The region identifier to filter by
         credentials: Google Cloud credentials (required if use_local=False)
         buffer (float): Buffer in degrees to add around the region extent
-        use_local (bool): Whether to use local shapefile (True) or GCS (False)
-        local_shapefile_path (str): Path to local shapefile if use_local=True
-        
+        use_local (bool): Whether to use local shapefile/geojson (True) or GCS (False)
+        local_shapefile_path (str): Path to local shapefile or geojson if use_local=True
+
     Returns:
         tuple: (gdf, extent) where:
               - gdf is a GeoDataFrame containing the filtered region data
               - extent is [lat_min, lat_max, lon_min, lon_max]
     """
-   
+
     if use_local:
-        # Read from local shapefile
+        # Read from local shapefile or geojson
         try:
             gdf = gpd.read_file(local_shapefile_path)
-            
+            logger.info(f"Loaded local file: {local_shapefile_path}")
+            logger.info(f"Columns in file: {gdf.columns.tolist()}")
+            logger.info(f"Number of features: {len(gdf)}")
+
+            # Check if file has ID columns to filter by
+            has_id_column = False
+
             # Filter by region id (assuming column name is 'gbid', adjust if different)
             if 'gbid' in gdf.columns:
                 gdf = gdf[gdf['gbid'].str.contains(region_id)]
+                has_id_column = True
             else:
                 # If 'gbid' column doesn't exist, try to find a suitable ID column
                 id_columns = [col for col in gdf.columns if 'id' in col.lower()]
                 if id_columns:
                     gdf = gdf[gdf[id_columns[0]].astype(str).str.contains(region_id)]
+                    has_id_column = True
                 else:
-                    raise ValueError("No suitable ID column found in local shapefile")
-            
+                    # No ID column found - use all geometries in the file
+                    # This is common for geojson files with a single region geometry
+                    logger.info(f"No ID column found in {local_shapefile_path}. Using all geometries.")
+
+            if has_id_column and len(gdf) == 0:
+                raise ValueError(f"No regions found with id containing '{region_id}' in local file")
+
             if len(gdf) == 0:
-                raise ValueError(f"No regions found with id containing '{region_id}' in local shapefile")
-                
+                raise ValueError(f"No geometries found in {local_shapefile_path}")
+
         except Exception as e:
-            raise ValueError(f"Error reading local shapefile: {str(e)}")
+            raise ValueError(f"Error reading local file: {str(e)}")
     else:
         # Read from GCS
         if credentials is None:
@@ -372,51 +413,49 @@ def merge_grib_files(main_file, additional_files, output_file=None):
     return combined_ds
 
 
-def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=None, output_dir='.'):
+def process_seas51_data(region_id, credentials, extent, seas51_files=None, output_dir='.',
+                        grid_resolution=0.25, obs_file=None, output_year=None, output_month=None):
     """
     Process SEAS51 forecast data for a region and calculate SPI-3.
-    
+
     Args:
         region_id (str): Region identifier
-        obs_file (str): Path to observation netCDF file for regridding
         credentials: Google Cloud credentials
-        extent (tuple): Optional tuple of (lat_min, lat_max, lon_min, lon_max) 
-        seas51_file (str): Optional path to local SEAS51 file
+        extent (tuple): Tuple of (lat_min, lat_max, lon_min, lon_max) from shapefile
+        seas51_files (str or list): Path(s) to local SEAS51 file(s)
         output_dir (str): Directory to save output files
-        
+        grid_resolution (float): Output grid resolution in degrees (default 0.25)
+        obs_file (str): Optional path to observation file (if provided, uses its grid)
+        output_year (int): Optional year for output filename
+        output_month (int): Optional month for output filename
+
     Returns:
         str: Path to the created netCDF file
     """
     logger.info(f"Processing SEAS51 data for region {region_id}...")
     start = time.time()
-    lat_min, lat_max, lon_min, lon_max = extent 
-    
-    # First, open the observation dataset to determine its extent
-    logger.info(f"Opening observation dataset: {obs_file}")
-    try:
-        kn_obs = xr.open_dataset(obs_file)
-        # Get the observation dataset extent
-        obs_lat_min = float(kn_obs.lat.min().values)
-        obs_lat_max = float(kn_obs.lat.max().values)
-        obs_lon_min = float(kn_obs.lon.min().values)
-        obs_lon_max = float(kn_obs.lon.max().values)
-        
-        # If no specific extent was provided, use the observation extent with a small buffer
-        if extent is None:
-            # Add a small buffer (e.g., 0.5 degrees) to ensure coverage
-            buffer = 1.0
-            lat_min = obs_lat_min - buffer
-            lat_max = obs_lat_max + buffer
-            lon_min = obs_lon_min - buffer
-            lon_max = obs_lon_max + buffer
-            logger.info(f"Using observation extent with buffer: {lat_min:.2f}, {lat_max:.2f}, {lon_min:.2f}, {lon_max:.2f}")
-        else:
-            lat_min, lat_max, lon_min, lon_max = extent
-            logger.info(f"Using provided extent: {lat_min:.2f}, {lat_max:.2f}, {lon_min:.2f}, {lon_max:.2f}")
-            
-    except Exception as e:
-        logger.error(f"Error opening observation file: {e}")
-        raise
+    lat_min, lat_max, lon_min, lon_max = extent
+
+    # Determine output grid - either from obs file or from extent + resolution
+    if obs_file and os.path.exists(obs_file):
+        logger.info(f"Using observation file for output grid: {obs_file}")
+        try:
+            kn_obs = xr.open_dataset(obs_file)
+            output_lats = kn_obs['lat'].values
+            output_lons = kn_obs['lon'].values
+            logger.info(f"Output grid from obs file: {len(output_lats)} lats x {len(output_lons)} lons")
+        except Exception as e:
+            logger.warning(f"Could not read obs file: {e}. Using extent-based grid instead.")
+            output_lats = np.arange(lat_min, lat_max, grid_resolution)
+            output_lons = np.arange(lon_min, lon_max, grid_resolution)
+    else:
+        # Generate grid from shapefile extent + resolution (same as CHIRPS processing)
+        logger.info(f"Generating output grid from extent with {grid_resolution}° resolution")
+        output_lats = np.arange(lat_min, lat_max, grid_resolution)
+        output_lons = np.arange(lon_min, lon_max, grid_resolution)
+        logger.info(f"Output grid: {len(output_lats)} lats x {len(output_lons)} lons")
+
+    logger.info(f"Using extent: {lat_min:.2f}, {lat_max:.2f}, {lon_min:.2f}, {lon_max:.2f}")
     
     # Load SEAS51 data
     # Backend kwargs for cfgrib - use 'warn' to skip corrupted messages gracefully
@@ -440,7 +479,7 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=N
             logger.info(f"Merging {len(seas51_files)} SEAS51 files")
             main_file = seas51_files[0]
             additional_files = seas51_files[1:]
-            merged_file = os.path.join(output_dir, f'{region_id}_merged_seas51.nc')
+            merged_file = build_output_filename(region_id, 'merged_seas51', output_dir, output_year, output_month)
             sds = merge_grib_files(main_file, additional_files, output_file=merged_file)
     else:
         logger.info(f"Loading SEAS51 data from GCP")
@@ -505,7 +544,7 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=N
     ds_fc = ds_fc.to_dataset(name='spi3')
     
     # Save raw forecast data
-    raw_file = os.path.join(output_dir, f'{region_id}_raw_seas51_spi3.nc')
+    raw_file = build_output_filename(region_id, 'raw_seas51_spi3', output_dir, output_year, output_month)
     ds_fc.to_netcdf(raw_file)
     logger.info(f"Raw forecast data saved to {raw_file}")
     
@@ -517,10 +556,10 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=N
         try:
             ds_p_m1 = ds_fc.sel(lead=fm)
             
-            # Create output grid matching observations
+            # Create output grid from shapefile extent (or obs file if provided)
             ds_out = xr.Dataset({
-                "lat": (["lat"], kn_obs['lat'].values, {"units": "degrees_north"}),
-                "lon": (["lon"], kn_obs['lon'].values, {"units": "degrees_east"}),
+                "lat": (["lat"], output_lats, {"units": "degrees_north"}),
+                "lon": (["lon"], output_lons, {"units": "degrees_east"}),
             })
             
             # Rename coordinates for consistency if needed
@@ -563,7 +602,7 @@ def process_seas51_data(region_id, obs_file, credentials, extent, seas51_files=N
         kn_fct['lead'].attrs['units'] = 'months'
     
     # Save to NetCDF
-    output_file = os.path.join(output_dir, f'{region_id}_rgr_seas51_spi3.nc')
+    output_file = build_output_filename(region_id, 'rgr_seas51_spi3', output_dir, output_year, output_month)
     kn_fct.to_netcdf(output_file)
     
     logger.info(f"Forecast SPI-3 saved to {output_file}")
@@ -663,35 +702,106 @@ def vt_apply_spi3_with_parameter_transfer(cont_db, lead_val):
     logger.info(f"Processed {len(cont_spi)} out of {len(lt1_db.number)} members for lead time {lead_val}")
     return cont_spi# Example usage
 
-def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_size=0.25, 
-                              output_forecast_path='masked_forecast.nc', 
+def mask_forecast_only(forecast_path, shapefile_df, buffer_size=0.25,
+                       output_forecast_path='masked_forecast.nc'):
+    """
+    Mask forecast NetCDF file using a shapefile/geojson polygon.
+    This function does NOT require an observation file.
+
+    Parameters:
+    -----------
+    forecast_path : str
+        Path to the forecast NetCDF file
+    shapefile_df : GeoDataFrame
+        GeoDataFrame containing the polygon geometry
+    buffer_size : float, optional
+        Buffer size around the polygon in degrees (default: 0.25)
+    output_forecast_path : str, optional
+        Path where the masked forecast NetCDF will be saved
+
+    Returns:
+    --------
+    str
+        Path to the masked forecast file
+    """
+    logger.info(f"Masking forecast file: {forecast_path}")
+
+    # Load forecast dataset
+    forecast_ds = xr.open_dataset(forecast_path)
+
+    # Create buffered geometry if needed
+    buffered_gdf = shapefile_df.copy()
+    if buffer_size > 0:
+        buffered_gdf['geometry'] = shapefile_df.geometry.buffer(buffer_size)
+
+    # Extract coordinates
+    f_lons = forecast_ds.lon.values
+    f_lats = forecast_ds.lat.values
+
+    # Create mask using regionmask
+    f_mask = regionmask.mask_geopandas(buffered_gdf.geometry, f_lons, f_lats)
+    f_bool_mask = ~np.isnan(f_mask)
+
+    # Expand mask to match forecast dimensions
+    if 'lead' in forecast_ds.dims and 'member' in forecast_ds.dims and 'init' in forecast_ds.dims:
+        f_expanded_mask = f_bool_mask.expand_dims({
+            "lead": forecast_ds.lead,
+            "member": forecast_ds.member,
+            "init": forecast_ds.init
+        })
+    else:
+        # Handle other dimension structures dynamically
+        additional_dims = {}
+        for dim in forecast_ds.dims:
+            if dim not in ['lat', 'lon']:
+                additional_dims[dim] = forecast_ds[dim]
+        f_expanded_mask = f_bool_mask.expand_dims(additional_dims)
+
+    # Apply mask
+    masked_forecast = forecast_ds.copy(deep=True)
+    for var in forecast_ds.data_vars:
+        masked_forecast[var] = forecast_ds[var].where(f_expanded_mask, np.nan)
+
+    # Save the masked dataset
+    masked_forecast.to_netcdf(output_forecast_path)
+    logger.info(f"Masked forecast saved to: {output_forecast_path}")
+
+    return output_forecast_path
+
+
+def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_size=0.25,
+                              output_forecast_path='masked_forecast.nc',
                               output_obs_path='masked_obs.nc'):
     """
     Mask forecast and observation NetCDF files using a shapefile polygon.
-    
+
     Parameters:
     -----------
     forecast_path : str
         Path to the forecast NetCDF file
     obs_path : str
-        Path to the observation NetCDF file
-    shapefile_path : str
-        Path to the shapefile (.shp) containing the polygon
+        Path to the observation NetCDF file (can be None to skip obs masking)
+    shapefile_df : GeoDataFrame
+        GeoDataFrame containing the polygon geometry
     buffer_size : float, optional
         Buffer size around the polygon in the same units as the coordinates (default: 0.25)
     output_forecast_path : str, optional
         Path where the masked forecast NetCDF will be saved
     output_obs_path : str, optional
         Path where the masked observation NetCDF will be saved
-        
+
     Returns:
     --------
     tuple
-        (masked_forecast, masked_obs) - the masked xarray Datasets
+        (masked_obs_path, masked_forecast_path) - paths to the masked files
     """
-    # Load datasets
+    # Load forecast dataset
     forecast_ds = xr.open_dataset(forecast_path)
-    obs_ds = xr.open_dataset(obs_path)
+
+    # Load obs dataset only if provided
+    obs_ds = None
+    if obs_path and os.path.exists(obs_path):
+        obs_ds = xr.open_dataset(obs_path)
     
     # Load shapefile
     gdf = shapefile_df
@@ -732,39 +842,43 @@ def mask_netcdf_with_shapefile(forecast_path, obs_path, shapefile_df, buffer_siz
     masked_forecast = forecast_ds.copy(deep=True)
     for var in forecast_ds.data_vars:
         masked_forecast[var] = forecast_ds[var].where(f_expanded_mask, np.nan)
-    
-    # Mask the observation dataset
-    # Extract coordinates
-    o_lons = obs_ds.lon.values
-    o_lats = obs_ds.lat.values
-    
-    # Create mask
-    o_mask = regionmask.mask_geopandas(buffered_gdf.geometry, o_lons, o_lats)
-    o_bool_mask = ~np.isnan(o_mask)
-    
-    # Expand mask to match observation dimensions
-    # Check if the dataset has the expected 'time' dimension
-    if 'time' in obs_ds.dims:
-        o_expanded_mask = o_bool_mask.expand_dims({"time": obs_ds.time})
-    else:
-        # Handle other dimension structures
-        additional_dims = {}
-        for dim in obs_ds.dims:
-            if dim not in ['lat', 'lon']:
-                additional_dims[dim] = obs_ds[dim]
-        
-        o_expanded_mask = o_bool_mask.expand_dims(additional_dims)
-    
-    # Apply mask
-    masked_obs = obs_ds.copy(deep=True)
-    for var in obs_ds.data_vars:
-        masked_obs[var] = obs_ds[var].where(o_expanded_mask, np.nan)
-    
-    # Save the masked datasets
+
+    # Save masked forecast
     masked_forecast.to_netcdf(output_forecast_path)
-    masked_obs.to_netcdf(output_obs_path)
-    
-    return output_obs_path , output_forecast_path 
+    logger.info(f"Masked forecast saved to: {output_forecast_path}")
+
+    # Mask the observation dataset only if provided
+    masked_obs_result = None
+    if obs_ds is not None:
+        # Extract coordinates
+        o_lons = obs_ds.lon.values
+        o_lats = obs_ds.lat.values
+
+        # Create mask
+        o_mask = regionmask.mask_geopandas(buffered_gdf.geometry, o_lons, o_lats)
+        o_bool_mask = ~np.isnan(o_mask)
+
+        # Expand mask to match observation dimensions
+        if 'time' in obs_ds.dims:
+            o_expanded_mask = o_bool_mask.expand_dims({"time": obs_ds.time})
+        else:
+            additional_dims = {}
+            for dim in obs_ds.dims:
+                if dim not in ['lat', 'lon']:
+                    additional_dims[dim] = obs_ds[dim]
+            o_expanded_mask = o_bool_mask.expand_dims(additional_dims)
+
+        # Apply mask
+        masked_obs = obs_ds.copy(deep=True)
+        for var in obs_ds.data_vars:
+            masked_obs[var] = obs_ds[var].where(o_expanded_mask, np.nan)
+
+        # Save masked obs
+        masked_obs.to_netcdf(output_obs_path)
+        logger.info(f"Masked observations saved to: {output_obs_path}")
+        masked_obs_result = output_obs_path
+
+    return masked_obs_result, output_forecast_path 
 
 def parse_arguments():
     """
@@ -784,7 +898,19 @@ OPERATIONAL MODES:
   --mode chirps : Process only CHIRPS observations
   --mode seas51 : Mode 2 - Monthly Operational (process only SEAS51 forecasts)
 
-For Mode 2 (seas51), an existing observation file (--obs-file) is required.
+OUTPUT FILES (with --output-year 2026 --output-month 1):
+  Mode 'seas51' produces these files:
+    - {region}_merged_seas51_2026_01.nc        (intermediate: merged GRIB data)
+    - {region}_raw_seas51_spi3_2026_01.nc      (intermediate: raw SPI3)
+    - {region}_rgr_seas51_spi3_2026_01.nc      (intermediate: regridded SPI3)
+    - {region}_rgr_seas51_spi3_masked_2026_01.nc  (FINAL: masked output for downstream)
+
+  Without year/month args, files use pattern: {region}_rgr_seas51_spi3_masked.nc
+
+INTERMEDIATE FILE CLEANUP:
+  Use --cleanup-intermediate to remove intermediate files after processing.
+  Only the masked file is needed for downstream processes (07-plot, 08-stats).
+  This can significantly reduce disk usage (~1GB saved per run).
 """
 
     epilog = """
@@ -797,7 +923,7 @@ EXAMPLES:
       --mode both \\
       --output-dir ./output \\
       --use-local \\
-      --local-shapefile ./data/kmj_polygon.shp \\
+      --local-shapefile ./data/kmj_polygon.geojson \\
       --chirps-file ./data/chirps-v2.0.monthly.nc \\
       --seas51-main-file ./data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \\
       --apply-mask \\
@@ -810,8 +936,7 @@ EXAMPLES:
       --mode seas51 \\
       --output-dir ./output \\
       --use-local \\
-      --local-shapefile ../data/kmj_polygon.shp \\
-      --obs-file ./output/kmj_obs_spi3.nc \\
+      --local-shapefile ../data/kmj_polygon.geojson \\
       --seas51-main-file ../data/seas5_precipitation_20260120_years1981-2025_months_12_months.grib \\
       --seas51-additional-files ../data/seas5_precipitation_20260120_year2026_months_01.grib \\
       --apply-mask \\
@@ -824,13 +949,8 @@ EXAMPLES:
       --mode chirps \\
       --output-dir ./output \\
       --use-local \\
-      --local-shapefile ./data/kmj_polygon.shp \\
+      --local-shapefile ./data/kmj_polygon.geojson \\
       --chirps-file ./data/chirps-v2.0.monthly.nc
-
-OUTPUT FILES:
-  Mode 'both':   {region}_obs_spi3.nc, {region}_rgr_seas51_spi3.nc, + masked versions
-  Mode 'chirps': {region}_obs_spi3.nc
-  Mode 'seas51': {region}_rgr_seas51_spi3.nc, + masked version
 
 WORKFLOW: First download data using 00-download-data.py, then process with this script.
 """
@@ -856,8 +976,8 @@ WORKFLOW: First download data using 00-download-data.py, then process with this 
     # Local vs GCP data source options
     parser.add_argument("--use-local", action="store_true",
                         help="Use local shapefile instead of GCP")
-    parser.add_argument("--local-shapefile", type=str, default="../kmj_polygon.shp",
-                        help="Path to local shapefile if use-local is True")
+    parser.add_argument("--local-shapefile", type=str, default="../kmj_polygon.geojson",
+                        help="Path to local shapefile or geojson if use-local is True")
     parser.add_argument("--credentials-file", type=str, default=None,
                         help="Path to GCP credentials JSON file")
     
@@ -871,14 +991,27 @@ WORKFLOW: First download data using 00-download-data.py, then process with this 
     parser.add_argument("--seas51-additional-files", type=str, nargs="+", default=[],
                         help="Paths to additional SEAS51 GRIB files to merge with the main file")
     parser.add_argument("--obs-file", type=str, default=None,
-                        help="Path to observation file (required for SEAS51 only mode)")
+                        help="Optional: Path to observation file for grid reference. "
+                             "If not provided, grid is derived from shapefile extent.")
+    parser.add_argument("--grid-resolution", type=float, default=0.25,
+                        help="Output grid resolution in degrees (default: 0.25)")
     
     # Masking options
     parser.add_argument("--apply-mask", action="store_true",
                         help="Apply shapefile masking to output files")
     parser.add_argument("--mask-buffer", type=float, default=0.25,
                         help="Buffer size for masking in degrees")
-    
+
+    # Output naming options (for downstream process compatibility)
+    parser.add_argument("--output-year", type=int, default=None,
+                        help="Year to include in output filename (e.g., 2026)")
+    parser.add_argument("--output-month", type=int, default=None,
+                        help="Month to include in output filename (e.g., 1 for January)")
+
+    # Cleanup options
+    parser.add_argument("--cleanup-intermediate", action="store_true",
+                        help="Remove intermediate files after processing (keeps only masked output)")
+
     return parser.parse_args()
 
 if __name__ == "__main__":
@@ -948,37 +1081,38 @@ if __name__ == "__main__":
     
     # Process SEAS51 data if requested
     if args.mode in ["both", "seas51"]:
-        # For SEAS51-only mode, we need an observation file
-        if args.mode == "seas51" and not obs_file:
-            if args.obs_file:
-                obs_file = args.obs_file
-                logger.info(f"Using provided observation file: {obs_file}")
-            else:
-                logger.error("An observation file is required for SEAS51-only mode")
-                logger.error("Provide one with --obs-file or run in 'both' mode")
-                sys.exit(1)
-        
+        # For SEAS51-only mode, obs_file is optional (grid derived from shapefile extent)
+        if args.mode == "seas51" and args.obs_file:
+            obs_file = args.obs_file
+            logger.info(f"Using provided observation file for grid reference: {obs_file}")
+        elif args.mode == "seas51":
+            logger.info(f"No obs-file provided. Grid will be derived from shapefile extent "
+                       f"with {args.grid_resolution}° resolution")
+
         try:
             logger.info("Starting SEAS51 forecast data processing")
-            
+
             # Prepare SEAS51 files
             seas51_files = None
             if args.seas51_main_file:
                 if args.seas51_additional_files:
                     seas51_files = [args.seas51_main_file] + args.seas51_additional_files
-                    logger.info(f"Using main SEAS51 file {args.seas51_main_file} and " 
+                    logger.info(f"Using main SEAS51 file {args.seas51_main_file} and "
                                f"{len(args.seas51_additional_files)} additional files")
                 else:
                     seas51_files = args.seas51_main_file
                     logger.info(f"Using single SEAS51 file: {args.seas51_main_file}")
-            
+
             fct_file = process_seas51_data(
                 args.region_id,
-                obs_file,
                 credentials,
                 extent,
                 seas51_files=seas51_files,
-                output_dir=args.output_dir
+                output_dir=args.output_dir,
+                grid_resolution=args.grid_resolution,
+                obs_file=obs_file,
+                output_year=args.output_year,
+                output_month=args.output_month
             )
             logger.info(f"Successfully processed SEAS51 data: {fct_file}")
         except Exception as e:
@@ -986,28 +1120,79 @@ if __name__ == "__main__":
             if args.mode == "seas51":
                 sys.exit(1)
     
-    # Apply masking if requested
-    if args.apply_mask and obs_file and fct_file:
+    # Apply masking if requested (obs_file is optional)
+    if args.apply_mask and fct_file:
         try:
             logger.info("Applying shapefile masking to output files")
-            masked_fct_path = os.path.join(args.output_dir, f'{args.region_id}_rgr_seas51_spi3_masked.nc')
-            masked_obs_path = os.path.join(args.output_dir, f'{args.region_id}_obs_spi3_masked.nc')
-            
-            masked_obs, masked_fct = mask_netcdf_with_shapefile(
-                forecast_path=fct_file,
-                obs_path=obs_file,
-                shapefile_df=gdf,
-                buffer_size=args.mask_buffer,
-                output_forecast_path=masked_fct_path,
-                output_obs_path=masked_obs_path
+            masked_fct_path = build_output_filename(
+                args.region_id, 'rgr_seas51_spi3_masked', args.output_dir,
+                args.output_year, args.output_month
             )
-            
-            logger.info(f"Masked datasets have been saved:")
-            logger.info(f"  Masked observations: {masked_obs}")
-            logger.info(f"  Masked forecast: {masked_fct}")
+            masked_obs_path = build_output_filename(
+                args.region_id, 'obs_spi3_masked', args.output_dir,
+                args.output_year, args.output_month
+            )
+
+            if obs_file:
+                # Mask both forecast and observations
+                masked_obs, masked_fct = mask_netcdf_with_shapefile(
+                    forecast_path=fct_file,
+                    obs_path=obs_file,
+                    shapefile_df=gdf,
+                    buffer_size=args.mask_buffer,
+                    output_forecast_path=masked_fct_path,
+                    output_obs_path=masked_obs_path
+                )
+                logger.info(f"Masked datasets have been saved:")
+                logger.info(f"  Masked observations: {masked_obs}")
+                logger.info(f"  Masked forecast: {masked_fct}")
+            else:
+                # Mask forecast only (no obs_file in seas51-only mode)
+                masked_fct = mask_forecast_only(
+                    forecast_path=fct_file,
+                    shapefile_df=gdf,
+                    buffer_size=args.mask_buffer,
+                    output_forecast_path=masked_fct_path
+                )
+                logger.info(f"Masked forecast saved: {masked_fct}")
         except Exception as e:
             logger.error(f"Failed to apply masking: {e}")
-    
+
+    # Cleanup intermediate files if requested
+    # Intermediate files are:
+    #   - {region}_merged_seas51_{year}_{month}.nc  (merged GRIB data)
+    #   - {region}_raw_seas51_spi3_{year}_{month}.nc (raw SPI3 before regridding)
+    #   - {region}_rgr_seas51_spi3_{year}_{month}.nc (regridded but unmasked)
+    # Only the masked file is needed for downstream processes (07-plot, 08-stats)
+    if args.cleanup_intermediate:
+        logger.info("Cleaning up intermediate files...")
+        intermediate_files = []
+
+        # Build list of intermediate files based on naming convention
+        suffixes = ['merged_seas51', 'raw_seas51_spi3', 'rgr_seas51_spi3']
+        for suffix in suffixes:
+            intermediate_file = build_output_filename(
+                args.region_id, suffix, args.output_dir,
+                args.output_year, args.output_month
+            )
+            if os.path.exists(intermediate_file):
+                intermediate_files.append(intermediate_file)
+
+        # Remove intermediate files
+        removed_files = []
+        for f in intermediate_files:
+            try:
+                os.remove(f)
+                removed_files.append(os.path.basename(f))
+                logger.info(f"Removed intermediate file: {f}")
+            except Exception as e:
+                logger.warning(f"Could not remove {f}: {e}")
+
+        if removed_files:
+            logger.info(f"Cleanup complete. Removed {len(removed_files)} intermediate files: {', '.join(removed_files)}")
+        else:
+            logger.info("No intermediate files found to remove.")
+
     # Print summary at the end
     logger.info("=== Processing Summary ===")
     logger.info(f"Region: {args.region_id}")
