@@ -295,7 +295,7 @@ def get_season_info(month, season, year):
     return {
         "season": season,
         "lead_index": validation["lead_index"],
-        "lead_time": validation["lead_index"] + 1,  # 1-based for scripts
+        "lead_time": validation["lead_index"],  # 0-based lead index for 07-plot script
         "months_ahead": validation["months_ahead"],
         "init_month": month,
         "init_year": year,
