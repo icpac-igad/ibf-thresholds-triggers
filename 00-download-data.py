@@ -18,24 +18,20 @@ import cdsapi
 # =============================================================================
 # Historical years have all months available. Current/future years may have
 # limited months depending on when the forecasts are released.
-# Update CURRENT_YEAR_AVAILABLE_MONTHS as new forecasts become available.
 
 # Full historical data is available for these years (all 12 months)
-SEAS5_FULL_YEARS = list(range(1981, 2026))  # 1981-2025 have all months
-
-# For the current year (2026), specify available months
-# ECMWF releases forecasts around the 13th of each month
-# Update this as new months become available
-CURRENT_YEAR = 2026
-CURRENT_YEAR_AVAILABLE_MONTHS = [1]  # As of January 2026, only month 1 is available
-
-# Future years have no data available
-FUTURE_YEARS_START = 2027
+# This should be updated annually to reflect the previous calendar year
+SEAS5_FULL_YEARS_END = 2025  # Last year with complete 12 months of data
 
 
 def get_available_months_for_year(year):
     """
     Get list of available months for a given year.
+
+    Simple logic:
+    - Historical years (1981-2025): All 12 months available
+    - Current calendar year: Months 1 to current month are available
+    - Future years: No data available
 
     Args:
         year: Year to check (integer)
@@ -44,15 +40,21 @@ def get_available_months_for_year(year):
         list: List of available month numbers (1-12), or empty list if year not available
     """
     year = int(year)
+    now = datetime.datetime.now()
+    current_year = now.year
+    current_month = now.month
 
     if year < 1981:
         return []
-    elif year in SEAS5_FULL_YEARS:
+    elif year < current_year:
+        # Historical years with complete data
         return list(range(1, 13))  # All months 1-12
-    elif year == CURRENT_YEAR:
-        return CURRENT_YEAR_AVAILABLE_MONTHS.copy()
+    elif year == current_year:
+        # Current year - assume months up to current month are available
+        return list(range(1, current_month + 1))
     else:
-        return []  # Future years
+        # Future years
+        return []
 
 
 def validate_year_month_availability(year, months):
@@ -87,6 +89,10 @@ def print_availability_info(year=None):
     print("SEAS5 DATA AVAILABILITY INFORMATION")
     print("=" * 70)
 
+    now = datetime.datetime.now()
+    current_year = now.year
+    current_month = now.month
+
     if year is not None:
         year = int(year)
         available = get_available_months_for_year(year)
@@ -104,18 +110,21 @@ def print_availability_info(year=None):
             print(f"Available months: {', '.join(available_names)}")
             print(f"Month numbers: {', '.join(str(m) for m in available)}")
 
-            if year == CURRENT_YEAR and len(available) < 12:
-                print(f"\nNote: This is the current year. More months will become")
-                print(f"available as ECMWF releases new forecasts (~13th of each month).")
+            if year == current_year and len(available) < 12:
+                print(f"\nNote: Current year - automatically assumes months 1-{current_month} are available")
+                print(f"      (based on current date: {now.strftime('%Y-%m-%d')})")
     else:
-        print(f"\nHistorical data (1981-{max(SEAS5_FULL_YEARS)}): All 12 months available")
-        print(f"Current year ({CURRENT_YEAR}): Months {CURRENT_YEAR_AVAILABLE_MONTHS} available")
-        print(f"Future years ({FUTURE_YEARS_START}+): No data available yet")
+        current_year_available = get_available_months_for_year(current_year)
+        print(f"\nHistorical data (1981-{SEAS5_FULL_YEARS_END}): All 12 months available")
+        print(f"Current year ({current_year}): Months {current_year_available} available")
+        print(f"  (Auto-detected: current month = {current_month})")
+        print(f"Future years ({current_year+1}+): No data available yet")
 
     print("\n" + "-" * 70)
-    print("IMPORTANT: When downloading data for the current year, ensure you only")
-    print("request months that are available. Use --check-availability --year YYYY")
-    print("to verify availability before downloading.")
+    print("AVAILABILITY LOGIC:")
+    print(f"  - Historical years (< {current_year}): All 12 months")
+    print(f"  - Current year ({current_year}): Months 1 to {current_month}")
+    print("  - Future years: No data")
     print("=" * 70 + "\n")
 
 def download_seas5(output_dir="./data", filename_prefix="seas5_precipitation_"):
@@ -254,9 +263,9 @@ def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_pre
         ValueError: If requested months are not available and skip_unavailable is False
 
     Note:
-        SEAS5 data availability varies by year:
-        - Historical years (1981-2025): All months (1-12) available
-        - Current year (2026): Only released months available (updated monthly ~13th)
+        SEAS5 data availability (automatically determined):
+        - Historical years (< current year): All months (1-12) available
+        - Current year: Months 1 to current month available
         - Future years: No data available
 
         When --skip-unavailable is used with a year range including current year:
@@ -298,8 +307,11 @@ def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_pre
     months = parse_month_input(month_input)
     requested_month_ints = [int(m) for m in months]
 
-    # Validate availability for each year if requested or if any year >= CURRENT_YEAR
-    needs_validation = validate_availability or any(y >= CURRENT_YEAR for y in years)
+    # Get current year for validation logic
+    current_year = datetime.datetime.now().year
+
+    # Validate availability for each year if requested or if any year >= current_year
+    needs_validation = validate_availability or any(y >= current_year for y in years)
 
     # Separate years into groups: historical (full months) and current year (partial months)
     historical_years = []
@@ -309,10 +321,10 @@ def download_current_month_seas5(output_dir="./data", filename_prefix="seas5_pre
         for y in years:
             available = get_available_months_for_year(y)
 
-            if y < CURRENT_YEAR:
+            if y < current_year:
                 # Historical year - all months should be available
                 historical_years.append(y)
-            elif y == CURRENT_YEAR:
+            elif y == current_year:
                 # Current year - check which requested months are available
                 available_requested = [m for m in requested_month_ints if m in available]
 

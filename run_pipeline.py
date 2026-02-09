@@ -385,11 +385,13 @@ def find_grib_files(output_dir, year, month, date_str=None):
     ]
 
     # Pattern for current year file (additional file)
-    # e.g., seas5_precipitation_20260120_year2026_months_01.grib
+    # Can be single month (e.g., months_01.grib) or multiple months (e.g., months_01_02.grib)
     month_str = f"{month:02d}"
     additional_patterns = [
-        f"seas5_precipitation_*_year{year}_months_{month_str}.grib",
-        f"*_year{year}_months_{month_str}.grib",
+        f"seas5_precipitation_*_year{year}_months_{month_str}.grib",  # Single month exact match
+        f"seas5_precipitation_*_year{year}_months_*{month_str}*.grib",  # Multi-month file containing target month
+        f"*_year{year}_months_{month_str}.grib",  # Generic single month
+        f"*_year{year}_months_*.grib",  # Any months file for the target year (most flexible)
     ]
 
     # Search for main file
