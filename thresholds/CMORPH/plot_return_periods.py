@@ -21,8 +21,9 @@ from matplotlib.collections import LineCollection
 
 # ── paths ────────────────────────────────────────────────────────────────
 HERE = pathlib.Path(__file__).parent
-NC_PATH = HERE / "cmorph_ea_return_periods.nc"
-GEOJSON_PATH = HERE / "ea_ghcf_simple.geojson"
+NC_PATH = pathlib.Path("/data/data-nodelete/cmorph_return_periods/cmorph_ea_return_periods.nc")
+GEOJSON_PATH = pathlib.Path("/data/08-2023/working_notes_jupyter/ignore_nka_gitrepos/grib-index-kerchunk/gefs/ea_ghcf_simple.geojson")
+OUT_DIR = pathlib.Path("/data/data-nodelete/cmorph_return_periods")
 
 # ── duration labels for filenames and titles ─────────────────────────────
 DURATION_FNAME = {
@@ -133,7 +134,7 @@ def main():
         cbar_ax = fig.add_axes([0.15, 0.03, 0.7, 0.02])
         fig.colorbar(im, cax=cbar_ax, orientation="horizontal", label="Precipitation (mm)")
 
-        out = HERE / f"rp_{fname_tag}.png"
+        out = OUT_DIR / f"rp_{fname_tag}.png"
         fig.savefig(out, dpi=150, bbox_inches="tight")
         plt.close(fig)
         print(f"  saved {out.name}")
@@ -168,7 +169,7 @@ def main():
 
     fig.subplots_adjust(top=0.93, bottom=0.03, left=0.03, right=0.97, wspace=0.10, hspace=0.20)
 
-    out = HERE / f"rp_stamp_{sel_rp}yr.png"
+    out = OUT_DIR / f"rp_stamp_{sel_rp}yr.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"  saved {out.name}")
