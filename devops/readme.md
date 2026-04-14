@@ -176,6 +176,51 @@ references.
 
 ## Troubleshooting Tips
 
+### GRIB / eccodes error: `('U', 40)` during Step 01 (Process SPI3)
+
+If the pipeline fails at **Step 01** with:
+
+```
+ERROR:__main__:Failed to process SEAS51 data: ('U', 40)
+ERROR - Failed: Process SPI3 from GRIB data
+```
+
+This is **not** a credentials or download issue (the GRIB file was already
+downloaded in Step 00). It is caused by a version mismatch between the
+`cfgrib` Python package, the `python-eccodes` bindings, and the underlying
+`libeccodes` C library — the decoder cannot read a key in the SEAS51 GRIB
+message and returns the opaque `('U', 40)` code.
+
+**Cause:** the `environment.yml` lists `cfgrib` without pinning `eccodes` /
+`python-eccodes`, so the solver can pick an inconsistent set, especially
+when the environment is rebuilt months apart.
+
+**Fix — rebuild the environment cleanly** (do not try to patch in place,
+the solver will not downgrade a broken `eccodes`):
+
+```bash
+micromamba env remove -n drought_env
+micromamba create -f devops/environment.yml
+micromamba activate drought_env
+```
+
+Verify the GRIB stack:
+
+```bash
+python -m cfgrib selfcheck
+python -c "import cfgrib, eccodes; print(cfgrib.__version__, eccodes.codes_get_api_version())"
+```
+
+Known-good minimum versions (already pinned in `environment.yml`):
+`eccodes >= 2.36`, `python-eccodes >= 2.37`, `cfgrib >= 0.9.14`.
+
+If the error still appears after a clean rebuild, share the output of:
+
+```bash
+micromamba list | grep -Ei "eccodes|cfgrib"
+python -m cfgrib selfcheck
+```
+
 ### Port Already in Use
 
 If port 4888 is already in use, choose a different port:

@@ -15,13 +15,16 @@ dependencies:
   - climpred
   - dask
   - xesmf
+  - esmpy
   - regionmask
   - xhistogram
   - scikit-learn
   - xskillscore
   - cartopy
   - flask
-  - cfgrib
+  - eccodes>=2.36
+  - python-eccodes>=2.37
+  - cfgrib>=0.9.14
   - requests
   - s3fs
   - boto3
