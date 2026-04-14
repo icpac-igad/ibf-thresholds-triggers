@@ -50,7 +50,8 @@ git clone https://github.com/icpac-igad/ibf-thresholds-triggers.git
 cd ibf-thresholds-triggers
 
 # Update to latest version (for existing installations)
-git pull origin main
+# git checkout kmj
+git pull origin kmj
 ```
 
 ### Environment Setup
