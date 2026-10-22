@@ -16,7 +16,7 @@ import xarray as xr
 from common import CAL_YEARS, FC_INIT, LAT, LON, OUT, TOWN
 
 RETURN_PERIOD = 5                                   # act on a 1-in-5 year dry season (try 10)
-TRIGGERS = np.round(np.arange(0.1, 0.75, 0.05), 2)  # candidate probabilities at which to act
+TRIGGERS = np.round(np.arange(0.04, 0.61, 0.04), 2) # candidate probabilities at which to act (25 members: steps of 4%)
 
 obs = xr.open_dataset(OUT / "02_ond_thresholds.nc")
 fc = xr.open_dataset(OUT / "03_seas5_ond_spi3.nc")
@@ -49,16 +49,17 @@ print(f"best trigger by Peirce score (hit rate minus false alarm rate): {best:.0
 prob = (fc.spi3_forecast <= thr).mean("number").where(valid)
 act = prob >= best
 p = dict(lat=LAT, lon=LON, method="nearest")
-print(f"\nOND 2026 from the {FC_INIT} start, threshold 1-in-{RETURN_PERIOD} yr, trigger {best:.0%}:")
+print(f"\nOND {FC_INIT[:4]} from the {FC_INIT} start, threshold 1-in-{RETURN_PERIOD} yr, trigger {best:.0%}:")
 print(f"  pixels where action is triggered: {int(act.sum())} of {int(valid.sum())} ({float(act.sum() / valid.sum()):.0%})")
 print(f"  {TOWN}: threshold SPI-3 <= {float(thr.sel(**p)):+.2f}, forecast probability {float(prob.sel(**p)):.0%} "
       f"-> {'ACT' if bool(act.sel(**p)) else 'no action'}")
 
 fig, axs = plt.subplots(1, 2, figsize=(12, 4.4), gridspec_kw=dict(width_ratios=[1.2, 1]))
 m = axs[0].pcolormesh(prob.lon, prob.lat, prob, cmap="YlOrBr", vmin=0, vmax=0.8, shading="nearest")
-axs[0].contourf(act.lon, act.lat, act.where(act), levels=[0.5, 1.5], hatches=["///"], colors="none")
+yy, xx = np.nonzero(act.values)                     # one dot per pixel where action is triggered
+axs[0].plot(act.lon.values[xx], act.lat.values[yy], "k.", ms=4)
 axs[0].plot(LON, LAT, "k^", ms=6)
-axs[0].set_title(f"P(OND 2026 SPI-3 <= 1-in-{RETURN_PERIOD} yr level); hatched = act (>= {best:.0%})", fontsize=10)
+axs[0].set_title(f"P(OND {FC_INIT[:4]} SPI-3 <= 1-in-{RETURN_PERIOD} yr level); dots = act (>= {best:.0%})", fontsize=10)
 fig.colorbar(m, ax=axs[0], shrink=0.85, label="share of 51 members")
 axs[1].plot(skill.index, skill.hit_rate, "o-", label="hit rate")
 axs[1].plot(skill.index, skill.false_alarm_ratio, "s-", label="false alarm ratio")
@@ -68,5 +69,5 @@ axs[1].set_xlabel("trigger (forecast probability)")
 axs[1].set_title("Choosing the trigger on 1991-2020", fontsize=10)
 axs[1].legend(fontsize=8)
 fig.tight_layout()
-fig.savefig(OUT / "04_trigger_ond2026.png", dpi=130)
-print(f"\nplot: {OUT / '04_trigger_ond2026.png'}")
+fig.savefig(OUT / "04_trigger.png", dpi=130)
+print(f"\nplot: {OUT / '04_trigger.png'}")
