@@ -14,7 +14,7 @@ import numpy as np
 import xarray as xr
 from xclim.indices import stats
 
-from common import BOX, LAT, LON, OUT, SEASON_END, TOWN, open_spi_pencil, open_spi_thresholds
+from common import BOX, LAT, LON, OUT, SEASON_END, TOWN, add_admin, open_spi_pencil, open_spi_thresholds
 
 warnings.filterwarnings("ignore", "All-NaN slice")                 # sea pixels have no SPI
 PERIODS = [5, 10]                                          # return periods in years: 1-in-5 and 1-in-10 dry seasons
@@ -70,6 +70,7 @@ panels = [(emp.sel(return_period=5), "OND, empirical, 1-in-5", "YlOrBr_r", (-1.4
 for ax, (da, title, cmap, (lo, hi)) in zip(axs, panels):
     m = ax.pcolormesh(da.lon, da.lat, da, cmap=cmap, vmin=lo, vmax=hi, shading="nearest")
     ax.plot(LON, LAT, "k^", ms=6)
+    add_admin(ax, inset=ax is axs[0])
     ax.set_title(title, fontsize=10)
     fig.colorbar(m, ax=ax, shrink=0.8, label="SPI-3")
 fig.suptitle("SPI-3 dry thresholds (lower = drier needed), ERA5 1981-2025", fontsize=11)

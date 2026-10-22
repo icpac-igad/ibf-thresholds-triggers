@@ -13,7 +13,11 @@ for k in [k for k in os.environ if k.startswith("AWS_")]:
     os.environ.pop(k)
 
 import icechunk
+import json
+import numpy as np
 import xarray as xr
+from matplotlib.collections import LineCollection
+from matplotlib.patches import Rectangle
 
 TOWN, LAT, LON = "Garissa", -0.45, 39.65                  # a town where October-December (OND) is the main rainy season
 BOX = dict(lat=slice(12, -5), lon=slice(34, 52))          # eastern Horn: Kenya east, Somalia, south Ethiopia (lat descends)
@@ -23,6 +27,7 @@ CAL_YEARS = range(1991, 2021)                             # September starts 199
 CAL_MEMBERS = slice(0, 24)                                # the 25 members that exist in every year (51 only from 2017)
 OUT = pathlib.Path("out")
 OUT.mkdir(exist_ok=True)
+ADMIN = pathlib.Path(__file__).resolve().parents[1] / "data" / "icpac_adm1v3.geojson"   # admin-1, ICPAC countries
 
 SOURCE_COOP = {"anon": True, "client_kwargs": {"endpoint_url": "https://data.source.coop"}}
 
@@ -51,3 +56,29 @@ def open_seas5_history() -> xr.Dataset:
                                   force_path_style=True, anonymous=True, from_env=False)
     session = icechunk.Repository.open(storage).readonly_session("main")
     return xr.open_zarr(session.store, consolidated=False)
+
+
+def admin_rings() -> list:
+    """Every ring of every admin-1 polygon in ADMIN, as (lon, lat) arrays: boundaries to draw, no geopandas needed."""
+    rings = []
+    for f in json.loads(ADMIN.read_text())["features"]:
+        g = f["geometry"]
+        for poly in ([g["coordinates"]] if g["type"] == "Polygon" else g["coordinates"]):
+            rings += [np.asarray(r)[:, :2] for r in poly]
+    return rings
+
+
+def add_admin(ax, inset: bool = True) -> None:
+    """Draw admin-1 boundaries on a map; with inset, add a small East Africa map with BOX in red (lower right)."""
+    rings = admin_rings()
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    ax.add_collection(LineCollection(rings, colors="0.25", linewidths=0.4))
+    ax.set_xlim(xlim); ax.set_ylim(ylim)                                  # keep the map on BOX
+    if inset:
+        ins = ax.inset_axes([0.72, 0.02, 0.26, 0.34])
+        ins.add_collection(LineCollection(rings, colors="0.5", linewidths=0.2))
+        lat, lon = BOX["lat"], BOX["lon"]
+        ins.add_patch(Rectangle((lon.start, lat.stop), lon.stop - lon.start, lat.start - lat.stop,
+                                fill=False, edgecolor="r", linewidth=1))
+        ins.set_xlim(21, 52); ins.set_ylim(-12, 24); ins.set_aspect("equal")
+        ins.set_xticks([]); ins.set_yticks([]); ins.set_facecolor("white")

@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 
-from common import CAL_YEARS, FC_INIT, LAT, LON, OUT, TOWN
+from common import CAL_YEARS, FC_INIT, LAT, LON, OUT, TOWN, add_admin
 
 RETURN_PERIOD = 5                                   # act on a 1-in-5 year dry season (try 10)
 TRIGGERS = np.round(np.arange(0.04, 0.61, 0.04), 2) # candidate probabilities at which to act (25 members: steps of 4%)
@@ -59,6 +59,7 @@ m = axs[0].pcolormesh(prob.lon, prob.lat, prob, cmap="YlOrBr", vmin=0, vmax=0.8,
 yy, xx = np.nonzero(act.values)                     # one dot per pixel where action is triggered
 axs[0].plot(act.lon.values[xx], act.lat.values[yy], "k.", ms=4)
 axs[0].plot(LON, LAT, "k^", ms=6)
+add_admin(axs[0])
 axs[0].set_title(f"P(OND {FC_INIT[:4]} SPI-3 <= 1-in-{RETURN_PERIOD} yr level); dots = act (>= {best:.0%})", fontsize=10)
 fig.colorbar(m, ax=axs[0], shrink=0.85, label="share of 51 members")
 axs[1].plot(skill.index, skill.hit_rate, "o-", label="hit rate")

@@ -14,6 +14,8 @@ use cloud-native (ARCO) stores, read anonymously, so nothing has to be downloade
 3. **Trigger:** the share of members below the threshold, and the probability at which to act, tested on 1991-2020.
 
 The exercises work for any area of the eastern Horn. Set your own town and box once, in `exercises/common.py`.
+Every map shows the admin-1 boundaries of the ICPAC countries (`data/icpac_adm1v3.geojson`), with a small East Africa
+map that marks the box in red.
 
 ## Data
 

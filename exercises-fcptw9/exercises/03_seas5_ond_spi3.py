@@ -18,7 +18,7 @@ import xarray as xr
 from scipy.stats import norm
 from xclim.indices import stats
 
-from common import BOX, CAL_MEMBERS, CAL_YEARS, FC_INIT, LAT, LON, OUT, TOWN, open_seas5_history
+from common import BOX, CAL_MEMBERS, CAL_YEARS, FC_INIT, LAT, LON, OUT, TOWN, add_admin, open_seas5_history
 
 MIN_OND_MM = 50                         # below this the model has no real OND rainy season: SPI is meaningless
 
@@ -75,6 +75,7 @@ fig, axs = plt.subplots(1, 2, figsize=(12, 4.4), gridspec_kw=dict(width_ratios=[
 med = spi_fc.median("number")
 m = axs[0].pcolormesh(med.lon, med.lat, med, cmap="BrBG", vmin=-2, vmax=2, shading="nearest")
 axs[0].plot(LON, LAT, "k^", ms=6)
+add_admin(axs[0])
 axs[0].set_title(f"SEAS5 start {FC_INIT}: OND {FC_INIT[:4]} SPI-3, median of 51 members", fontsize=10)
 fig.colorbar(m, ax=axs[0], shrink=0.85, label="SPI-3 (dry < 0 < wet)")
 cal_town = spi_cal.sel(**p)
