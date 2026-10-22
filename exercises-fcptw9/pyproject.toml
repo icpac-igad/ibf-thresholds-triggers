@@ -1,0 +1,17 @@
+[project]
+name = "fcptw9-drought-triggers"
+version = "0.1.0"
+description = "Hands-on: drought thresholds and triggers for OND 2026 from ARCO SPI-3 (ERA5) and SEAS5 (Planette) with xclim"
+requires-python = ">=3.12"          # icechunk 2.x needs Python 3.12+ (uv fetches it, no sudo)
+dependencies = [
+  "icechunk>=2.2.2",                # 2.2.1 is yanked (GC deadlock)
+  "zarr>=3.2",
+  "xarray>=2025.1",
+  "dask",
+  "s3fs",                           # the ERA5 SPI pencil store is plain Zarr on S3
+  "numpy",
+  "pandas",
+  "scipy",
+  "matplotlib",
+  "xclim",
+]
