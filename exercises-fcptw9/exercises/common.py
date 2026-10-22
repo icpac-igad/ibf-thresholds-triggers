@@ -16,7 +16,7 @@ import icechunk
 import json
 import numpy as np
 import xarray as xr
-from matplotlib.collections import LineCollection
+from matplotlib.collections import LineCollection, PolyCollection
 from matplotlib.patches import Rectangle
 
 TOWN, LAT, LON = "Garissa", -0.45, 39.65                  # a town where October-December (OND) is the main rainy season
@@ -75,10 +75,10 @@ def add_admin(ax, inset: bool = True) -> None:
     ax.add_collection(LineCollection(rings, colors="0.25", linewidths=0.4))
     ax.set_xlim(xlim); ax.set_ylim(ylim)                                  # keep the map on BOX
     if inset:
-        ins = ax.inset_axes([0.72, 0.02, 0.26, 0.34])
-        ins.add_collection(LineCollection(rings, colors="0.5", linewidths=0.2))
+        ins = ax.inset_axes([0.70, 0.02, 0.29, 0.40])
+        ins.add_collection(PolyCollection(rings, facecolors="0.85", edgecolors="0.2", linewidths=0.35))
         lat, lon = BOX["lat"], BOX["lon"]
         ins.add_patch(Rectangle((lon.start, lat.stop), lon.stop - lon.start, lat.start - lat.stop,
-                                fill=False, edgecolor="r", linewidth=1))
+                                fill=False, edgecolor="r", linewidth=1.5))
         ins.set_xlim(21, 52); ins.set_ylim(-12, 24); ins.set_aspect("equal")
         ins.set_xticks([]); ins.set_yticks([]); ins.set_facecolor("white")
