@@ -87,6 +87,25 @@ Check the Python scripts in the @exercises/ folder. Run them one after another, 
 and explain briefly, for a beginner, what each script does.
 ```
 
+**Step 8. Explore further with the agent.** Work in this order: look at the data, understand it, change one thing,
+then build something new. Before each prompt, write down your own guess, then compare it with the agent's answer.
+Ask for short answers. Each prompt costs a little of your credit.
+
+1. **The data layout.** `Without downloading data, open the three stores in @exercises/common.py and show their
+   variables, dimensions and chunk sizes. Explain in 5 lines what one chunk holds in each store.`
+2. **Why ARCO.** `Explain why reading 86 years at one town costs 1 chunk in the pencil store, but would need 1033
+   chunks from a store with one map per chunk (pan). When is pan the better layout? Keep it to 5 lines.`
+3. **Read the code.** `In @exercises/03_seas5_ond_spi3.py, explain step by step how a monthly rainfall rate becomes an
+   SPI-3 value. Show the units at each step.`
+4. **Change one thing.** `Set RETURN_PERIOD = 10 in @exercises/04_trigger_probability.py, run it, and tell me how
+   the trigger, the hit rate and the area that triggers change.`
+5. **Check a plot.** Open `out/04_trigger.png` in the Colab file browser yourself, and say what you see. The agent
+   cannot see pictures; ask it for the numbers behind the plot instead.
+6. **A new script.** `Write exercises/05_my_town.py that prints the forecast probability and the action
+   decision for my town, using the outputs in out/. Keep it under 30 lines, run it, and explain it.`
+
+Then ask: `What are the limitations of this trigger? Give 3 points.` Use the answer in your discussion.
+
 Colab resets the machine after about 90 minutes without activity, and `~/.env` is lost too. Then repeat steps 3 to 6.
 To go back to an earlier conversation, add `--continue` to the `ori claude` line.
 
