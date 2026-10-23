@@ -32,17 +32,67 @@ Planette (`s3://planette-c3s-seasonal-forecasts/seas5_ic/forecast`), averaged to
 by `tools/append_planette_monthly.py`. That store's chunks cover the whole globe, so the East Africa box alone would
 read about 500 MB per start; the regional monthly store gives the same numbers in a few MB.
 
-## Setup
+## Setup on Google Colab
+
+**Step 1.** Open <https://colab.research.google.com/> and click **New notebook**.
+
+![Step 1: New notebook on the Colab start page](pics/step1.png)
+
+**Step 2.** Click **Terminal** at the bottom of the notebook page.
+
+![Step 2: the Terminal button at the bottom left](pics/step2.png)
+
+**Step 3.** In the terminal, get the exercises:
+
+![Step 3: git clone in the Colab terminal](pics/step3.png)
 
 ```bash
 git clone -b kmj https://github.com/icpac-igad/ibf-thresholds-triggers.git
 cd ibf-thresholds-triggers/exercises-fcptw9
-curl -LsSf https://astral.sh/uv/install.sh | sh      # if uv is missing; no sudo needed
-uv sync                                              # Python 3.12 environment from pyproject.toml
+uv sync                                  # Python environment for the exercises (Colab has uv)
 ```
 
-On Google Colab or JupyterHub, run the same commands in a terminal. `uv` builds its own environment and does not use
-or change the notebook's Python packages.
+**Step 4.** Put your key in `~/.env`. Replace `<your OpenRouter key>` with the key from your email, so the line reads
+`OPENROUTER_API_KEY=sk-or-...`. Never paste the key into the agent's chat.
+
+```bash
+cat > ~/.env <<'END'
+OPENROUTER_API_KEY=<your OpenRouter key>
+ORI_FORCE_OPENROUTER_API_KEY=1
+ORI_MODEL=qwen/qwen3-coder-next
+END
+chmod 600 ~/.env
+```
+
+**Step 5.** Install Claude Code and Ori (OpenRouter's launcher, which runs Claude Code with your key):
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc; export PATH="$HOME/.local/bin:$PATH"
+curl -fsSL https://claude.ai/install.sh | bash
+curl -fsSL https://openrouter.ai/labs/ori/install.sh | bash
+claude --version; ori --version
+```
+
+**Step 6.** Start Claude Code in the `exercises-fcptw9` folder:
+
+```bash
+set -a; source ~/.env; set +a
+ori claude --model qwen/qwen3-coder-next
+```
+
+**Step 7.** Give it this prompt:
+
+```text
+Check the Python scripts in the @exercises/ folder. Run them one after another, report the outcome of each,
+and explain briefly, for a beginner, what each script does.
+```
+
+Colab resets the machine after about 90 minutes without activity, and `~/.env` is lost too. Then repeat steps 3 to 6.
+To go back to an earlier conversation, add `--continue` to the `ori claude` line.
+
+To run without the agent, on Colab, JupyterHub or a laptop: `uv run python exercises/01_open_spi_stores.py`, then 02,
+03 and 04. If `uv` is missing, install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` (no sudo needed).
+The exercises need Python 3.12 or later, because of icechunk 2.
 
 ## The 60 minutes
 
